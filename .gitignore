@@ -1,0 +1,13 @@
+build/
+out/
+.cache/
+.vscode/
+.idea/
+*.log
+*.exe
+*.obj
+*.o
+*.a
+*.so
+*.dylib
+.codex
