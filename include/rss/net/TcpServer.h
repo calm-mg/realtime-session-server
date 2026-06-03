@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rss/net/EpollEventLoop.h"
+#include "rss/net/EventFdCompletionNotifier.h"
 #include "rss/net/ServerConfig.h"
 #include "rss/net/Session.h"
 #include "rss/net/WorkerPool.h"
@@ -38,6 +39,7 @@ private:
 
     ServerConfig config_;
     EpollEventLoop event_loop_;
+    EventFdCompletionNotifier outbound_wakeup_;
     util::BlockingQueue<service::SessionEvent> inbox_;
     util::BlockingQueue<service::OutboundMessage> outbox_;
     service::RoomService room_service_;

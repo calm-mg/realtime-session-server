@@ -16,6 +16,7 @@ C++20로 구현한 Linux 기반 실시간 룸 서버입니다.
 - 로그인, 룸 생성/입장/퇴장, 룸 채팅, 위치 브로드캐스트
 - I/O thread와 worker thread 분리
 - thread-safe inbound/outbound queue
+- worker completion을 I/O thread에 전달하는 `eventfd` wakeup
 - 콘솔 클라이언트와 `PING`/`PONG` latency load test client
 - 외부 테스트 프레임워크 없이 실행 가능한 core unit test
 
@@ -80,19 +81,19 @@ docs                   아키텍처, 프로토콜, 벤치마크 문서
 
 - I/O thread가 socket과 `epoll_ctl` ownership을 가진다.
 - worker thread는 socket API를 직접 호출하지 않고, queue를 통해 command를 처리한다.
+- worker 결과는 `eventfd` wakeup으로 I/O thread에 전달된다.
 - domain/service 로직을 Linux networking 코드와 분리해 socket 없이도 core test를 실행할 수 있다.
 - 작은 binary protocol을 직접 구현해 TCP partial read, packet coalescing, malformed packet 처리를 코드로 보여준다.
-- 이후 개선 방향은 `eventfd` wakeup, bounded queue, backpressure, room shard/actor 모델, p99 latency 측정이다.
+- 이후 개선 방향은 bounded queue, backpressure, room shard/actor 모델, p99 latency 측정이다.
 
 ## 향후 개선 방향
 
 현재 구현은 baseline 서버로 유지하고, 다음 순서로 성능 포트폴리오를 강화합니다.
 
 1. benchmark client를 확장해 room broadcast fanout, slow client 영향, queue saturation을 측정한다.
-2. worker 결과를 I/O thread가 주기적으로 확인하는 구조를 `eventfd` 기반 wakeup으로 개선한다.
-3. unbounded queue와 session write buffer에 capacity를 두고 overload/backpressure 동작을 명확히 한다.
-4. 전역 mutex 기반 `RoomService`를 room shard/actor-style ownership 구조로 개선한다.
-5. baseline과 개선 버전을 같은 환경에서 비교해 `docs/benchmark.md`에 결과와 해석을 기록한다.
+2. unbounded queue와 session write buffer에 capacity를 두고 overload/backpressure 동작을 명확히 한다.
+3. 전역 mutex 기반 `RoomService`를 room shard/actor-style ownership 구조로 개선한다.
+4. baseline과 개선 버전을 같은 환경에서 비교해 `docs/benchmark.md`에 결과와 해석을 기록한다.
 
 ## 오픈소스 사용 방향
 
