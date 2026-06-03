@@ -16,7 +16,7 @@ C++20로 구현한 Linux 기반 실시간 룸 서버입니다.
 - 로그인, 룸 생성/입장/퇴장, 룸 채팅, 위치 브로드캐스트
 - I/O thread와 worker thread 분리
 - thread-safe inbound/outbound queue
-- 콘솔 클라이언트와 간단한 load test client
+- 콘솔 클라이언트와 `PING`/`PONG` latency load test client
 - 외부 테스트 프레임워크 없이 실행 가능한 core unit test
 
 ## 빌드
@@ -56,7 +56,7 @@ macOS 같은 non-Linux 환경에서는 network target인 `rss_server`, `rss_cons
 /quit
 ```
 
-간단한 load test:
+`PING`/`PONG` latency load test:
 
 ```bash
 ./build/rss_load_test_client 127.0.0.1 7777 1000 100
@@ -88,7 +88,7 @@ docs                   아키텍처, 프로토콜, 벤치마크 문서
 
 현재 구현은 baseline 서버로 유지하고, 다음 순서로 성능 포트폴리오를 강화합니다.
 
-1. benchmark client를 확장해 throughput뿐 아니라 p50/p95/p99 latency, room broadcast fanout, slow client 영향을 측정한다.
+1. benchmark client를 확장해 room broadcast fanout, slow client 영향, queue saturation을 측정한다.
 2. worker 결과를 I/O thread가 주기적으로 확인하는 구조를 `eventfd` 기반 wakeup으로 개선한다.
 3. unbounded queue와 session write buffer에 capacity를 두고 overload/backpressure 동작을 명확히 한다.
 4. 전역 mutex 기반 `RoomService`를 room shard/actor-style ownership 구조로 개선한다.
