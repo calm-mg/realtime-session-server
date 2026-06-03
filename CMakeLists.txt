@@ -86,4 +86,8 @@ if(RSS_BUILD_TESTS)
     add_executable(MessageRouterTest test/MessageRouterTest.cpp)
     target_link_libraries(MessageRouterTest PRIVATE rss_core)
     add_test(NAME MessageRouterTest COMMAND MessageRouterTest)
+
+    add_executable(LatencyStatsTest test/LatencyStatsTest.cpp)
+    target_link_libraries(LatencyStatsTest PRIVATE rss_core)
+    add_test(NAME LatencyStatsTest COMMAND LatencyStatsTest)
 endif()

@@ -1,10 +1,16 @@
 # 벤치마크
 
-현재 포함된 load test client는 간단한 smoke test 용도입니다. 동시 접속과 요청 처리량을 빠르게 확인할 수 있지만, 최종 성능 수치로 공개하기에는 latency, broadcast fanout, queue saturation, slow client 영향 같은 지표가 부족합니다.
+현재 포함된 load test client는 다수 client의 `PING`/`PONG` round-trip latency를 측정합니다. 동시 접속, 요청 처리량, p50/p95/p99 latency를 빠르게 확인할 수 있지만, 최종 성능 수치로 공개하기에는 broadcast fanout, queue saturation, slow client 영향 같은 시나리오가 아직 더 필요합니다.
 
 ```bash
 ./build/rss_server 0.0.0.0 7777 4
 ./build/rss_load_test_client 127.0.0.1 7777 1000 100
+```
+
+출력 예시는 다음과 같습니다.
+
+```text
+clients=1000 messages_per_client=100 sent=100000 failed_clients=0 elapsed_sec=12.34 approx_msg_per_sec=8103 latency_samples=100000 min_ms=0.12 p50_ms=1.34 p95_ms=5.67 p99_ms=9.87 max_ms=15.43
 ```
 
 ## 기본 기록 항목
@@ -24,12 +30,14 @@
 - elapsed seconds
 - messages per second
 - p50/p95/p99 latency
+- min/max latency
+- latency sample count
 - queue full count
 - overload 또는 disconnect count
 
 ## 측정 시나리오
 
-포트폴리오에서 의미 있는 성능 근거를 만들기 위해 다음 시나리오를 추가할 계획입니다.
+포트폴리오에서 의미 있는 성능 근거를 만들기 위해 다음 시나리오를 기준으로 측정합니다. `ping`은 현재 load test client가 지원하고, 나머지는 이후 확장 대상입니다.
 
 - `ping`: 다수 클라이언트의 request/response round-trip latency 측정
 - `single-room-broadcast`: 한 room에 많은 client가 있을 때 broadcast fanout 측정
@@ -42,7 +50,7 @@
 
 ## 도구 방향
 
-서버 전체를 대상으로 하는 scenario benchmark는 별도 load test client로 측정합니다. `PacketCodec`, bounded queue, shard routing처럼 작은 단위의 성능 비교는 Google Benchmark를 도입해 microbenchmark로 분리합니다.
+서버 전체를 대상으로 하는 scenario benchmark는 별도 load test client로 측정합니다. 현재 load test client는 `ping` 시나리오를 담당합니다. `PacketCodec`, bounded queue, shard routing처럼 작은 단위의 성능 비교는 Google Benchmark를 도입해 microbenchmark로 분리합니다.
 
 ## 해석 기준
 
