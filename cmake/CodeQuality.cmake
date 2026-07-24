@@ -1,6 +1,7 @@
 file(
     GLOB_RECURSE RSS_CXX_FORMAT_FILES
     CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
     "${PROJECT_SOURCE_DIR}/client/*.cpp"
     "${PROJECT_SOURCE_DIR}/include/*.h"
     "${PROJECT_SOURCE_DIR}/include/*.hpp"

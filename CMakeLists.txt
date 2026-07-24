@@ -13,6 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RSS_BUILD_TESTS "Build unit tests" ON)
 option(RSS_BUILD_NETWORK_TARGETS "Build Linux epoll server and clients" ON)
+option(RSS_BUILD_BENCHMARKS "Build microbenchmarks" OFF)
 
 include(cmake/Dependencies.cmake)
 
@@ -98,6 +99,22 @@ if(RSS_BUILD_TESTS)
         target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
         gtest_discover_tests(rss_net_tests DISCOVERY_MODE PRE_TEST)
     endif()
+endif()
+
+if(RSS_BUILD_BENCHMARKS)
+    rss_enable_google_benchmark()
+
+    add_executable(rss_microbenchmarks
+        benchmark/LatencyStatsBenchmark.cpp
+        benchmark/PacketCodecBenchmark.cpp
+        benchmark/RoomServiceBenchmark.cpp
+    )
+    target_link_libraries(
+        rss_microbenchmarks
+        PRIVATE
+            rss_core
+            benchmark::benchmark_main
+    )
 endif()
 
 include(cmake/CodeQuality.cmake)
