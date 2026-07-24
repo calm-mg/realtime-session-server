@@ -83,18 +83,25 @@ if(RSS_BUILD_TESTS)
     include(GoogleTest)
 
     add_executable(rss_core_tests
+        src/net/WorkerPool.cpp
         test/LatencyStatsTest.cpp
         test/MessageRouterTest.cpp
         test/PacketCodecTest.cpp
         test/RoomServiceTest.cpp
+        test/WorkerPoolNotificationTest.cpp
     )
-    target_link_libraries(rss_core_tests PRIVATE rss_core GTest::gtest_main)
+    target_link_libraries(
+        rss_core_tests
+        PRIVATE
+            rss_core
+            Threads::Threads
+            GTest::gtest_main
+    )
     gtest_discover_tests(rss_core_tests DISCOVERY_MODE PRE_TEST)
 
     if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(rss_net_tests
             test/EventFdCompletionNotifierTest.cpp
-            test/WorkerPoolNotificationTest.cpp
         )
         target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
         gtest_discover_tests(rss_net_tests DISCOVERY_MODE PRE_TEST)
@@ -106,8 +113,8 @@ if(RSS_BUILD_BENCHMARKS)
 
     add_executable(rss_microbenchmarks
         benchmark/LatencyStatsBenchmark.cpp
+        benchmark/MessageRouterBenchmark.cpp
         benchmark/PacketCodecBenchmark.cpp
-        benchmark/RoomServiceBenchmark.cpp
     )
     target_link_libraries(
         rss_microbenchmarks

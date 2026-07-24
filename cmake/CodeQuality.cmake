@@ -51,8 +51,9 @@ if(RSS_RUN_CLANG_TIDY)
             "${RSS_RUN_CLANG_TIDY}"
             -p "${CMAKE_BINARY_DIR}"
             -config-file "${PROJECT_SOURCE_DIR}/.clang-tidy"
-            -header-filter "^${PROJECT_SOURCE_DIR}/.*"
-            "^${PROJECT_SOURCE_DIR}/.*"
+            -header-filter
+            "^${PROJECT_SOURCE_DIR}/(benchmark|client|include|src|test|tools)/.*"
+            "^${PROJECT_SOURCE_DIR}/(benchmark|client|src|test|tools)/.*\\.cpp$"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
         COMMENT "Running Google clang-tidy checks"
         VERBATIM

@@ -2,12 +2,13 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
-#include "rss/service/RoomService.h"
+#include "rss/service/MessageRouter.h"
 
 namespace {
 
-class RoomServiceFixture : public benchmark::Fixture {
+class MessageRouterFixture : public benchmark::Fixture {
  public:
   void SetUp(const benchmark::State& state) override {
     service_.login(1, "user-1");
@@ -25,14 +26,26 @@ class RoomServiceFixture : public benchmark::Fixture {
         return;
       }
     }
+
+    const std::string message = "benchmark-message";
+    chat_event_ = rss::service::SessionEvent{
+        rss::service::SessionEventKind::Packet,
+        1,
+        rss::protocol::Packet{
+            rss::protocol::PacketType::ChatReq,
+            std::vector<std::uint8_t>(message.begin(), message.end()),
+        },
+    };
   }
 
  protected:
   rss::service::RoomService service_;
+  rss::service::MessageRouter router_{service_};
+  rss::service::SessionEvent chat_event_;
   std::string setup_error_;
 };
 
-BENCHMARK_DEFINE_F(RoomServiceFixture, ChatFanout)
+BENCHMARK_DEFINE_F(MessageRouterFixture, ChatFanout)
 (benchmark::State& state) {
   if (!setup_error_.empty()) {
     state.SkipWithError(setup_error_);
@@ -40,14 +53,14 @@ BENCHMARK_DEFINE_F(RoomServiceFixture, ChatFanout)
   }
 
   for (auto _ : state) {
-    auto result = service_.chat(1);
-    benchmark::DoNotOptimize(result.recipients);
+    auto messages = router_.handle(chat_event_);
+    benchmark::DoNotOptimize(messages);
   }
 
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
 
-BENCHMARK_REGISTER_F(RoomServiceFixture, ChatFanout)
+BENCHMARK_REGISTER_F(MessageRouterFixture, ChatFanout)
     ->Arg(1)
     ->Arg(10)
     ->Arg(100)

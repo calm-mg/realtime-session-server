@@ -14,7 +14,7 @@ Google Benchmark 기반 실행 파일은 다음 세 코드 경로를 측정합�
 
 - 패킷 인코딩과 디코딩
 - 지연 시간 표본의 백분위 계산
-- 방 인원수에 따른 채팅 수신자 목록 생성
+- 방 인원수에 따른 채팅 메시지 생성과 패킷 인코딩
 
 Release 설정과 `RSS_BUILD_BENCHMARKS` 옵션으로 빌드합니다.
 
@@ -33,7 +33,7 @@ cmake --build build/benchmark --target rss_microbenchmarks --parallel
 
 ```bash
 ./build/benchmark/rss_microbenchmarks \
-  --benchmark_filter='RoomServiceFixture/ChatFanout'
+  --benchmark_filter='MessageRouterFixture/ChatFanout'
 ```
 
 결과의 `Time`은 실제 경과 시간, `CPU`는 해당 작업에 사용된 CPU
