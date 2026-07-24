@@ -8,6 +8,45 @@ permissions:
   contents: read
 
 jobs:
+  core-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            configure: >-
+              cmake -S . -B build/core
+              -DCMAKE_BUILD_TYPE=Release
+              -DRSS_BUILD_NETWORK_TARGETS=OFF
+              -DRSS_BUILD_BENCHMARKS=ON
+            build: cmake --build build/core --parallel
+            test: ctest --test-dir build/core --output-on-failure
+            benchmark: ./build/core/rss_microbenchmarks --benchmark_dry_run
+          - os: windows-latest
+            configure: >-
+              cmake -S . -B build/core
+              -DRSS_BUILD_NETWORK_TARGETS=OFF
+              -DRSS_BUILD_BENCHMARKS=ON
+            build: cmake --build build/core --config Release --parallel
+            test: ctest --test-dir build/core -C Release --output-on-failure
+            benchmark: .\build\core\Release\rss_microbenchmarks.exe --benchmark_dry_run
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Configure core targets
+        run: ${{ matrix.configure }}
+
+      - name: Build core targets
+        run: ${{ matrix.build }}
+
+      - name: Test core targets
+        run: ${{ matrix.test }}
+
+      - name: Check core microbenchmarks
+        run: ${{ matrix.benchmark }}
+
   build-and-test:
     runs-on: ubuntu-24.04
     steps:
