@@ -1,6 +1,7 @@
 build/
 out/
 .cache/
+.worktrees/
 .vscode/*
 !.vscode/extensions.json
 .idea/
