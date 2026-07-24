@@ -163,4 +163,5 @@ docs/                  구조, 프로토콜, 벤치마크 설명
 - [서버 구조](docs/architecture.md)
 - [패킷 프로토콜](docs/protocol.md)
 - [벤치마크 실행과 해석](docs/benchmark.md)
+- [개발 계획](docs/development-plan.md)
 - [개발 및 코드 스타일](CONTRIBUTING.md)
