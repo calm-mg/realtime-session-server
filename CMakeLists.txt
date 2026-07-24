@@ -14,6 +14,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(RSS_BUILD_TESTS "Build unit tests" ON)
 option(RSS_BUILD_NETWORK_TARGETS "Build Linux epoll server and clients" ON)
 
+include(cmake/Dependencies.cmake)
+
 find_package(Threads REQUIRED)
 
 add_library(rss_core
@@ -76,10 +78,12 @@ endif()
 
 if(RSS_BUILD_TESTS)
     enable_testing()
+    rss_enable_googletest()
+    include(GoogleTest)
 
-    add_executable(PacketCodecTest test/PacketCodecTest.cpp)
-    target_link_libraries(PacketCodecTest PRIVATE rss_core)
-    add_test(NAME PacketCodecTest COMMAND PacketCodecTest)
+    add_executable(rss_core_tests test/PacketCodecTest.cpp)
+    target_link_libraries(rss_core_tests PRIVATE rss_core GTest::gtest_main)
+    gtest_discover_tests(rss_core_tests DISCOVERY_MODE PRE_TEST)
 
     add_executable(RoomServiceTest test/RoomServiceTest.cpp)
     target_link_libraries(RoomServiceTest PRIVATE rss_core)
