@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rss/net/CompletionNotifier.h"
 #include "rss/service/Command.h"
 #include "rss/service/MessageRouter.h"
 #include "rss/util/BlockingQueue.h"
@@ -14,7 +15,8 @@ class WorkerPool {
 public:
     WorkerPool(util::BlockingQueue<service::SessionEvent>& inbox,
                util::BlockingQueue<service::OutboundMessage>& outbox,
-               service::MessageRouter& router);
+               service::MessageRouter& router,
+               CompletionNotifier* completion_notifier = nullptr);
     ~WorkerPool();
 
     WorkerPool(const WorkerPool&) = delete;
@@ -29,6 +31,7 @@ private:
     util::BlockingQueue<service::SessionEvent>& inbox_;
     util::BlockingQueue<service::OutboundMessage>& outbox_;
     service::MessageRouter& router_;
+    CompletionNotifier* completion_notifier_{nullptr};
     std::vector<std::thread> threads_;
 };
 

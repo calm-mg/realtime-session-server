@@ -53,7 +53,7 @@ sockaddr_in makeAddress(const std::string& host, std::uint16_t port)
 TcpServer::TcpServer(ServerConfig config)
     : config_(std::move(config))
     , router_(room_service_)
-    , workers_(inbox_, outbox_, router_)
+    , workers_(inbox_, outbox_, router_, &outbound_wakeup_)
 {
 }
 
@@ -81,6 +81,12 @@ void TcpServer::run()
         auto events = event_loop_.wait(1000, config_.max_events);
         for (const auto& event : events) {
             const auto fd = event.data.fd;
+            if (fd == outbound_wakeup_.fd()) {
+                outbound_wakeup_.drain();
+                drainOutbound();
+                continue;
+            }
+
             if (fd == listen_fd_) {
                 acceptLoop();
                 continue;
@@ -137,6 +143,7 @@ void TcpServer::openListener()
     }
 
     event_loop_.add(listen_fd_, EPOLLIN);
+    event_loop_.add(outbound_wakeup_.fd(), EPOLLIN);
 }
 
 void TcpServer::acceptLoop()

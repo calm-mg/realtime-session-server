@@ -40,6 +40,7 @@ endif()
 
 if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_library(rss_net
+        src/net/EventFdCompletionNotifier.cpp
         src/net/EpollEventLoop.cpp
         src/net/Session.cpp
         src/net/TcpServer.cpp
@@ -90,4 +91,20 @@ if(RSS_BUILD_TESTS)
     add_executable(LatencyStatsTest test/LatencyStatsTest.cpp)
     target_link_libraries(LatencyStatsTest PRIVATE rss_core)
     add_test(NAME LatencyStatsTest COMMAND LatencyStatsTest)
+
+    add_executable(WorkerPoolNotificationTest
+        test/WorkerPoolNotificationTest.cpp
+        src/net/WorkerPool.cpp
+    )
+    target_link_libraries(WorkerPoolNotificationTest PRIVATE rss_core Threads::Threads)
+    add_test(NAME WorkerPoolNotificationTest COMMAND WorkerPoolNotificationTest)
+
+    if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(EventFdCompletionNotifierTest
+            test/EventFdCompletionNotifierTest.cpp
+            src/net/EventFdCompletionNotifier.cpp
+        )
+        target_include_directories(EventFdCompletionNotifierTest PRIVATE ${PROJECT_SOURCE_DIR}/include)
+        add_test(NAME EventFdCompletionNotifierTest COMMAND EventFdCompletionNotifierTest)
+    endif()
 endif()
