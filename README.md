@@ -18,7 +18,8 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 - I/O 스레드와 worker 스레드 분리
 - `eventfd`를 사용한 worker 완료 알림
 - 콘솔 클라이언트와 `PING` 부하 테스트 도구
-- 프로토콜, 서비스, 네트워크 구성 요소 테스트
+- GoogleTest 기반 프로토콜, 서비스, 네트워크 구성 요소 테스트
+- Google Benchmark 기반 핵심 코드 경로 마이크로벤치마크
 
 ## 필요한 환경
 
@@ -146,7 +147,8 @@ include/rss/service/   로그인, 방, 메시지 처리
 src/                   라이브러리와 서버 구현
 client/                대화형 콘솔 클라이언트
 tools/                 PING 부하 테스트 클라이언트
-test/                  자동 테스트
+test/                  GoogleTest 자동 테스트
+benchmark/             Google Benchmark 마이크로벤치마크
 docs/                  구조, 프로토콜, 벤치마크 설명
 ```
 

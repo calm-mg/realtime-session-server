@@ -21,12 +21,16 @@ jobs:
         run: >
           cmake -S . -B build/release -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DRSS_BUILD_BENCHMARKS=ON
 
       - name: Build
         run: cmake --build build/release --parallel
 
       - name: Test
         run: ctest --test-dir build/release --output-on-failure
+
+      - name: Check microbenchmarks
+        run: ./build/release/rss_microbenchmarks --benchmark_dry_run
 
   code-quality:
     runs-on: ubuntu-24.04
@@ -44,6 +48,7 @@ jobs:
         run: >
           cmake -S . -B build/quality -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
+          -DRSS_BUILD_BENCHMARKS=ON
 
       - name: Check formatting
         run: cmake --build build/quality --target format-check
