@@ -38,18 +38,73 @@ cmake --build build/dev --parallel
 ```
 
 CMake는 clangd가 읽을 수 있는 `build/dev/compile_commands.json`도
-생성합니다.
+생성합니다. 처음 구성할 때 GoogleTest를 내려받으므로 인터넷 연결이
+필요합니다. 내려받은 파일은 `build/dev/_deps` 아래에만 저장됩니다.
 
 ## 테스트
+
+테스트는 GoogleTest로 작성되어 있으며 CTest에서 각 테스트 사례를
+개별적으로 찾습니다.
 
 ```bash
 ctest --test-dir build/dev --output-on-failure
 ```
 
+등록된 테스트 이름을 먼저 보고 싶다면 다음 명령을 실행합니다.
+
+```bash
+ctest --test-dir build/dev -N
+```
+
 특정 테스트만 실행하려면 테스트 이름을 정규식으로 지정합니다.
 
 ```bash
-ctest --test-dir build/dev -R PacketCodecTest --output-on-failure
+ctest --test-dir build/dev -R 'PacketCodecTest\.' --output-on-failure
+```
+
+GoogleTest 필터와 상세 출력을 직접 사용하려면 테스트 실행 파일을
+실행합니다.
+
+```bash
+./build/dev/rss_core_tests \
+  --gtest_filter='PacketCodecTest.*' \
+  --gtest_color=yes
+```
+
+Linux 네트워크 테스트는 별도 실행 파일에 들어 있습니다.
+
+```bash
+./build/dev/rss_net_tests --gtest_color=yes
+```
+
+## 마이크로벤치마크
+
+Google Benchmark 기반 마이크로벤치마크는 기본 빌드에서 꺼져 있습니다.
+Release 빌드에서 다음 옵션으로 켭니다.
+
+```bash
+cmake -S . \
+  -B build/benchmark \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRSS_BUILD_BENCHMARKS=ON
+
+cmake --build build/benchmark --target rss_microbenchmarks --parallel
+./build/benchmark/rss_microbenchmarks
+```
+
+특정 항목만 실행하려면 이름 정규식을 사용합니다.
+
+```bash
+./build/benchmark/rss_microbenchmarks \
+  --benchmark_filter='BM_Packet(Encode|Decode)'
+```
+
+모든 항목이 실행 가능한지만 빠르게 확인할 때는 실제 반복 측정 대신
+dry-run을 사용합니다.
+
+```bash
+./build/benchmark/rss_microbenchmarks --benchmark_dry_run
 ```
 
 ## Google C++ 스타일
@@ -125,6 +180,10 @@ cmake --build build/dev --target format-check
 cmake --build build/dev --target tidy-check
 cmake --build build/dev --parallel
 ctest --test-dir build/dev --output-on-failure
+cmake -S . -B build/benchmark -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DRSS_BUILD_BENCHMARKS=ON
+cmake --build build/benchmark --target rss_microbenchmarks --parallel
+./build/benchmark/rss_microbenchmarks --benchmark_dry_run
 ```
 
 프로토콜 동작을 변경했다면 `docs/protocol.md`도 함께 수정합니다. 실행

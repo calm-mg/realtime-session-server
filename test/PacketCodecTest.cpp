@@ -1,42 +1,45 @@
-#include <cstring>
+#include <gtest/gtest.h>
 
-#include "TestSupport.h"
+#include <cstdint>
+
 #include "rss/protocol/PacketCodec.h"
 
-int main() {
-  using rss::protocol::PacketCodec;
-  using rss::protocol::PacketType;
-  using rss::protocol::ProtocolError;
+namespace {
 
+using rss::protocol::PacketCodec;
+using rss::protocol::PacketType;
+using rss::protocol::ProtocolError;
+
+TEST(PacketCodecTest, DecodesPacketSplitAcrossReads) {
   const auto login = PacketCodec::encode(PacketType::LoginReq, "alice");
-  RSS_EXPECT(login.size() == 9);
+  ASSERT_EQ(login.size(), 9);
 
   PacketCodec codec;
   codec.feed(login.data(), 2);
-  RSS_EXPECT(codec.drainPackets().empty());
+  EXPECT_TRUE(codec.drainPackets().empty());
+
   codec.feed(login.data() + 2, login.size() - 2);
+  const auto packets = codec.drainPackets();
 
-  auto packets = codec.drainPackets();
-  RSS_EXPECT(packets.size() == 1);
-  RSS_EXPECT(packets[0].type == PacketType::LoginReq);
-  RSS_EXPECT(rss::protocol::payloadToString(packets[0]) == "alice");
+  ASSERT_EQ(packets.size(), 1);
+  EXPECT_EQ(packets[0].type, PacketType::LoginReq);
+  EXPECT_EQ(rss::protocol::payloadToString(packets[0]), "alice");
+}
 
+TEST(PacketCodecTest, RoundTripsPositionPayload) {
   const auto position = PacketCodec::encodePosition(10.5F, -3.25F);
   const auto [x, y] = PacketCodec::decodePosition(position);
-  RSS_EXPECT(x == 10.5F);
-  RSS_EXPECT(y == -3.25F);
 
-  bool threw = false;
-  try {
-    std::uint8_t invalid[] = {0, 3, 0, 1};
-    PacketCodec bad;
-    bad.feed(invalid, sizeof(invalid));
-    (void)bad.drainPackets();
-  } catch (const ProtocolError&) {
-    threw = true;
-  }
-  RSS_EXPECT(threw);
-
-  testPassed("PacketCodecTest");
-  return 0;
+  EXPECT_FLOAT_EQ(x, 10.5F);
+  EXPECT_FLOAT_EQ(y, -3.25F);
 }
+
+TEST(PacketCodecTest, RejectsPacketSmallerThanHeader) {
+  const std::uint8_t invalid[] = {0, 3, 0, 1};
+  PacketCodec codec;
+  codec.feed(invalid, sizeof(invalid));
+
+  EXPECT_THROW((void)codec.drainPackets(), ProtocolError);
+}
+
+}  // namespace

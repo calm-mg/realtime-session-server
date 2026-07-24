@@ -13,6 +13,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RSS_BUILD_TESTS "Build unit tests" ON)
 option(RSS_BUILD_NETWORK_TARGETS "Build Linux epoll server and clients" ON)
+option(RSS_BUILD_BENCHMARKS "Build microbenchmarks" OFF)
+
+include(cmake/Dependencies.cmake)
 
 find_package(Threads REQUIRED)
 
@@ -76,38 +79,49 @@ endif()
 
 if(RSS_BUILD_TESTS)
     enable_testing()
+    rss_enable_googletest()
+    include(GoogleTest)
 
-    add_executable(PacketCodecTest test/PacketCodecTest.cpp)
-    target_link_libraries(PacketCodecTest PRIVATE rss_core)
-    add_test(NAME PacketCodecTest COMMAND PacketCodecTest)
-
-    add_executable(RoomServiceTest test/RoomServiceTest.cpp)
-    target_link_libraries(RoomServiceTest PRIVATE rss_core)
-    add_test(NAME RoomServiceTest COMMAND RoomServiceTest)
-
-    add_executable(MessageRouterTest test/MessageRouterTest.cpp)
-    target_link_libraries(MessageRouterTest PRIVATE rss_core)
-    add_test(NAME MessageRouterTest COMMAND MessageRouterTest)
-
-    add_executable(LatencyStatsTest test/LatencyStatsTest.cpp)
-    target_link_libraries(LatencyStatsTest PRIVATE rss_core)
-    add_test(NAME LatencyStatsTest COMMAND LatencyStatsTest)
-
-    add_executable(WorkerPoolNotificationTest
-        test/WorkerPoolNotificationTest.cpp
+    add_executable(rss_core_tests
         src/net/WorkerPool.cpp
+        test/LatencyStatsTest.cpp
+        test/MessageRouterTest.cpp
+        test/PacketCodecTest.cpp
+        test/RoomServiceTest.cpp
+        test/WorkerPoolNotificationTest.cpp
     )
-    target_link_libraries(WorkerPoolNotificationTest PRIVATE rss_core Threads::Threads)
-    add_test(NAME WorkerPoolNotificationTest COMMAND WorkerPoolNotificationTest)
+    target_link_libraries(
+        rss_core_tests
+        PRIVATE
+            rss_core
+            Threads::Threads
+            GTest::gtest_main
+    )
+    gtest_discover_tests(rss_core_tests DISCOVERY_MODE PRE_TEST)
 
     if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(EventFdCompletionNotifierTest
+        add_executable(rss_net_tests
             test/EventFdCompletionNotifierTest.cpp
-            src/net/EventFdCompletionNotifier.cpp
         )
-        target_include_directories(EventFdCompletionNotifierTest PRIVATE ${PROJECT_SOURCE_DIR}/include)
-        add_test(NAME EventFdCompletionNotifierTest COMMAND EventFdCompletionNotifierTest)
+        target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
+        gtest_discover_tests(rss_net_tests DISCOVERY_MODE PRE_TEST)
     endif()
+endif()
+
+if(RSS_BUILD_BENCHMARKS)
+    rss_enable_google_benchmark()
+
+    add_executable(rss_microbenchmarks
+        benchmark/LatencyStatsBenchmark.cpp
+        benchmark/MessageRouterBenchmark.cpp
+        benchmark/PacketCodecBenchmark.cpp
+    )
+    target_link_libraries(
+        rss_microbenchmarks
+        PRIVATE
+            rss_core
+            benchmark::benchmark_main
+    )
 endif()
 
 include(cmake/CodeQuality.cmake)

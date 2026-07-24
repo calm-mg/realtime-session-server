@@ -1,66 +1,72 @@
+#include <gtest/gtest.h>
+
+#include <stdexcept>
+#include <string_view>
 #include <utility>
 
-#include "TestSupport.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/service/MessageRouter.h"
 
 namespace {
 
-rss::protocol::Packet packet(rss::protocol::PacketType type,
-                             std::string_view payload) {
-  auto bytes = rss::protocol::PacketCodec::encode(type, payload);
-  rss::protocol::PacketCodec codec;
+using rss::protocol::Packet;
+using rss::protocol::PacketCodec;
+using rss::protocol::PacketType;
+using rss::service::MessageRouter;
+using rss::service::RoomService;
+using rss::service::SessionEvent;
+using rss::service::SessionEventKind;
+
+Packet decodeSinglePacket(PacketType type, std::string_view payload) {
+  const auto bytes = PacketCodec::encode(type, payload);
+  PacketCodec codec;
   codec.feed(bytes.data(), bytes.size());
   auto packets = codec.drainPackets();
-  RSS_EXPECT(packets.size() == 1);
-  return std::move(packets[0]);
+  if (packets.size() != 1) {
+    throw std::runtime_error("expected exactly one decoded packet");
+  }
+  return std::move(packets.front());
 }
 
-}  // namespace
+SessionEvent event(std::uint64_t session_id, PacketType type,
+                   std::string_view payload) {
+  return SessionEvent{SessionEventKind::Packet, session_id,
+                      decodeSinglePacket(type, payload)};
+}
 
-int main() {
-  using rss::protocol::PacketCodec;
-  using rss::protocol::PacketType;
-  using rss::service::MessageRouter;
-  using rss::service::RoomService;
-  using rss::service::SessionEvent;
-  using rss::service::SessionEventKind;
-
+TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
   RoomService service;
   MessageRouter router(service);
 
-  auto out = router.handle(SessionEvent{SessionEventKind::Packet, 1,
-                                        packet(PacketType::LoginReq, "alice")});
-  RSS_EXPECT(out.size() == 1);
-
-  out = router.handle(SessionEvent{SessionEventKind::Packet, 1,
-                                   packet(PacketType::CreateRoomReq, "arena")});
-  RSS_EXPECT(out.size() == 1);
-
-  out = router.handle(SessionEvent{SessionEventKind::Packet, 2,
-                                   packet(PacketType::LoginReq, "bob")});
-  RSS_EXPECT(out.size() == 1);
-
-  out = router.handle(SessionEvent{SessionEventKind::Packet, 2,
-                                   packet(PacketType::JoinRoomReq, "1")});
-  RSS_EXPECT(out.size() == 2);
-
-  out = router.handle(SessionEvent{SessionEventKind::Packet, 1,
-                                   packet(PacketType::ChatReq, "hello")});
-  RSS_EXPECT(out.size() == 2);
+  EXPECT_EQ(router.handle(event(1, PacketType::LoginReq, "alice")).size(), 1);
+  EXPECT_EQ(router.handle(event(1, PacketType::CreateRoomReq, "arena")).size(),
+            1);
+  EXPECT_EQ(router.handle(event(2, PacketType::LoginReq, "bob")).size(), 1);
+  EXPECT_EQ(router.handle(event(2, PacketType::JoinRoomReq, "1")).size(), 2);
+  EXPECT_EQ(router.handle(event(1, PacketType::ChatReq, "hello")).size(), 2);
 
   const auto position_payload = PacketCodec::encodePosition(1.0F, 2.0F);
-  out = router.handle(SessionEvent{
+  const auto position = router.handle(SessionEvent{
       SessionEventKind::Packet,
       2,
-      rss::protocol::Packet{PacketType::PositionUpdate, position_payload},
+      Packet{PacketType::PositionUpdate, position_payload},
   });
-  RSS_EXPECT(out.size() == 2);
-
-  out = router.handle(
-      SessionEvent{SessionEventKind::Packet, 1, packet(PacketType::Ping, "")});
-  RSS_EXPECT(out.size() == 1);
-
-  testPassed("MessageRouterTest");
-  return 0;
+  EXPECT_EQ(position.size(), 2);
 }
+
+TEST(MessageRouterTest, RespondsToPing) {
+  RoomService service;
+  MessageRouter router(service);
+
+  const auto output = router.handle(event(1, PacketType::Ping, ""));
+
+  ASSERT_EQ(output.size(), 1);
+  PacketCodec codec;
+  codec.feed(output.front().bytes.data(), output.front().bytes.size());
+  const auto packets = codec.drainPackets();
+  ASSERT_EQ(packets.size(), 1);
+  EXPECT_EQ(packets.front().type, PacketType::Pong);
+  EXPECT_EQ(rss::protocol::payloadToString(packets.front()), "PONG");
+}
+
+}  // namespace

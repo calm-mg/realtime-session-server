@@ -1,6 +1,51 @@
 # 벤치마크 실행과 해석
 
-현재 제공되는 `rss_load_test_client`는 여러 TCP 클라이언트를 만들고,
+성능 검사는 목적이 다른 두 도구로 나뉩니다.
+
+- `rss_microbenchmarks`: 네트워크 없이 작은 코드 경로의 실행 시간을 측정
+- `rss_load_test_client`: 실제 TCP 연결과 `PING`/`PONG` 왕복 시간을 측정
+
+마이크로벤치마크 숫자는 서버의 동시 접속 처리량이 아닙니다. 반대로
+TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없습니다.
+
+## 마이크로벤치마크
+
+Google Benchmark 기반 실행 파일은 다음 세 코드 경로를 측정합니다.
+
+- 패킷 인코딩과 디코딩
+- 지연 시간 표본의 백분위 계산
+- 방 인원수에 따른 채팅 메시지 생성과 패킷 인코딩
+
+Release 설정과 `RSS_BUILD_BENCHMARKS` 옵션으로 빌드합니다.
+
+```bash
+cmake -S . \
+  -B build/benchmark \
+  -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRSS_BUILD_BENCHMARKS=ON
+
+cmake --build build/benchmark --target rss_microbenchmarks --parallel
+./build/benchmark/rss_microbenchmarks
+```
+
+특정 항목만 측정할 수도 있습니다.
+
+```bash
+./build/benchmark/rss_microbenchmarks \
+  --benchmark_filter='MessageRouterFixture/ChatFanout'
+```
+
+결과의 `Time`은 실제 경과 시간, `CPU`는 해당 작업에 사용된 CPU
+시간입니다. `bytes_per_second`와 `items_per_second`는 한 번의 반복에서
+처리했다고 표시한 데이터 양을 기준으로 계산됩니다.
+
+다른 프로세스, CPU 절전 상태, 가상화 환경에 따라 결과가 달라지므로
+한 번의 숫자나 서로 다른 PC의 숫자를 그대로 비교하지 않습니다.
+
+## TCP 부하 테스트
+
+`rss_load_test_client`는 여러 TCP 클라이언트를 만들고,
 각 클라이언트가 `PING`을 반복해서 보낸 뒤 `PONG`이 돌아오는 시간을
 측정합니다.
 
@@ -8,7 +53,7 @@
 채팅 broadcast, 느린 클라이언트, queue 포화 상태는 아직 측정하지
 않습니다.
 
-## 빌드
+### 빌드
 
 Release 설정으로 빌드합니다.
 
@@ -17,7 +62,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-## 실행
+### 실행
 
 첫 번째 터미널에서 서버를 실행합니다.
 
@@ -46,7 +91,7 @@ rss_load_test_client <서버 주소> <포트> <클라이언트 수> <클라이�
 | 클라이언트 수 | `100` |
 | 클라이언트별 요청 수 | `100` |
 
-## 출력 읽는 방법
+### 출력 읽는 방법
 
 다음은 출력 형식을 설명하기 위한 예시입니다. 프로젝트의 실제 성능
 측정값이 아닙니다.

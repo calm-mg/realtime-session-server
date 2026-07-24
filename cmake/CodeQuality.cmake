@@ -1,6 +1,7 @@
 file(
     GLOB_RECURSE RSS_CXX_FORMAT_FILES
     CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
     "${PROJECT_SOURCE_DIR}/client/*.cpp"
     "${PROJECT_SOURCE_DIR}/include/*.h"
     "${PROJECT_SOURCE_DIR}/include/*.hpp"
@@ -50,7 +51,9 @@ if(RSS_RUN_CLANG_TIDY)
             "${RSS_RUN_CLANG_TIDY}"
             -p "${CMAKE_BINARY_DIR}"
             -config-file "${PROJECT_SOURCE_DIR}/.clang-tidy"
-            -header-filter ".*"
+            -header-filter
+            "^${PROJECT_SOURCE_DIR}/(benchmark|client|include|src|test|tools)/.*"
+            "^${PROJECT_SOURCE_DIR}/(benchmark|client|src|test|tools)/.*\\.cpp$"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
         COMMENT "Running Google clang-tidy checks"
         VERBATIM
