@@ -1,38 +1,49 @@
-#include "TestSupport.h"
+#include <gtest/gtest.h>
+
+#include "rss/domain/Position.h"
 #include "rss/service/RoomService.h"
 
-int main() {
-  rss::service::RoomService service;
+namespace {
+
+using rss::service::RoomService;
+
+TEST(RoomServiceTest, AssignsUniqueUserIds) {
+  RoomService service;
 
   const auto alice = service.login(100, "alice");
   const auto bob = service.login(200, "bob");
-  RSS_EXPECT(alice.id != bob.id);
+
+  EXPECT_NE(alice.id, bob.id);
+}
+
+TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {
+  RoomService service;
+  service.login(100, "alice");
+  service.login(200, "bob");
 
   const auto create = service.createRoom(100, "arena");
-  RSS_EXPECT(create.ok);
-  RSS_EXPECT(create.room_id == 1);
-  RSS_EXPECT(create.recipients.size() == 1);
+  ASSERT_TRUE(create.ok);
+  EXPECT_EQ(create.room_id, 1);
+  EXPECT_EQ(create.recipients.size(), 1);
 
   const auto join = service.joinRoom(200, create.room_id);
-  RSS_EXPECT(join.ok);
-  RSS_EXPECT(join.recipients.size() == 2);
+  ASSERT_TRUE(join.ok);
+  EXPECT_EQ(join.recipients.size(), 2);
 
   const auto chat = service.chat(100);
-  RSS_EXPECT(chat.ok);
-  RSS_EXPECT(chat.recipients.size() == 2);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.recipients.size(), 2);
 
   const auto position =
       service.updatePosition(200, rss::domain::Position{7.0F, 9.0F});
-  RSS_EXPECT(position.ok);
-  RSS_EXPECT(position.recipients.size() == 2);
+  ASSERT_TRUE(position.ok);
+  EXPECT_EQ(position.recipients.size(), 2);
 
   const auto leave = service.leaveRoom(100);
-  RSS_EXPECT(leave.ok);
-  RSS_EXPECT(leave.recipients.size() == 2);
+  ASSERT_TRUE(leave.ok);
+  EXPECT_EQ(leave.recipients.size(), 2);
 
-  const auto disconnect = service.disconnect(200);
-  RSS_EXPECT(disconnect.ok);
-
-  testPassed("RoomServiceTest");
-  return 0;
+  EXPECT_TRUE(service.disconnect(200).ok);
 }
+
+}  // namespace

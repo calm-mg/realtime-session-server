@@ -81,36 +81,22 @@ if(RSS_BUILD_TESTS)
     rss_enable_googletest()
     include(GoogleTest)
 
-    add_executable(rss_core_tests test/PacketCodecTest.cpp)
+    add_executable(rss_core_tests
+        test/LatencyStatsTest.cpp
+        test/MessageRouterTest.cpp
+        test/PacketCodecTest.cpp
+        test/RoomServiceTest.cpp
+    )
     target_link_libraries(rss_core_tests PRIVATE rss_core GTest::gtest_main)
     gtest_discover_tests(rss_core_tests DISCOVERY_MODE PRE_TEST)
 
-    add_executable(RoomServiceTest test/RoomServiceTest.cpp)
-    target_link_libraries(RoomServiceTest PRIVATE rss_core)
-    add_test(NAME RoomServiceTest COMMAND RoomServiceTest)
-
-    add_executable(MessageRouterTest test/MessageRouterTest.cpp)
-    target_link_libraries(MessageRouterTest PRIVATE rss_core)
-    add_test(NAME MessageRouterTest COMMAND MessageRouterTest)
-
-    add_executable(LatencyStatsTest test/LatencyStatsTest.cpp)
-    target_link_libraries(LatencyStatsTest PRIVATE rss_core)
-    add_test(NAME LatencyStatsTest COMMAND LatencyStatsTest)
-
-    add_executable(WorkerPoolNotificationTest
-        test/WorkerPoolNotificationTest.cpp
-        src/net/WorkerPool.cpp
-    )
-    target_link_libraries(WorkerPoolNotificationTest PRIVATE rss_core Threads::Threads)
-    add_test(NAME WorkerPoolNotificationTest COMMAND WorkerPoolNotificationTest)
-
     if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(EventFdCompletionNotifierTest
+        add_executable(rss_net_tests
             test/EventFdCompletionNotifierTest.cpp
-            src/net/EventFdCompletionNotifier.cpp
+            test/WorkerPoolNotificationTest.cpp
         )
-        target_include_directories(EventFdCompletionNotifierTest PRIVATE ${PROJECT_SOURCE_DIR}/include)
-        add_test(NAME EventFdCompletionNotifierTest COMMAND EventFdCompletionNotifierTest)
+        target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
+        gtest_discover_tests(rss_net_tests DISCOVERY_MODE PRE_TEST)
     endif()
 endif()
 

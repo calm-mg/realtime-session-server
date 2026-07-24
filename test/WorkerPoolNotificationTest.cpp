@@ -1,10 +1,13 @@
+#include <gtest/gtest.h>
+
 #include <atomic>
 #include <chrono>
 #include <optional>
+#include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <utility>
 
-#include "TestSupport.h"
 #include "rss/net/CompletionNotifier.h"
 #include "rss/net/WorkerPool.h"
 #include "rss/protocol/PacketCodec.h"
@@ -19,14 +22,16 @@ class RecordingNotifier final : public rss::net::CompletionNotifier {
   std::atomic<int> notifications{0};
 };
 
-rss::protocol::Packet packet(rss::protocol::PacketType type,
-                             std::string_view payload) {
-  auto bytes = rss::protocol::PacketCodec::encode(type, payload);
+rss::protocol::Packet decodeSinglePacket(rss::protocol::PacketType type,
+                                         std::string_view payload) {
+  const auto bytes = rss::protocol::PacketCodec::encode(type, payload);
   rss::protocol::PacketCodec codec;
   codec.feed(bytes.data(), bytes.size());
   auto packets = codec.drainPackets();
-  RSS_EXPECT(packets.size() == 1);
-  return std::move(packets[0]);
+  if (packets.size() != 1) {
+    throw std::runtime_error("expected exactly one decoded packet");
+  }
+  return std::move(packets.front());
 }
 
 std::optional<rss::service::OutboundMessage> waitForOutbound(
@@ -42,9 +47,7 @@ std::optional<rss::service::OutboundMessage> waitForOutbound(
   return std::nullopt;
 }
 
-}  // namespace
-
-int main() {
+TEST(WorkerPoolNotificationTest, NotifiesWhenOutboundMessageIsReady) {
   using rss::protocol::PacketType;
   using rss::service::MessageRouter;
   using rss::service::RoomService;
@@ -59,15 +62,14 @@ int main() {
   rss::net::WorkerPool workers(inbox, outbox, router, &notifier);
 
   workers.start(1);
-  RSS_EXPECT(inbox.push(
-      SessionEvent{SessionEventKind::Packet, 1, packet(PacketType::Ping, "")}));
+  ASSERT_TRUE(inbox.push(SessionEvent{
+      SessionEventKind::Packet, 1, decodeSinglePacket(PacketType::Ping, "")}));
 
-  auto message = waitForOutbound(outbox);
+  const auto message = waitForOutbound(outbox);
   workers.stop();
 
-  RSS_EXPECT(message.has_value());
-  RSS_EXPECT(notifier.notifications.load() == 1);
-
-  testPassed("WorkerPoolNotificationTest");
-  return 0;
+  ASSERT_TRUE(message.has_value());
+  EXPECT_EQ(notifier.notifications.load(), 1);
 }
+
+}  // namespace
