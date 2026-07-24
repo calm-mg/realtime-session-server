@@ -6,9 +6,9 @@
 namespace rss::domain {
 
 struct User {
-    std::uint64_t id{};
-    std::uint64_t session_id{};
-    std::string name;
+  std::uint64_t id{};
+  std::uint64_t session_id{};
+  std::string name;
 };
 
-} // namespace rss::domain
+}  // namespace rss::domain

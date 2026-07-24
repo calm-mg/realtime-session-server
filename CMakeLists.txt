@@ -9,6 +9,7 @@ project(realtime_session_server
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RSS_BUILD_TESTS "Build unit tests" ON)
 option(RSS_BUILD_NETWORK_TARGETS "Build Linux epoll server and clients" ON)
@@ -108,3 +109,5 @@ if(RSS_BUILD_TESTS)
         add_test(NAME EventFdCompletionNotifierTest COMMAND EventFdCompletionNotifierTest)
     endif()
 endif()
+
+include(cmake/CodeQuality.cmake)

@@ -2,39 +2,38 @@
 
 namespace rss::protocol {
 
-std::string_view toString(PacketType type)
-{
-    switch (type) {
+std::string_view toString(PacketType type) {
+  switch (type) {
     case PacketType::LoginReq:
-        return "LOGIN_REQ";
+      return "LOGIN_REQ";
     case PacketType::LoginRes:
-        return "LOGIN_RES";
+      return "LOGIN_RES";
     case PacketType::CreateRoomReq:
-        return "CREATE_ROOM_REQ";
+      return "CREATE_ROOM_REQ";
     case PacketType::CreateRoomRes:
-        return "CREATE_ROOM_RES";
+      return "CREATE_ROOM_RES";
     case PacketType::JoinRoomReq:
-        return "JOIN_ROOM_REQ";
+      return "JOIN_ROOM_REQ";
     case PacketType::JoinRoomRes:
-        return "JOIN_ROOM_RES";
+      return "JOIN_ROOM_RES";
     case PacketType::LeaveRoomReq:
-        return "LEAVE_ROOM_REQ";
+      return "LEAVE_ROOM_REQ";
     case PacketType::LeaveRoomRes:
-        return "LEAVE_ROOM_RES";
+      return "LEAVE_ROOM_RES";
     case PacketType::ChatReq:
-        return "CHAT_REQ";
+      return "CHAT_REQ";
     case PacketType::PositionUpdate:
-        return "POSITION_UPDATE";
+      return "POSITION_UPDATE";
     case PacketType::RoomBroadcast:
-        return "ROOM_BROADCAST";
+      return "ROOM_BROADCAST";
     case PacketType::Ping:
-        return "PING";
+      return "PING";
     case PacketType::Pong:
-        return "PONG";
+      return "PONG";
     case PacketType::Error:
-        return "ERROR";
-    }
-    return "UNKNOWN";
+      return "ERROR";
+  }
+  return "UNKNOWN";
 }
 
-} // namespace rss::protocol
+}  // namespace rss::protocol

@@ -5,19 +5,20 @@
 namespace rss::net {
 
 class EventFdCompletionNotifier final : public CompletionNotifier {
-public:
-    EventFdCompletionNotifier();
-    ~EventFdCompletionNotifier() override;
+ public:
+  EventFdCompletionNotifier();
+  ~EventFdCompletionNotifier() override;
 
-    EventFdCompletionNotifier(const EventFdCompletionNotifier&) = delete;
-    EventFdCompletionNotifier& operator=(const EventFdCompletionNotifier&) = delete;
+  EventFdCompletionNotifier(const EventFdCompletionNotifier&) = delete;
+  EventFdCompletionNotifier& operator=(const EventFdCompletionNotifier&) =
+      delete;
 
-    [[nodiscard]] int fd() const;
-    void notify() noexcept override;
-    void drain();
+  [[nodiscard]] int fd() const;
+  void notify() noexcept override;
+  void drain();
 
-private:
-    int fd_{-1};
+ private:
+  int fd_{-1};
 };
 
-} // namespace rss::net
+}  // namespace rss::net

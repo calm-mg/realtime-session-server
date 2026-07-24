@@ -1,0 +1,8 @@
+---
+Checks: >
+  -*,
+  google-*
+WarningsAsErrors: 'google-*'
+HeaderFilterRegex: '.*/(include|src|client|tools|test)/.*'
+FormatStyle: file
+...

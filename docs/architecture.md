@@ -1,85 +1,150 @@
-# 아키텍처
+# 서버 구조
 
-## 현재 런타임 모델
+이 문서는 클라이언트의 요청이 서버에 들어와 응답으로 나가기까지의
+과정을 설명합니다.
 
-```text
-I/O Thread
-  -> accept4 / epoll_wait
-  -> non-blocking recv / send
-  -> Session 생명주기 관리
-  -> decode된 packet을 queue에 push
+## 먼저 알아둘 용어
 
-Worker Threads
-  -> pop SessionEvent
-  -> MessageRouter
-  -> RoomService / Lobby / Room
-  -> enqueue OutboundMessage
-  -> eventfd wakeup
+- **세션(session)**: 클라이언트 TCP 연결 하나를 나타내는 객체
+- **I/O 스레드**: 소켓 연결, 읽기, 쓰기를 담당하는 스레드
+- **worker 스레드**: 로그인, 방, 채팅 같은 명령을 처리하는 스레드
+- **queue**: 한 스레드가 다른 스레드에 작업을 넘길 때 사용하는 대기열
+- **non-blocking**: 소켓 작업이 끝날 때까지 스레드를 멈춰 두지 않는 방식
+- **eventfd**: worker가 I/O 스레드에 새 응답이 생겼다고 알리는 Linux 기능
 
-I/O Thread
-  -> eventfd readable event
-  -> drain outbound queue
-  -> enable EPOLLOUT
-  -> flush pending writes
-```
-
-현재 서버는 socket ownership을 I/O thread에만 둡니다. worker thread는 `send`, `recv`, `epoll_ctl`을 호출하지 않고, command를 처리한 뒤 outbound packet만 생성합니다.
-
-이 구조는 실시간 서버의 기본 경계를 보여주기 좋습니다. transport 계층과 domain/service 계층이 섞이지 않아 protocol, room, message routing 테스트를 socket 없이 실행할 수 있습니다.
-
-## 계층
-
-- `net`: Linux socket, `epoll`, session, worker pool
-- `protocol`: binary packet framing, stream decoding
-- `domain`: `User`, `Room`, `Lobby`, position state
-- `service`: login, room membership, chat routing, position routing, disconnect cleanup
-
-## 동시성 모델
-
-Inbound packet은 `BlockingQueue<SessionEvent>`를 통해 worker thread로 전달됩니다.
-Outbound packet은 `BlockingQueue<OutboundMessage>`를 통해 다시 I/O thread로 돌아옵니다.
-
-현재 `RoomService`는 공유 room/user state를 mutex로 보호합니다. baseline 구현으로는 이해하기 쉽지만, 성능 포트폴리오 관점에서는 병목 후보가 명확합니다. 이후 개선에서는 room state를 shard별 worker가 소유하는 actor-style 구조로 바꾸고, 전역 mutex 의존도를 줄이는 방향을 목표로 합니다.
-
-worker thread가 outbound queue에 completion을 넣으면 `eventfd`로 I/O thread를 깨웁니다. I/O thread는 해당 fd의 readable event를 받으면 counter를 drain하고 outbound queue를 처리합니다. socket과 `epoll_ctl` ownership은 계속 I/O thread에만 있습니다.
-
-## 세션 생명주기
-
-1. `accept4`로 non-blocking socket을 생성한다.
-2. `Session`에 `session_id`를 부여한다.
-3. `recv`로 읽은 bytes를 `PacketCodec`에 넣는다.
-4. 완성된 packet을 worker queue로 전달한다.
-5. worker 결과를 outbound queue에 넣고 `eventfd`로 I/O thread를 깨운다.
-6. I/O thread가 eventfd counter와 outbound queue를 drain한다.
-7. I/O thread가 `EPOLLOUT`을 켜고 pending write를 flush한다.
-8. disconnect 또는 timeout이 발생하면 `RoomService::disconnect`로 room 상태를 정리한다.
-
-## 향후 개선 방향
-
-현재 구조에서 성능 개선 대상으로 보는 지점은 다음과 같습니다.
-
-- unbounded queue를 bounded queue로 바꾸고 overload 동작 명시
-- slow client가 write buffer를 무한히 키우지 못하도록 backpressure 적용
-- room/user state를 하나의 mutex로 보호하는 구조를 room shard ownership으로 변경
-- benchmark에서 throughput뿐 아니라 p50/p95/p99 latency와 broadcast fanout 지연 측정
-
-개선 후에도 핵심 ownership 규칙은 유지합니다. socket과 `epoll_ctl`은 I/O thread가 소유하고, worker 또는 shard thread는 domain command 처리와 outbound completion 생성만 담당합니다.
-
-목표 구조는 다음과 같습니다.
+## 전체 흐름
 
 ```text
-I/O Thread
-  -> epoll_wait
-  -> read / decode / command enqueue
-  -> eventfd wakeup 수신
-  -> completion drain
-  -> session write queue flush
-
-Room Shards
-  -> bounded command queue pop
-  -> room membership / chat / position 처리
-  -> completion queue push
-  -> eventfd write
+클라이언트
+    │ TCP 요청
+    ▼
+I/O 스레드
+    │ epoll로 이벤트 확인
+    │ 바이트를 패킷으로 변환
+    ▼
+입력 queue
+    ▼
+worker 스레드
+    │ MessageRouter가 명령 종류 확인
+    │ RoomService가 사용자와 방 상태 변경
+    ▼
+출력 queue
+    │ eventfd로 완료 알림
+    ▼
+I/O 스레드
+    │ 응답을 소켓으로 전송
+    ▼
+클라이언트
 ```
 
-이 방향은 Linux `epoll` 서버를 직접 구현했다는 장점을 유지하면서, 실제 서버에서 중요한 latency, overload, slow client, shared-state 병목까지 설명할 수 있게 만드는 것을 목표로 합니다.
+## 구성 요소
+
+### `TcpServer`
+
+서버의 중심 객체입니다.
+
+- 서버 소켓을 만들고 지정한 주소와 포트에 연결합니다.
+- 새 클라이언트를 `accept4`로 받습니다.
+- `epoll`에서 읽기와 쓰기 이벤트를 확인합니다.
+- 세션을 생성하고 제거합니다.
+- 입력 queue와 출력 queue 사이의 흐름을 관리합니다.
+- 60초 동안 통신이 없는 세션을 종료합니다.
+
+### `EpollEventLoop`
+
+Linux `epoll` API를 감싼 객체입니다. 감시할 파일 디스크립터를 추가,
+수정, 제거하고 `epoll_wait` 결과를 반환합니다.
+
+### `Session`
+
+클라이언트 연결 하나의 상태를 보관합니다.
+
+- 소켓 파일 디스크립터
+- 서버가 부여한 세션 번호
+- 아직 패킷이 되지 않은 수신 바이트
+- 아직 전부 보내지 못한 응답
+- 마지막으로 데이터를 받은 시간
+
+### `PacketCodec`
+
+TCP에서 받은 바이트를 애플리케이션 패킷으로 나눕니다. 패킷이 여러
+번의 `recv`에 나뉘어 들어오거나, 여러 패킷이 한 번에 들어와도
+처리합니다.
+
+### `WorkerPool`
+
+설정된 수만큼 worker 스레드를 실행합니다. 각 worker는 입력 queue에서
+작업을 하나 꺼내 `MessageRouter`에 전달하고, 생성된 응답을 출력
+queue에 넣습니다.
+
+### `MessageRouter`
+
+패킷 종류를 보고 어떤 서비스 함수를 실행할지 결정합니다.
+
+- `LOGIN_REQ` → 로그인
+- `CREATE_ROOM_REQ` → 방 생성
+- `JOIN_ROOM_REQ` → 방 참가
+- `LEAVE_ROOM_REQ` → 방 나가기
+- `CHAT_REQ` → 채팅 전달
+- `POSITION_UPDATE` → 위치 전달
+- `PING` → `PONG` 응답
+
+### `RoomService`
+
+사용자와 방 상태를 관리합니다. 현재는 여러 worker가 동시에 접근해도
+데이터가 깨지지 않도록 하나의 mutex로 전체 상태를 보호합니다.
+
+### `EventFdCompletionNotifier`
+
+worker가 출력 queue에 응답을 넣은 뒤 Linux `eventfd`에 값을 씁니다.
+I/O 스레드는 이 파일 디스크립터도 `epoll`로 감시하므로, 다음 반복을
+기다리지 않고 바로 응답을 처리할 수 있습니다.
+
+## 요청 처리 과정
+
+채팅 요청을 예로 들면 다음 순서로 동작합니다.
+
+1. 클라이언트가 `CHAT_REQ` 패킷을 보냅니다.
+2. I/O 스레드의 `recv`가 바이트를 읽습니다.
+3. `PacketCodec`이 완전한 패킷을 꺼냅니다.
+4. I/O 스레드가 `SessionEvent`를 입력 queue에 넣습니다.
+5. worker가 이벤트를 꺼내 `MessageRouter`로 전달합니다.
+6. `RoomService`가 로그인 여부와 방 참가 여부를 확인합니다.
+7. 같은 방에 있는 세션마다 `ROOM_BROADCAST` 응답을 만듭니다.
+8. worker가 응답을 출력 queue에 넣고 `eventfd`를 기록합니다.
+9. I/O 스레드가 알림을 받고 출력 queue를 비웁니다.
+10. 소켓이 바로 쓸 수 없으면 `EPOLLOUT` 감시를 켭니다.
+11. 보낼 수 있는 만큼 전송하고, 남은 바이트는 세션에 보관합니다.
+
+## 연결 종료 과정
+
+클라이언트가 연결을 끊거나 제한 시간 동안 아무 데이터도 보내지 않으면
+다음 정리가 실행됩니다.
+
+1. I/O 스레드가 해당 소켓을 `epoll`에서 제거합니다.
+2. 소켓을 닫고 세션 객체를 제거합니다.
+3. `Disconnected` 이벤트를 입력 queue에 넣습니다.
+4. worker가 `RoomService::disconnect`를 호출합니다.
+5. 사용자를 방에서 제거하고 남은 사용자에게 퇴장 메시지를 보냅니다.
+
+## 스레드 사용 규칙
+
+소켓 상태를 여러 스레드가 동시에 수정하면 연결 종료와 전송이 엇갈릴
+수 있습니다. 이를 피하기 위해 다음 규칙을 사용합니다.
+
+- I/O 스레드만 `accept4`, `recv`, `send`, `epoll_ctl`, `close`를
+  호출합니다.
+- worker 스레드는 소켓을 직접 사용하지 않습니다.
+- I/O 스레드와 worker는 thread-safe queue로만 데이터를 전달합니다.
+- 방과 사용자 상태는 `RoomService`의 mutex로 보호합니다.
+
+## 현재 구조의 제약
+
+- 입력 queue와 출력 queue가 가득 찼을 때 요청을 거절하는 기준이
+  없습니다.
+- 느린 클라이언트의 전송 대기열이 계속 커질 수 있습니다.
+- 모든 방이 하나의 `RoomService` mutex를 공유하므로 worker 수를
+  늘려도 방 작업이 동시에 처리되지 못할 수 있습니다.
+
+이 항목들은 현재 코드를 사용할 때 알아야 할 동작 범위이며, 구현된
+기능으로 오해하면 안 됩니다.

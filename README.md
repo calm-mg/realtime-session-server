@@ -1,55 +1,87 @@
 # realtime-session-server
 
-C++20로 구현한 Linux 기반 실시간 룸 서버입니다.
+C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 
-실시간 게임/채팅 서버에서 자주 등장하는 세션 관리, 룸 기반 메시지 라우팅, 바이너리 패킷 프레이밍, non-blocking TCP, `epoll` 이벤트 루프, worker thread 기반 처리를 직접 구현했습니다.
-
-이 프로젝트의 목표는 단순히 기능을 붙이는 것이 아니라, **서버 구조와 성능 개선 과정을 포트폴리오로 보여주는 것**입니다. 현재 구현은 baseline 역할을 하며, 이후 benchmark를 통해 p50/p95/p99 latency, broadcast fanout, backpressure, queue 병목을 측정하고 개선하는 방향으로 확장합니다.
+여러 클라이언트가 TCP로 서버에 접속한 뒤 로그인하고, 방을 만들거나
+참가해서 채팅과 위치 정보를 주고받을 수 있습니다. 서버는 한 스레드에서
+네트워크 입출력을 처리하고, 별도의 worker 스레드에서 명령을 처리합니다.
 
 ## 주요 기능
 
-- non-blocking TCP 서버
-- Linux `epoll` 기반 이벤트 루프
-- 세션 accept/read/write 생명주기 관리
-- idle timeout 및 `PING`/`PONG`
-- `uint16_t size`, `uint16_t type` 기반 바이너리 패킷 헤더
-- 로그인, 룸 생성/입장/퇴장, 룸 채팅, 위치 브로드캐스트
-- I/O thread와 worker thread 분리
-- thread-safe inbound/outbound queue
-- worker completion을 I/O thread에 전달하는 `eventfd` wakeup
-- 콘솔 클라이언트와 `PING`/`PONG` latency load test client
-- 외부 테스트 프레임워크 없이 실행 가능한 core unit test
+- non-blocking TCP 연결
+- Linux `epoll` 기반 이벤트 처리
+- 로그인과 접속 종료 처리
+- 방 생성, 참가, 나가기
+- 같은 방에 있는 사용자에게 채팅과 위치 정보 전송
+- `PING`/`PONG` 연결 확인
+- 4바이트 헤더를 사용하는 바이너리 패킷
+- I/O 스레드와 worker 스레드 분리
+- `eventfd`를 사용한 worker 완료 알림
+- 콘솔 클라이언트와 `PING` 부하 테스트 도구
+- 프로토콜, 서비스, 네트워크 구성 요소 테스트
 
-## 빌드
+## 필요한 환경
 
-서버와 클라이언트 타깃은 `epoll`을 사용하므로 Linux에서 빌드됩니다.
+전체 서버는 `epoll`과 `eventfd`를 사용하므로 Linux에서 빌드해야 합니다.
+Windows에서는 WSL2의 Ubuntu를 사용할 수 있습니다.
+
+- C++20을 지원하는 GCC 또는 Clang
+- CMake 3.20 이상
+- Ninja 또는 Make
+- POSIX Threads
+
+Ubuntu에서는 다음 패키지로 시작할 수 있습니다.
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+sudo apt-get update
+sudo apt-get install --yes build-essential cmake ninja-build
+```
+
+## 빠른 시작
+
+### 1. 빌드
+
+저장소 루트에서 다음 명령을 실행합니다.
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+### 2. 테스트
+
+```bash
 ctest --test-dir build --output-on-failure
 ```
 
-macOS 같은 non-Linux 환경에서는 network target인 `rss_server`, `rss_console_client`, `rss_load_test_client`가 비활성화됩니다. 대신 protocol/domain/service 계층의 core test는 계속 빌드하고 실행할 수 있습니다.
-
-## 실행
+### 3. 서버 실행
 
 ```bash
 ./build/rss_server 0.0.0.0 7777 4
 ```
 
-다른 터미널에서 콘솔 클라이언트를 실행합니다.
+인자는 순서대로 다음 의미입니다.
+
+```text
+rss_server <접속을 받을 주소> <포트> <worker 스레드 수>
+```
+
+인자를 생략하면 주소는 `0.0.0.0`, 포트는 `7777`을 사용합니다. worker
+수는 명시하지 않으면 CPU가 제공하는 동시 실행 수를 기준으로 정합니다.
+
+### 4. 클라이언트 접속
+
+서버를 실행한 상태에서 새 터미널을 열고 다음 명령을 실행합니다.
 
 ```bash
 ./build/rss_console_client 127.0.0.1 7777
 ```
 
-클라이언트 명령어:
+아래 순서대로 입력하면 로그인, 방 생성, 채팅을 시험할 수 있습니다.
 
 ```text
 /login alice
 /create arena
-/join 1
 /chat hello
 /pos 10.5 22.0
 /ping
@@ -57,48 +89,78 @@ macOS 같은 non-Linux 환경에서는 network target인 `rss_server`, `rss_cons
 /quit
 ```
 
-`PING`/`PONG` latency load test:
-
-```bash
-./build/rss_load_test_client 127.0.0.1 7777 1000 100
-```
-
-## 구조
+두 번째 클라이언트로 같은 방에 들어가려면 서버가 반환한 방 번호를
+사용합니다.
 
 ```text
-include/rss/net        epoll loop, TCP server, session, worker pool
-include/rss/protocol   packet type, binary codec
-include/rss/domain     user, room, lobby model
-include/rss/service    room service, message router
-src                    구현 코드
-client                 대화형 콘솔 클라이언트
-tools                  load test client
-test                   외부 프레임워크 없는 unit test
-docs                   아키텍처, 프로토콜, 벤치마크 문서
+/login bob
+/join 1
+/chat 반갑습니다
 ```
 
-## 포트폴리오 포인트
+| 명령 | 설명 |
+| --- | --- |
+| `/login <이름>` | 사용자 이름으로 로그인 |
+| `/create <방 이름>` | 새 방을 만들고 입장 |
+| `/join <방 번호>` | 기존 방에 입장 |
+| `/leave` | 현재 방에서 나가기 |
+| `/chat <메시지>` | 현재 방에 채팅 전송 |
+| `/pos <x> <y>` | 현재 방에 위치 좌표 전송 |
+| `/ping` | 서버의 `PONG` 응답 확인 |
+| `/quit` | 클라이언트 종료 |
 
-- I/O thread가 socket과 `epoll_ctl` ownership을 가진다.
-- worker thread는 socket API를 직접 호출하지 않고, queue를 통해 command를 처리한다.
-- worker 결과는 `eventfd` wakeup으로 I/O thread에 전달된다.
-- domain/service 로직을 Linux networking 코드와 분리해 socket 없이도 core test를 실행할 수 있다.
-- 작은 binary protocol을 직접 구현해 TCP partial read, packet coalescing, malformed packet 처리를 코드로 보여준다.
-- 이후 개선 방향은 bounded queue, backpressure, room shard/actor 모델, p99 latency 측정이다.
+`/`로 시작하지 않는 일반 문장도 채팅 메시지로 전송됩니다.
 
-## 향후 개선 방향
+## 간단한 부하 테스트
 
-현재 구현은 baseline 서버로 유지하고, 다음 순서로 성능 포트폴리오를 강화합니다.
+다음 명령은 클라이언트 100개가 각각 `PING`을 100번 보내고 `PONG`
+응답 시간을 측정합니다.
 
-1. benchmark client를 확장해 room broadcast fanout, slow client 영향, queue saturation을 측정한다.
-2. unbounded queue와 session write buffer에 capacity를 두고 overload/backpressure 동작을 명확히 한다.
-3. 전역 mutex 기반 `RoomService`를 room shard/actor-style ownership 구조로 개선한다.
-4. baseline과 개선 버전을 같은 환경에서 비교해 `docs/benchmark.md`에 결과와 해석을 기록한다.
+```bash
+./build/rss_load_test_client 127.0.0.1 7777 100 100
+```
 
-## 오픈소스 사용 방향
+출력에는 전송 수, 실패한 클라이언트 수, 초당 처리량과
+`p50`/`p95`/`p99` 응답 시간이 포함됩니다. 자세한 측정 방법은
+[벤치마크 가이드](docs/benchmark.md)를 참고하세요.
 
-네트워크 핵심부는 `epoll`과 `eventfd`를 직접 다루는 구조를 유지합니다. 대신 테스트, 벤치마크, 로그처럼 서버의 핵심 구현을 흐리지 않는 영역에는 검증된 오픈소스를 선택적으로 도입합니다.
+## 서버가 요청을 처리하는 순서
 
-- GoogleTest: 단위 테스트와 shard/queue 동작 검증
-- Google Benchmark: codec, queue, broadcast fanout microbenchmark
-- `fmt`/`spdlog`: benchmark 결과와 server log 출력 정리
+1. I/O 스레드가 `epoll`로 소켓 이벤트를 기다립니다.
+2. 소켓에서 읽은 바이트를 `PacketCodec`이 완전한 패킷으로 나눕니다.
+3. 완성된 패킷을 작업 큐에 넣습니다.
+4. worker 스레드가 로그인, 방, 채팅 같은 명령을 처리합니다.
+5. worker가 응답을 출력 큐에 넣고 `eventfd`로 I/O 스레드를 깨웁니다.
+6. I/O 스레드가 응답을 각 클라이언트 소켓으로 전송합니다.
+
+소켓의 읽기, 쓰기, 연결 종료와 `epoll_ctl` 호출은 I/O 스레드만
+담당합니다. worker 스레드는 소켓을 직접 조작하지 않습니다.
+
+## 디렉터리 구조
+
+```text
+include/rss/net/       소켓, epoll, 세션, worker 인터페이스
+include/rss/protocol/  패킷 종류와 인코딩 규칙
+include/rss/domain/    사용자, 방, 로비 데이터
+include/rss/service/   로그인, 방, 메시지 처리
+src/                   라이브러리와 서버 구현
+client/                대화형 콘솔 클라이언트
+tools/                 PING 부하 테스트 클라이언트
+test/                  자동 테스트
+docs/                  구조, 프로토콜, 벤치마크 설명
+```
+
+## 현재 제약 사항
+
+- 네트워크 서버와 클라이언트는 Linux에서만 빌드됩니다.
+- 작업 큐와 세션별 전송 대기열에 크기 제한이 없습니다.
+- 방과 사용자 상태는 하나의 `RoomService` mutex로 보호합니다.
+- 부하 테스트 도구는 현재 `PING`/`PONG` 시나리오만 지원합니다.
+- TLS, 인증 토큰, 데이터 영속 저장은 구현되어 있지 않습니다.
+
+## 더 자세한 문서
+
+- [서버 구조](docs/architecture.md)
+- [패킷 프로토콜](docs/protocol.md)
+- [벤치마크 실행과 해석](docs/benchmark.md)
+- [개발 및 코드 스타일](CONTRIBUTING.md)

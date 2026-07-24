@@ -1,7 +1,8 @@
 build/
 out/
 .cache/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.log
 *.exe

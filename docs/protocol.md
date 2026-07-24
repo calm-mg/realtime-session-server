@@ -1,39 +1,138 @@
-# 프로토콜
+# 패킷 프로토콜
 
-모든 packet은 4-byte big-endian header를 사용합니다.
+서버와 클라이언트는 TCP 연결 위에서 자체 패킷 형식을 사용합니다.
+TCP는 바이트의 순서만 보장하고 메시지 경계를 알려주지 않으므로, 각
+메시지 앞에 크기와 종류를 기록한 헤더를 붙입니다.
+
+## 패킷 구성
+
+모든 패킷은 4바이트 헤더와 선택적인 payload로 구성됩니다.
+
+```text
+0               1               2               3
++---------------+---------------+---------------+---------------+
+|       전체 패킷 크기          |          패킷 종류            |
++---------------+---------------+---------------+---------------+
+|                         payload ...                           |
++---------------------------------------------------------------+
+```
 
 ```cpp
 struct PacketHeader {
-    uint16_t size; // header를 포함한 전체 packet byte 수
-    uint16_t type; // PacketType
+  std::uint16_t size;
+  std::uint16_t type;
 };
 ```
 
-최대 packet size는 `4096` bytes입니다.
+- `size`: 4바이트 헤더를 포함한 전체 패킷 크기
+- `type`: 요청이나 응답의 종류
+- 정수는 big-endian, 즉 network byte order로 저장
+- 최소 크기: 4바이트
+- 최대 크기: 4096바이트
 
-## Packet Type
+예를 들어 payload가 없는 `PING`은 크기가 4이고 종류가 30입니다.
 
-| Type | 이름 | Payload |
-| ---: | --- | --- |
-| 1 | `LOGIN_REQ` | UTF-8 display name |
-| 2 | `LOGIN_RES` | `OK|user_id=...|session_id=...|name=...` |
-| 10 | `CREATE_ROOM_REQ` | UTF-8 room name |
-| 11 | `CREATE_ROOM_RES` | `OK|event=CREATE_ROOM|room_id=...|...` |
-| 12 | `JOIN_ROOM_REQ` | decimal room id |
-| 13 | `JOIN_ROOM_RES` | `OK|event=JOIN_ROOM|room_id=...|...` |
-| 14 | `LEAVE_ROOM_REQ` | empty |
-| 15 | `LEAVE_ROOM_RES` | `OK|event=LEAVE_ROOM|room_id=...|...` |
-| 20 | `CHAT_REQ` | UTF-8 chat message |
-| 21 | `POSITION_UPDATE` | `float x`, `float y`, network-order IEEE-754 bit |
-| 22 | `ROOM_BROADCAST` | event text payload |
-| 30 | `PING` | empty |
-| 31 | `PONG` | `PONG` |
-| 100 | `ERROR` | error message |
+```text
+00 04 00 1e
+```
 
-header는 binary이고, 일부 MVP payload는 text format을 사용합니다. 이렇게 두면 초기 domain protocol을 과하게 복잡하게 만들지 않으면서도 TCP stream framing, partial read, packet coalescing, malformed packet detection을 코드에서 직접 다룰 수 있습니다.
+## 패킷 종류
 
-## TCP Stream 처리
+| 값 | 이름 | 방향 | payload |
+| ---: | --- | --- | --- |
+| 1 | `LOGIN_REQ` | 클라이언트 → 서버 | UTF-8 사용자 이름 |
+| 2 | `LOGIN_RES` | 서버 → 클라이언트 | 로그인 결과 |
+| 10 | `CREATE_ROOM_REQ` | 클라이언트 → 서버 | UTF-8 방 이름 |
+| 11 | `CREATE_ROOM_RES` | 서버 → 클라이언트 | 방 생성 결과 |
+| 12 | `JOIN_ROOM_REQ` | 클라이언트 → 서버 | 10진수 방 번호 문자열 |
+| 13 | `JOIN_ROOM_RES` | 서버 → 클라이언트 | 방 참가 결과 |
+| 14 | `LEAVE_ROOM_REQ` | 클라이언트 → 서버 | 없음 |
+| 15 | `LEAVE_ROOM_RES` | 서버 → 클라이언트 | 방 나가기 결과 |
+| 20 | `CHAT_REQ` | 클라이언트 → 서버 | UTF-8 채팅 메시지 |
+| 21 | `POSITION_UPDATE` | 클라이언트 → 서버 | `float x`, `float y` |
+| 22 | `ROOM_BROADCAST` | 서버 → 클라이언트 | 방 이벤트 문자열 |
+| 30 | `PING` | 클라이언트 → 서버 | 없음 |
+| 31 | `PONG` | 서버 → 클라이언트 | `PONG` |
+| 100 | `ERROR` | 서버 → 클라이언트 | 오류 설명 |
 
-TCP는 packet 경계를 보존하지 않습니다. 하나의 packet이 여러 `recv`로 쪼개질 수 있고, 여러 packet이 한 번의 `recv`로 합쳐질 수도 있습니다.
+## payload 예시
 
-`PacketCodec`은 내부 byte buffer를 유지하고, 완성된 packet만 반환합니다. size가 header보다 작거나 최대 크기를 초과하면 `ProtocolError`를 발생시킵니다.
+대부분의 응답은 `|`로 항목을 구분한 UTF-8 문자열입니다.
+
+### 로그인 성공
+
+```text
+OK|user_id=1|session_id=10|name=alice
+```
+
+### 방 생성 성공
+
+```text
+OK|event=CREATE_ROOM|room_id=1|user_id=1|session_id=10|name=alice
+```
+
+### 방 참가 성공
+
+```text
+OK|event=JOIN_ROOM|room_id=1|user_id=2|session_id=11|name=bob
+```
+
+### 채팅 broadcast
+
+```text
+event=CHAT|room_id=1|user_id=1|session_id=10|name=alice|message=hello
+```
+
+### 위치 broadcast
+
+```text
+event=POSITION|room_id=1|user_id=1|session_id=10|name=alice|x=10.5|y=22
+```
+
+### 오류
+
+```text
+user is not logged in
+```
+
+## 위치 payload
+
+`POSITION_UPDATE` 요청만 문자열이 아닌 8바이트 바이너리 payload를
+사용합니다.
+
+```text
+앞 4바이트: IEEE-754 float x
+뒤 4바이트: IEEE-754 float y
+```
+
+두 값의 비트 패턴은 각각 big-endian으로 저장합니다.
+
+## 기본 사용 순서
+
+1. TCP 연결을 만듭니다.
+2. `LOGIN_REQ`로 로그인합니다.
+3. `CREATE_ROOM_REQ` 또는 `JOIN_ROOM_REQ`로 방에 들어갑니다.
+4. `CHAT_REQ`와 `POSITION_UPDATE`를 보냅니다.
+5. `LEAVE_ROOM_REQ`로 방에서 나갑니다.
+
+`PING`은 로그인하지 않아도 사용할 수 있습니다. 로그인이나 방 참가가
+필요한 명령을 순서에 맞지 않게 보내면 서버는 `ERROR` 패킷을
+반환합니다.
+
+## TCP에서 패킷을 읽는 방법
+
+TCP의 한 번의 `recv`와 한 패킷은 일치하지 않습니다.
+
+- 한 패킷이 여러 번의 `recv`로 나뉘어 들어올 수 있습니다.
+- 여러 패킷이 한 번의 `recv`에 합쳐질 수 있습니다.
+
+`PacketCodec`은 아직 완성되지 않은 바이트를 내부 버퍼에 보관합니다.
+먼저 4바이트 헤더를 확인하고, `size`만큼 바이트가 모였을 때만 완성된
+패킷을 반환합니다. 남은 바이트는 다음 `feed` 호출까지 유지합니다.
+
+다음 경우에는 `ProtocolError`가 발생합니다.
+
+- 헤더의 크기가 4보다 작음
+- 전체 패킷이 4096바이트를 초과함
+- 위치 payload가 정확히 8바이트가 아님
+- 인코딩할 payload가 최대 크기를 초과함

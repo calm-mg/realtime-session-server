@@ -1,64 +1,129 @@
-# 벤치마크
+# 벤치마크 실행과 해석
 
-현재 포함된 load test client는 다수 client의 `PING`/`PONG` round-trip latency를 측정합니다. 동시 접속, 요청 처리량, p50/p95/p99 latency를 빠르게 확인할 수 있지만, 최종 성능 수치로 공개하기에는 broadcast fanout, queue saturation, slow client 영향 같은 시나리오가 아직 더 필요합니다.
+현재 제공되는 `rss_load_test_client`는 여러 TCP 클라이언트를 만들고,
+각 클라이언트가 `PING`을 반복해서 보낸 뒤 `PONG`이 돌아오는 시간을
+측정합니다.
+
+이 도구는 연결과 간단한 요청/응답 성능을 확인하기 위한 것입니다.
+채팅 broadcast, 느린 클라이언트, queue 포화 상태는 아직 측정하지
+않습니다.
+
+## 빌드
+
+Release 설정으로 빌드합니다.
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+## 실행
+
+첫 번째 터미널에서 서버를 실행합니다.
 
 ```bash
 ./build/rss_server 0.0.0.0 7777 4
-./build/rss_load_test_client 127.0.0.1 7777 1000 100
 ```
 
-출력 예시는 다음과 같습니다.
+두 번째 터미널에서 부하 테스트를 실행합니다.
+
+```bash
+./build/rss_load_test_client 127.0.0.1 7777 100 100
+```
+
+인자는 다음 순서입니다.
 
 ```text
-clients=1000 messages_per_client=100 sent=100000 failed_clients=0 elapsed_sec=12.34 approx_msg_per_sec=8103 latency_samples=100000 min_ms=0.12 p50_ms=1.34 p95_ms=5.67 p99_ms=9.87 max_ms=15.43
+rss_load_test_client <서버 주소> <포트> <클라이언트 수> <클라이언트별 요청 수>
 ```
 
-## 기본 기록 항목
+인자를 생략할 때의 기본값은 다음과 같습니다.
 
-벤치마크 결과를 기록할 때는 최소한 다음 항목을 함께 남깁니다.
+| 인자 | 기본값 |
+| --- | ---: |
+| 서버 주소 | `127.0.0.1` |
+| 포트 | `7777` |
+| 클라이언트 수 | `100` |
+| 클라이언트별 요청 수 | `100` |
 
-- CPU 모델과 core 수
-- OS와 kernel version
-- compiler version과 build type
-- git commit 또는 server version
-- worker/shard count
-- client count
-- room count
-- messages per client
-- payload size
-- total messages sent
-- elapsed seconds
-- messages per second
-- p50/p95/p99 latency
-- min/max latency
-- latency sample count
-- queue full count
-- overload 또는 disconnect count
+## 출력 읽는 방법
 
-## 측정 시나리오
+다음은 출력 형식을 설명하기 위한 예시입니다. 프로젝트의 실제 성능
+측정값이 아닙니다.
 
-포트폴리오에서 의미 있는 성능 근거를 만들기 위해 다음 시나리오를 기준으로 측정합니다. `ping`은 현재 load test client가 지원하고, 나머지는 이후 확장 대상입니다.
+```text
+clients=100 messages_per_client=100 sent=10000 failed_clients=0 elapsed_sec=1.25 approx_msg_per_sec=8000 latency_samples=10000 min_ms=0.10 p50_ms=0.80 p95_ms=2.40 p99_ms=4.10 max_ms=8.50
+```
 
-- `ping`: 다수 클라이언트의 request/response round-trip latency 측정
-- `single-room-broadcast`: 한 room에 많은 client가 있을 때 broadcast fanout 측정
-- `many-room-broadcast`: 작은 room 여러 개가 동시에 동작할 때 처리량과 지연 측정
-- `slow-client`: 일부 client가 읽지 않을 때 pending write와 backpressure 동작 확인
-- `fragmented-packets`: 하나의 packet이 여러 번의 write로 쪼개지는 상황 확인
-- `coalesced-packets`: 여러 packet이 한 번의 write로 합쳐지는 상황 확인
-- `large-payload-rejection`: 최대 packet size 초과 시 rejection/disconnect 확인
-- `idle-timeout-cleanup`: idle session 정리와 room cleanup 확인
+| 항목 | 의미 |
+| --- | --- |
+| `clients` | 동시에 연결을 시도한 클라이언트 수 |
+| `messages_per_client` | 각 클라이언트가 보낸 `PING` 수 |
+| `sent` | 실제로 전송하고 응답까지 받은 요청 수 |
+| `failed_clients` | 연결 또는 통신 중 실패한 클라이언트 수 |
+| `elapsed_sec` | 전체 테스트에 걸린 시간 |
+| `approx_msg_per_sec` | `sent / elapsed_sec`로 계산한 초당 요청 수 |
+| `latency_samples` | 응답 시간 표본 수 |
+| `min_ms` | 가장 짧은 응답 시간 |
+| `p50_ms` | 표본의 50%가 이 값 이하인 응답 시간 |
+| `p95_ms` | 표본의 95%가 이 값 이하인 응답 시간 |
+| `p99_ms` | 표본의 99%가 이 값 이하인 응답 시간 |
+| `max_ms` | 가장 긴 응답 시간 |
 
-## 도구 방향
+예를 들어 `p99_ms=4.10`은 전체 요청의 약 99%가 4.10ms 이내에
+응답했다는 뜻입니다.
 
-서버 전체를 대상으로 하는 scenario benchmark는 별도 load test client로 측정합니다. 현재 load test client는 `ping` 시나리오를 담당합니다. `PacketCodec`, bounded queue, shard routing처럼 작은 단위의 성능 비교는 Google Benchmark를 도입해 microbenchmark로 분리합니다.
+프로그램은 실패한 클라이언트가 하나라도 있거나 응답 시간 표본이 없으면
+0이 아닌 종료 코드를 반환합니다.
 
-## 해석 기준
+## 결과를 기록할 때 필요한 정보
 
-단순히 messages/sec만 높게 찍는 것보다, 서버가 부하를 받는 상황에서 어떤 병목이 생기고 어떻게 개선했는지가 중요합니다.
+서로 다른 환경의 숫자를 비교하려면 최소한 다음 정보를 함께
+기록해야 합니다.
 
-이 프로젝트에서는 다음 비교를 목표로 합니다.
+- CPU 모델과 코어 수
+- 메모리 용량
+- 운영체제와 Linux kernel 버전
+- 물리 Linux, WSL2, 가상 머신, 컨테이너 중 어떤 환경인지
+- 컴파일러 버전
+- Git commit
+- Release 또는 Debug 빌드 여부
+- 서버 worker 수
+- 클라이언트 수와 클라이언트별 요청 수
+- 서버와 부하 도구가 같은 PC에서 실행됐는지 여부
+- 테스트 반복 횟수
 
-- baseline: I/O thread + worker pool + unbounded queue + mutex 기반 `RoomService`
-- improved: `eventfd` wakeup + bounded queue + backpressure + room shard ownership
+## 측정 순서
 
-최종 문서에는 baseline과 improved 결과를 같은 환경에서 측정해 p50/p95/p99 latency, broadcast 처리량, overload count를 함께 기록합니다.
+1. 다른 빌드나 로그 출력이 성능에 영향을 주지 않도록 Release로
+   빌드합니다.
+2. 서버를 실행하고 정상적으로 접속 가능한지 확인합니다.
+3. 작은 부하를 한 번 보내서 코드와 메모리 페이지를 준비합니다.
+4. 같은 설정으로 최소 5번 반복합니다.
+5. 각 실행의 `p50`, `p95`, `p99`, 처리량, 실패 수를 보관합니다.
+6. 중간값과 실행 간 차이를 함께 확인합니다.
+7. 설정을 하나만 바꾼 뒤 다시 같은 횟수로 측정합니다.
+
+## 결과 해석 시 주의사항
+
+- 서버와 부하 도구를 같은 PC에서 실행하면 CPU와 네트워크 자원을 서로
+  사용합니다.
+- WSL2, Docker, 물리 Linux의 결과를 같은 환경처럼 비교하면 안 됩니다.
+- 초당 처리량이 높아도 `p99`가 크게 증가하면 일부 사용자는 느린 응답을
+  경험합니다.
+- 평균값만 보면 소수의 매우 느린 응답을 발견하기 어렵습니다.
+- `failed_clients`가 0이 아닌 결과는 정상 처리량으로 해석하면 안 됩니다.
+- 현재 도구의 처리량은 단순히 완료한 요청 수를 전체 시간으로 나눈
+  근사값입니다.
+
+## 현재 측정할 수 없는 항목
+
+현재 부하 테스트 도구는 다음 상황을 만들거나 별도로 집계하지 않습니다.
+
+- 한 방에 많은 사용자가 있을 때의 broadcast 비용
+- 여러 방이 동시에 활동할 때의 처리량
+- 응답을 읽지 않는 느린 클라이언트
+- 입력 또는 출력 queue가 가득 찬 횟수
+- 연결 종료와 재접속이 반복되는 상황
+
+따라서 현재 출력만으로 위 항목의 성능이나 안정성을 판단할 수 없습니다.

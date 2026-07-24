@@ -3,8 +3,8 @@
 namespace rss::domain {
 
 struct Position {
-    float x{};
-    float y{};
+  float x{};
+  float y{};
 };
 
-} // namespace rss::domain
+}  // namespace rss::domain
