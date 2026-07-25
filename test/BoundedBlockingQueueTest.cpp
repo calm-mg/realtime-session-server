@@ -66,8 +66,8 @@ TEST(BoundedBlockingQueueTest, PushWaitsUntilPopCreatesCapacity) {
   auto result = result_promise.get_future();
   std::thread producer([&] { result_promise.set_value(queue.push(20)); });
 
-  const bool producer_is_waiting = waitUntil(
-      [&] { return queue.waiterCounts().producers == 1U; });
+  const bool producer_is_waiting =
+      waitUntil([&] { return queue.waiterCounts().producers == 1U; });
   EXPECT_TRUE(producer_is_waiting);
   if (!producer_is_waiting) {
     queue.close();
@@ -110,8 +110,8 @@ TEST(BoundedBlockingQueueTest, PopWaitsUntilPushProvidesValue) {
     result_promise.set_value({queue.pop(popped_value), popped_value});
   });
 
-  const bool consumer_is_waiting = waitUntil(
-      [&] { return queue.waiterCounts().consumers == 1U; });
+  const bool consumer_is_waiting =
+      waitUntil([&] { return queue.waiterCounts().consumers == 1U; });
   EXPECT_TRUE(consumer_is_waiting);
   if (!consumer_is_waiting) {
     queue.close();
@@ -150,8 +150,8 @@ TEST(BoundedBlockingQueueTest, CloseWakesBlockedProducerAndReportsFailure) {
   auto result = result_promise.get_future();
   std::thread producer([&] { result_promise.set_value(queue.push(20)); });
 
-  const bool producer_is_waiting = waitUntil(
-      [&] { return queue.waiterCounts().producers == 1U; });
+  const bool producer_is_waiting =
+      waitUntil([&] { return queue.waiterCounts().producers == 1U; });
   EXPECT_TRUE(producer_is_waiting);
   if (!producer_is_waiting) {
     queue.close();
@@ -191,8 +191,8 @@ TEST(BoundedBlockingQueueTest, CloseWakesBlockedConsumerAndReportsFailure) {
     result_promise.set_value(queue.pop(popped_value));
   });
 
-  const bool consumer_is_waiting = waitUntil(
-      [&] { return queue.waiterCounts().consumers == 1U; });
+  const bool consumer_is_waiting =
+      waitUntil([&] { return queue.waiterCounts().consumers == 1U; });
   EXPECT_TRUE(consumer_is_waiting);
   if (!consumer_is_waiting) {
     queue.close();

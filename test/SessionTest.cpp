@@ -29,15 +29,13 @@ TEST(SessionTest, RejectsWritesAboveThePendingByteLimitWithoutChangingState) {
   EXPECT_FALSE(session.tryEnqueue({6}));
   EXPECT_EQ(session.pendingWriteBytes(), 5U);
   ASSERT_TRUE(session.hasPendingWrite());
-  EXPECT_EQ(session.currentWrite().bytes,
-            (std::vector<std::uint8_t>{1, 2, 3}));
+  EXPECT_EQ(session.currentWrite().bytes, (std::vector<std::uint8_t>{1, 2, 3}));
   EXPECT_EQ(session.currentWrite().offset, 0U);
 
   session.consumeWrite(3);
   EXPECT_EQ(session.pendingWriteBytes(), 2U);
   ASSERT_TRUE(session.hasPendingWrite());
-  EXPECT_EQ(session.currentWrite().bytes,
-            (std::vector<std::uint8_t>{4, 5}));
+  EXPECT_EQ(session.currentWrite().bytes, (std::vector<std::uint8_t>{4, 5}));
   EXPECT_EQ(session.currentWrite().offset, 0U);
 
   EXPECT_TRUE(session.tryEnqueue({6, 7, 8}));

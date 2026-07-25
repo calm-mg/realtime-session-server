@@ -73,6 +73,32 @@ jobs:
       - name: Check microbenchmarks
         run: ./build/release/rss_microbenchmarks --benchmark_dry_run
 
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v7
+
+      - name: 빌드 도구 설치
+        run: sudo apt-get update && sudo apt-get install --yes cmake ninja-build
+
+      - name: Sanitizer 구성
+        run: >
+          cmake -S . -B build/sanitizers -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DRSS_BUILD_BENCHMARKS=OFF
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: 빌드
+        run: cmake --build build/sanitizers --parallel
+
+      - name: 테스트
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build/sanitizers --output-on-failure
+
   code-quality:
     runs-on: ubuntu-24.04
     steps:

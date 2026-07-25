@@ -21,4 +21,14 @@ TEST(ReadBackpressureControllerTest, TransitionsOnlyAtConfiguredBoundaries) {
   EXPECT_EQ(controller.onCapacityAvailable(1), ReadTransition::None);
 }
 
+TEST(ReadBackpressureControllerTest,
+     KeepsWatermarkTransitionsBeyondBothBoundaries) {
+  ReadBackpressureController controller(3, 1);
+
+  EXPECT_EQ(controller.onInboundSize(4), ReadTransition::Pause);
+  EXPECT_TRUE(controller.paused());
+  EXPECT_EQ(controller.onCapacityAvailable(0), ReadTransition::Resume);
+  EXPECT_FALSE(controller.paused());
+}
+
 }  // namespace

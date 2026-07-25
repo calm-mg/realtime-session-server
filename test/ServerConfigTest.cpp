@@ -23,6 +23,15 @@ TEST(ServerConfigTest, UsesBackpressureDefaults) {
   EXPECT_NO_THROW(config.validate());
 }
 
+TEST(ServerConfigTest, AcceptsHighWatermarkEqualToInboundCapacity) {
+  ServerConfig config;
+  config.inbound_queue_capacity = 3;
+  config.inbound_high_watermark = 3;
+  config.inbound_low_watermark = 1;
+
+  EXPECT_NO_THROW(config.validate());
+}
+
 enum class InvalidConfigCase {
   ZeroInboundCapacity,
   ZeroLowWatermark,
