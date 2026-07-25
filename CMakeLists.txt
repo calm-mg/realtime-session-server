@@ -108,6 +108,7 @@ if(RSS_BUILD_TESTS)
     if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(rss_net_tests
             test/EventFdCompletionNotifierTest.cpp
+            test/TcpServerBackpressureTest.cpp
         )
         target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
         gtest_discover_tests(rss_net_tests DISCOVERY_MODE PRE_TEST)
