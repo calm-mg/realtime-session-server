@@ -172,9 +172,11 @@ std::uint16_t TcpServer::boundPort() const noexcept {
 }
 
 OverloadSnapshot TcpServer::overloadSnapshot() const {
-  return overload_stats_.snapshot(
+  auto snapshot = overload_stats_.snapshot(
       inbox_.size(), outbox_.size(),
       current_sessions_.load(std::memory_order_relaxed));
+  snapshot.outbound_queue_closed = outbox_.closed();
+  return snapshot;
 }
 
 void TcpServer::openListener() {
@@ -377,8 +379,12 @@ void TcpServer::disconnect(int fd) {
   sessions_by_fd_.erase(it);
   current_sessions_.store(sessions_by_fd_.size(), std::memory_order_relaxed);
 
-  if (shutdown_phase_ != ShutdownPhase::Running ||
-      stop_requested_.load(std::memory_order_acquire)) {
+  if (shutdown_phase_ == ShutdownPhase::DrainingInput) {
+    deferDisconnected(std::move(session));
+    return;
+  }
+
+  if (shutdown_phase_ != ShutdownPhase::Running) {
     return;
   }
 
@@ -549,6 +555,9 @@ bool TcpServer::drainDeferredInput() {
       return false;
     }
   }
+  if (!deferred_disconnects_.empty()) {
+    return false;
+  }
 
   const auto inbound_size = inbox_.size();
   if (shutdown_phase_ == ShutdownPhase::Running &&
@@ -621,8 +630,7 @@ void TcpServer::forceShutdown() {
     return;
   }
 
-  workers_.beginStop();
-  outbox_.close();
+  workers_.forceStop();
   shutdown_phase_ = ShutdownPhase::Forced;
 }
 

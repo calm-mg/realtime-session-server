@@ -63,6 +63,11 @@ void WorkerPool::start(std::size_t thread_count) {
 
 void WorkerPool::beginStop() { inbox_.close(); }
 
+void WorkerPool::forceStop() {
+  inbox_.close();
+  outbox_.close();
+}
+
 bool WorkerPool::finished() const {
   return active_workers_.load(std::memory_order_acquire) == 0;
 }

@@ -945,6 +945,7 @@ TEST_F(TcpServerBackpressureTest,
            snapshot.read_pauses >= 1;
   }));
 
+  const auto stop_started = std::chrono::steady_clock::now();
   server_->stop();
   handler_.release();
 
@@ -953,7 +954,86 @@ TEST_F(TcpServerBackpressureTest,
   for (std::size_t index = 0; index < packets.size(); ++index) {
     EXPECT_EQ(rss::protocol::payloadToString(packets[index]), payloads[index]);
   }
-  EXPECT_EQ(waitForServerFinishedFuture(2s), std::future_status::ready);
+  ASSERT_EQ(waitForServerFinishedFuture(500ms), std::future_status::ready);
+  EXPECT_LT(std::chrono::steady_clock::now() - stop_started, 500ms);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       PreservesDeferredInputWhenPeerClosesDuringShutdownDrain) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 2;
+  config.inbound_high_watermark = 2;
+  config.inbound_low_watermark = 1;
+  config.graceful_shutdown_timeout = 2s;
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  const std::vector<std::string> payloads{"gate", "one", "two", "three",
+                                          "four"};
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch(payloads)));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(waitUntil([this] {
+    const auto snapshot = server_->overloadSnapshot();
+    return snapshot.current_inbound_queue_size == 2 &&
+           snapshot.read_pauses >= 1;
+  }));
+
+  server_->stop();
+  client.reset();
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  handler_.release();
+
+  ASSERT_TRUE(handler_.waitForHandledEventCount(payloads.size() + 1, 1500ms));
+  std::vector<std::string> expected;
+  expected.reserve(payloads.size() + 1);
+  for (const auto& payload : payloads) {
+    expected.push_back("Packet:" + payload);
+  }
+  expected.push_back("Disconnected");
+  EXPECT_EQ(handler_.handledEvents(), expected);
+  EXPECT_EQ(waitForServerFinishedFuture(1500ms), std::future_status::ready);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       PreservesProtocolErrorDisconnectAfterShutdownInputResaturates) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 2;
+  config.inbound_high_watermark = 2;
+  config.inbound_low_watermark = 1;
+  config.graceful_shutdown_timeout = 2s;
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  const std::vector<std::string> payloads{"gate", "one", "two", "three",
+                                          "four"};
+  auto bytes = encodePingBatch(payloads);
+  const std::vector<std::uint8_t> malformed_header{0, 3, 0, 1};
+  bytes.insert(bytes.end(), malformed_header.begin(), malformed_header.end());
+  ASSERT_TRUE(sendSingleWrite(client.get(), bytes));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(waitUntil([this] {
+    const auto snapshot = server_->overloadSnapshot();
+    return snapshot.current_inbound_queue_size == 2 &&
+           snapshot.read_pauses >= 1;
+  }));
+
+  server_->stop();
+  handler_.release();
+
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  ASSERT_TRUE(handler_.waitForHandledEventCount(payloads.size() + 1, 1500ms));
+  std::vector<std::string> expected;
+  expected.reserve(payloads.size() + 1);
+  for (const auto& payload : payloads) {
+    expected.push_back("Packet:" + payload);
+  }
+  expected.push_back("Disconnected");
+  EXPECT_EQ(handler_.handledEvents(), expected);
+  EXPECT_EQ(waitForServerFinishedFuture(1500ms), std::future_status::ready);
 }
 
 TEST_F(TcpServerBackpressureTest,
@@ -990,6 +1070,7 @@ TEST_F(TcpServerBackpressureTest,
   const auto elapsed = std::chrono::steady_clock::now() - stop_started;
   EXPECT_GE(elapsed, config.graceful_shutdown_timeout - 100ms);
   EXPECT_LT(elapsed, config.graceful_shutdown_timeout + 1s);
+  EXPECT_TRUE(server_->overloadSnapshot().outbound_queue_closed);
 }
 
 }  // namespace

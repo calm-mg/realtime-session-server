@@ -114,7 +114,8 @@ TEST(WorkerPoolNotificationTest,
   EXPECT_EQ(outbound_notifier.notifications.load(), 3);
 }
 
-TEST(WorkerPoolNotificationTest, ClosingFullOutboxReleasesBlockedWorker) {
+TEST(WorkerPoolNotificationTest,
+     ForceStopClosesQueuesAndReleasesBlockedOutboundProducer) {
   using rss::service::OutboundMessage;
   using rss::service::SessionEvent;
   using rss::service::SessionEventKind;
@@ -130,24 +131,22 @@ TEST(WorkerPoolNotificationTest, ClosingFullOutboxReleasesBlockedWorker) {
       inbox.push(SessionEvent{SessionEventKind::Packet, 42, {}}).succeeded);
   ASSERT_TRUE(waitUntil([&] { return outbox.waiterCounts().producers == 1; }));
 
-  outbox.close();
-  std::atomic<bool> joined{false};
-  std::thread joiner([&] {
-    workers.join();
-    joined.store(true);
-  });
+  workers.forceStop();
+  const auto inbox_closed_by_force = inbox.closed();
+  const auto outbox_closed_by_force = outbox.closed();
+  workers.forceStop();
 
-  const auto joined_before_deadline = waitUntil([&] { return joined.load(); });
-  EXPECT_TRUE(joined_before_deadline);
-  if (!joined_before_deadline) {
-    static_cast<void>(outbox.tryPop());
+  const auto finished_before_deadline =
+      waitUntil([&] { return workers.finished(); });
+  if (!finished_before_deadline) {
     outbox.close();
-    workers.beginStop();
-    EXPECT_TRUE(waitUntil([&] { return joined.load(); }));
+    inbox.close();
   }
-  joiner.join();
+  workers.join();
 
-  EXPECT_TRUE(workers.finished());
+  EXPECT_TRUE(inbox_closed_by_force);
+  EXPECT_TRUE(outbox_closed_by_force);
+  EXPECT_TRUE(finished_before_deadline);
 }
 
 TEST(WorkerPoolNotificationTest, TracksActiveWorkersUntilTheyExit) {

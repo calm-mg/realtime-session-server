@@ -26,6 +26,7 @@ class WorkerPool {
 
   void start(std::size_t thread_count);
   void beginStop();
+  void forceStop();
   [[nodiscard]] bool finished() const;
   void join();
 

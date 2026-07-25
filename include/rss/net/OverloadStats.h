@@ -18,6 +18,7 @@ struct OverloadSnapshot {
   std::size_t current_inbound_queue_size{};
   std::size_t current_outbound_queue_size{};
   std::size_t current_sessions{};
+  bool outbound_queue_closed{};
 };
 
 class OverloadStats {
@@ -76,6 +77,7 @@ class OverloadStats {
         .current_inbound_queue_size = current_inbound_queue_size,
         .current_outbound_queue_size = current_outbound_queue_size,
         .current_sessions = current_sessions,
+        .outbound_queue_closed = false,
     };
   }
 
