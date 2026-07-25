@@ -97,14 +97,16 @@ void PacketCodec::feed(const std::uint8_t* data, std::size_t size) {
   buffer_.insert(buffer_.end(), data, data + size);
 }
 
-std::optional<PacketCodec::PacketFrame> PacketCodec::firstPacketFrame()
-    const {
-  if (buffer_.size() < kPacketHeaderSize) {
+std::optional<PacketCodec::PacketFrame> PacketCodec::packetFrameAt(
+    std::size_t offset) const {
+  const auto available = buffer_.size() - offset;
+  if (available < kPacketHeaderSize) {
     return std::nullopt;
   }
 
-  const auto packet_size = readU16(buffer_.data());
-  const auto packet_type = readU16(buffer_.data() + 2);
+  const auto* header = buffer_.data() + offset;
+  const auto packet_size = readU16(header);
+  const auto packet_type = readU16(header + 2);
 
   if (packet_size < kPacketHeaderSize) {
     throw ProtocolError("invalid packet size");
@@ -112,7 +114,7 @@ std::optional<PacketCodec::PacketFrame> PacketCodec::firstPacketFrame()
   if (packet_size > kMaxPacketSize) {
     throw ProtocolError("packet exceeds max size");
   }
-  if (buffer_.size() < packet_size) {
+  if (available < packet_size) {
     return std::nullopt;
   }
 
@@ -120,7 +122,7 @@ std::optional<PacketCodec::PacketFrame> PacketCodec::firstPacketFrame()
 }
 
 std::optional<Packet> PacketCodec::peekPacket() const {
-  const auto frame = firstPacketFrame();
+  const auto frame = packetFrameAt(0);
   if (!frame.has_value()) {
     return std::nullopt;
   }
@@ -133,7 +135,7 @@ std::optional<Packet> PacketCodec::peekPacket() const {
 }
 
 void PacketCodec::consumePacket() {
-  const auto frame = firstPacketFrame();
+  const auto frame = packetFrameAt(0);
   if (!frame.has_value()) {
     throw std::logic_error("no completed packet to consume");
   }
@@ -143,10 +145,21 @@ void PacketCodec::consumePacket() {
 
 std::vector<Packet> PacketCodec::drainPackets() {
   std::vector<Packet> packets;
+  std::size_t offset = 0;
 
-  while (auto packet = peekPacket()) {
-    packets.push_back(std::move(*packet));
-    consumePacket();
+  while (const auto frame = packetFrameAt(offset)) {
+    Packet packet;
+    packet.type = frame->type;
+    const auto payload_begin = offset + kPacketHeaderSize;
+    const auto payload_end = offset + frame->size;
+    packet.payload.assign(buffer_.begin() + payload_begin,
+                          buffer_.begin() + payload_end);
+    packets.push_back(std::move(packet));
+    offset += frame->size;
+  }
+
+  if (offset != 0) {
+    buffer_.erase(buffer_.begin(), buffer_.begin() + offset);
   }
 
   return packets;

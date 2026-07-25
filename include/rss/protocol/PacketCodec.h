@@ -42,7 +42,8 @@ class PacketCodec {
     PacketType type;
   };
 
-  [[nodiscard]] std::optional<PacketFrame> firstPacketFrame() const;
+  [[nodiscard]] std::optional<PacketFrame> packetFrameAt(
+      std::size_t offset) const;
 
   std::vector<std::uint8_t> buffer_;
 };

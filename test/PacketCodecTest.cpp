@@ -64,4 +64,20 @@ TEST(PacketCodecTest, RejectsPacketSmallerThanHeader) {
   EXPECT_THROW((void)codec.drainPackets(), ProtocolError);
 }
 
+TEST(PacketCodecTest, PreservesBufferedPacketsWhenLaterFrameIsInvalid) {
+  const auto valid = PacketCodec::encode(PacketType::Ping, "one");
+  const std::uint8_t invalid[] = {0, 3, 0, 1};
+  std::vector<std::uint8_t> bytes(valid);
+  bytes.insert(bytes.end(), std::begin(invalid), std::end(invalid));
+
+  PacketCodec codec;
+  codec.feed(bytes.data(), bytes.size());
+
+  EXPECT_THROW((void)codec.drainPackets(), ProtocolError);
+
+  const auto retained = codec.peekPacket();
+  ASSERT_TRUE(retained.has_value());
+  EXPECT_EQ(rss::protocol::payloadToString(*retained), "one");
+}
+
 }  // namespace
