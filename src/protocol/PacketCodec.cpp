@@ -97,39 +97,56 @@ void PacketCodec::feed(const std::uint8_t* data, std::size_t size) {
   buffer_.insert(buffer_.end(), data, data + size);
 }
 
-std::vector<Packet> PacketCodec::drainPackets() {
-  std::vector<Packet> packets;
-  std::size_t offset = 0;
-
-  while (buffer_.size() - offset >= kPacketHeaderSize) {
-    const auto* header = buffer_.data() + offset;
-    const auto packet_size = readU16(header);
-    const auto packet_type = readU16(header + 2);
-
-    if (packet_size < kPacketHeaderSize) {
-      throw ProtocolError("invalid packet size");
-    }
-    if (packet_size > kMaxPacketSize) {
-      throw ProtocolError("packet exceeds max size");
-    }
-    if (buffer_.size() - offset < packet_size) {
-      break;
-    }
-
-    Packet packet;
-    packet.type = static_cast<PacketType>(packet_type);
-    const auto payload_begin = offset + kPacketHeaderSize;
-    const auto payload_end = offset + packet_size;
-    packet.payload.assign(
-        buffer_.begin() + static_cast<std::ptrdiff_t>(payload_begin),
-        buffer_.begin() + static_cast<std::ptrdiff_t>(payload_end));
-    packets.push_back(std::move(packet));
-    offset += packet_size;
+std::optional<PacketCodec::PacketFrame> PacketCodec::firstPacketFrame()
+    const {
+  if (buffer_.size() < kPacketHeaderSize) {
+    return std::nullopt;
   }
 
-  if (offset != 0) {
-    buffer_.erase(buffer_.begin(),
-                  buffer_.begin() + static_cast<std::ptrdiff_t>(offset));
+  const auto packet_size = readU16(buffer_.data());
+  const auto packet_type = readU16(buffer_.data() + 2);
+
+  if (packet_size < kPacketHeaderSize) {
+    throw ProtocolError("invalid packet size");
+  }
+  if (packet_size > kMaxPacketSize) {
+    throw ProtocolError("packet exceeds max size");
+  }
+  if (buffer_.size() < packet_size) {
+    return std::nullopt;
+  }
+
+  return PacketFrame{packet_size, static_cast<PacketType>(packet_type)};
+}
+
+std::optional<Packet> PacketCodec::peekPacket() const {
+  const auto frame = firstPacketFrame();
+  if (!frame.has_value()) {
+    return std::nullopt;
+  }
+
+  Packet packet;
+  packet.type = frame->type;
+  packet.payload.assign(buffer_.begin() + kPacketHeaderSize,
+                        buffer_.begin() + frame->size);
+  return packet;
+}
+
+void PacketCodec::consumePacket() {
+  const auto frame = firstPacketFrame();
+  if (!frame.has_value()) {
+    throw std::logic_error("no completed packet to consume");
+  }
+
+  buffer_.erase(buffer_.begin(), buffer_.begin() + frame->size);
+}
+
+std::vector<Packet> PacketCodec::drainPackets() {
+  std::vector<Packet> packets;
+
+  while (auto packet = peekPacket()) {
+    packets.push_back(std::move(*packet));
+    consumePacket();
   }
 
   return packets;

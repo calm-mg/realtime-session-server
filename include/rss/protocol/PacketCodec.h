@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -31,9 +32,18 @@ class PacketCodec {
       std::span<const std::uint8_t> payload);
 
   void feed(const std::uint8_t* data, std::size_t size);
+  [[nodiscard]] std::optional<Packet> peekPacket() const;
+  void consumePacket();
   [[nodiscard]] std::vector<Packet> drainPackets();
 
  private:
+  struct PacketFrame {
+    std::size_t size;
+    PacketType type;
+  };
+
+  [[nodiscard]] std::optional<PacketFrame> firstPacketFrame() const;
+
   std::vector<std::uint8_t> buffer_;
 };
 
