@@ -30,8 +30,9 @@ bool Session::tryEnqueue(std::vector<std::uint8_t> bytes) {
     return false;
   }
 
-  pending_write_bytes_ += bytes.size();
+  const auto byte_count = bytes.size();
   pending_writes_.push_back(PendingWrite{std::move(bytes), 0});
+  pending_write_bytes_ += byte_count;
   return true;
 }
 
