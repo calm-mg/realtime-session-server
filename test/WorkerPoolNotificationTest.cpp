@@ -138,12 +138,15 @@ TEST(WorkerPoolNotificationTest, ClosingFullOutboxReleasesBlockedWorker) {
   });
 
   const auto joined_before_deadline = waitUntil([&] { return joined.load(); });
+  EXPECT_TRUE(joined_before_deadline);
   if (!joined_before_deadline) {
+    static_cast<void>(outbox.tryPop());
+    outbox.close();
     workers.beginStop();
+    EXPECT_TRUE(waitUntil([&] { return joined.load(); }));
   }
   joiner.join();
 
-  EXPECT_TRUE(joined_before_deadline);
   EXPECT_TRUE(workers.finished());
 }
 
