@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 
 namespace rss::net {
@@ -14,6 +15,37 @@ struct ServerConfig {
   int backlog{512};
   int max_events{256};
   std::chrono::seconds idle_timeout{60};
+  std::size_t inbound_queue_capacity{4096};
+  std::size_t inbound_high_watermark{3072};
+  std::size_t inbound_low_watermark{2048};
+  std::size_t outbound_queue_capacity{4096};
+  std::size_t max_pending_write_bytes{1024 * 1024};
+  std::size_t max_sessions{10000};
+  std::chrono::seconds graceful_shutdown_timeout{5};
+
+  void validate() const {
+    if (inbound_queue_capacity == 0) {
+      throw std::invalid_argument("inbound queue capacity must be positive");
+    }
+    if (inbound_low_watermark == 0 ||
+        inbound_low_watermark >= inbound_high_watermark ||
+        inbound_high_watermark > inbound_queue_capacity) {
+      throw std::invalid_argument("invalid inbound queue watermarks");
+    }
+    if (outbound_queue_capacity == 0) {
+      throw std::invalid_argument("outbound queue capacity must be positive");
+    }
+    if (max_pending_write_bytes == 0) {
+      throw std::invalid_argument(
+          "maximum pending write bytes must be positive");
+    }
+    if (max_sessions == 0) {
+      throw std::invalid_argument("maximum sessions must be positive");
+    }
+    if (graceful_shutdown_timeout <= std::chrono::seconds::zero()) {
+      throw std::invalid_argument("graceful shutdown timeout must be positive");
+    }
+  }
 };
 
 }  // namespace rss::net
