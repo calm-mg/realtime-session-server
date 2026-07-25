@@ -47,8 +47,11 @@ sockaddr_in makeAddress(const std::string& host, std::uint16_t port) {
 
 TcpServer::TcpServer(ServerConfig config)
     : config_(std::move(config)),
+      inbox_(config_.inbound_queue_capacity),
+      outbox_(config_.outbound_queue_capacity),
       router_(room_service_),
-      workers_(inbox_, outbox_, router_, &outbound_wakeup_) {}
+      workers_(inbox_, outbox_, router_, config_.inbound_low_watermark,
+               &outbound_wakeup_) {}
 
 TcpServer::~TcpServer() {
   stop();
@@ -104,7 +107,8 @@ void TcpServer::run() {
 
 void TcpServer::stop() {
   running_ = false;
-  workers_.stop();
+  workers_.beginStop();
+  workers_.join();
 }
 
 void TcpServer::openListener() {
@@ -249,7 +253,12 @@ void TcpServer::disconnect(int fd) {
 }
 
 void TcpServer::drainOutbound() {
-  while (auto message = outbox_.tryPop()) {
+  while (true) {
+    auto result = outbox_.tryPop();
+    if (!result.value.has_value()) {
+      break;
+    }
+    auto message = std::move(result.value);
     const auto fd_it = fd_by_session_.find(message->session_id);
     if (fd_it == fd_by_session_.end()) {
       continue;

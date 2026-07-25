@@ -1,36 +1,44 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <thread>
 #include <vector>
 
 #include "rss/net/CompletionNotifier.h"
 #include "rss/service/SessionEventHandler.h"
-#include "rss/util/BlockingQueue.h"
+#include "rss/util/BoundedBlockingQueue.h"
 
 namespace rss::net {
 
 class WorkerPool {
  public:
-  WorkerPool(util::BlockingQueue<service::SessionEvent>& inbox,
-             util::BlockingQueue<service::OutboundMessage>& outbox,
+  WorkerPool(util::BoundedBlockingQueue<service::SessionEvent>& inbox,
+             util::BoundedBlockingQueue<service::OutboundMessage>& outbox,
              service::SessionEventHandler& handler,
-             CompletionNotifier* completion_notifier = nullptr);
-  ~WorkerPool();
+             std::size_t inbound_low_watermark,
+             CompletionNotifier* outbound_notifier = nullptr,
+             CompletionNotifier* input_capacity_notifier = nullptr);
+  ~WorkerPool() noexcept;
 
   WorkerPool(const WorkerPool&) = delete;
   WorkerPool& operator=(const WorkerPool&) = delete;
 
   void start(std::size_t thread_count);
-  void stop();
+  void beginStop();
+  [[nodiscard]] bool finished() const;
+  void join();
 
  private:
   void run();
 
-  util::BlockingQueue<service::SessionEvent>& inbox_;
-  util::BlockingQueue<service::OutboundMessage>& outbox_;
+  util::BoundedBlockingQueue<service::SessionEvent>& inbox_;
+  util::BoundedBlockingQueue<service::OutboundMessage>& outbox_;
   service::SessionEventHandler& handler_;
-  CompletionNotifier* completion_notifier_{nullptr};
+  std::size_t inbound_low_watermark_;
+  CompletionNotifier* outbound_notifier_{nullptr};
+  CompletionNotifier* input_capacity_notifier_{nullptr};
+  std::atomic<std::size_t> active_workers_{0};
   std::vector<std::thread> threads_;
 };
 

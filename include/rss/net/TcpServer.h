@@ -12,7 +12,7 @@
 #include "rss/net/WorkerPool.h"
 #include "rss/service/MessageRouter.h"
 #include "rss/service/RoomService.h"
-#include "rss/util/BlockingQueue.h"
+#include "rss/util/BoundedBlockingQueue.h"
 
 namespace rss::net {
 
@@ -40,8 +40,8 @@ class TcpServer {
   ServerConfig config_;
   EpollEventLoop event_loop_;
   EventFdCompletionNotifier outbound_wakeup_;
-  util::BlockingQueue<service::SessionEvent> inbox_;
-  util::BlockingQueue<service::OutboundMessage> outbox_;
+  util::BoundedBlockingQueue<service::SessionEvent> inbox_;
+  util::BoundedBlockingQueue<service::OutboundMessage> outbox_;
   service::RoomService room_service_;
   service::MessageRouter router_;
   WorkerPool workers_;
