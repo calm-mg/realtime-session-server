@@ -83,6 +83,7 @@ if(RSS_BUILD_TESTS)
     include(GoogleTest)
 
     add_executable(rss_core_tests
+        src/net/Session.cpp
         src/net/WorkerPool.cpp
         test/LatencyStatsTest.cpp
         test/MessageRouterTest.cpp
@@ -92,6 +93,7 @@ if(RSS_BUILD_TESTS)
         test/OverloadStatsTest.cpp
         test/ReadBackpressureControllerTest.cpp
         test/ServerConfigTest.cpp
+        test/SessionTest.cpp
         test/WorkerPoolNotificationTest.cpp
     )
     target_link_libraries(
