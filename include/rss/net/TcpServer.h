@@ -47,7 +47,8 @@ class TcpServer {
   void pauseReads();
   void resumeReads();
   bool enqueueDecodedPackets(Session& session);
-  void deferDisconnected(std::uint64_t session_id);
+  bool enqueueDisconnected(std::uint64_t session_id);
+  void deferDisconnected(std::unique_ptr<Session> session);
   void drainDeferredInput();
 
   ServerConfig config_;
@@ -72,7 +73,7 @@ class TcpServer {
   std::uint64_t next_session_id_{1};
   std::unordered_map<int, std::unique_ptr<Session>> sessions_by_fd_;
   std::unordered_map<std::uint64_t, int> fd_by_session_;
-  std::deque<std::uint64_t> deferred_disconnects_;
+  std::deque<std::unique_ptr<Session>> deferred_disconnects_;
   std::unordered_set<std::uint64_t> deferred_disconnect_ids_;
 };
 

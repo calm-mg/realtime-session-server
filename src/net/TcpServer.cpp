@@ -14,10 +14,13 @@
 #include <utility>
 #include <vector>
 
+#include "rss/net/detail/AcceptBatchLimiter.h"
 #include "rss/protocol/PacketCodec.h"
 
 namespace rss::net {
 namespace {
+
+constexpr std::size_t kAcceptBatchLimit = 64;
 
 int setNonBlocking(int fd) {
   const auto flags = ::fcntl(fd, F_GETFL, 0);
@@ -108,13 +111,14 @@ void TcpServer::run() {
           continue;
         }
 
-        if ((event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
-          disconnect(fd);
-          continue;
-        }
-
         if ((event.events & EPOLLIN) != 0U) {
           readSession(fd);
+        }
+
+        if (sessions_by_fd_.contains(fd) &&
+            (event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+          disconnect(fd);
+          continue;
         }
 
         if (sessions_by_fd_.contains(fd) && (event.events & EPOLLOUT) != 0U) {
@@ -195,7 +199,8 @@ void TcpServer::acceptLoop() {
     return;
   }
 
-  while (true) {
+  detail::AcceptBatchLimiter limiter(kAcceptBatchLimit);
+  while (limiter.tryAcquire(stop_requested_.load(std::memory_order_acquire))) {
     sockaddr_in peer{};
     socklen_t peer_len = sizeof(peer);
     const auto fd = ::accept4(listen_fd_, reinterpret_cast<sockaddr*>(&peer),
@@ -205,6 +210,11 @@ void TcpServer::acceptLoop() {
         return;
       }
       throw systemError("accept4 failed");
+    }
+
+    if (stop_requested_.load(std::memory_order_acquire)) {
+      ::close(fd);
+      return;
     }
 
     if (sessions_by_fd_.size() >= config_.max_sessions) {
@@ -331,28 +341,23 @@ void TcpServer::disconnect(int fd) {
     return;
   }
 
-  const auto session_id = it->second->id();
-  const auto push_result = inbox_.tryPush(service::SessionEvent{
-      service::SessionEventKind::Disconnected, session_id, {}});
-  if (push_result.succeeded) {
-    overload_stats_.observeInboundQueueSize(push_result.size);
-    if (read_backpressure_.onInboundSize(push_result.size) ==
-        ReadTransition::Pause) {
-      pauseReads();
-    }
-  } else {
-    overload_stats_.recordInboundQueueFull();
-    deferDisconnected(session_id);
-    static_cast<void>(
-        read_backpressure_.onInboundSize(config_.inbound_queue_capacity));
-    pauseReads();
-  }
-
+  auto session = std::move(it->second);
+  const auto session_id = session->id();
   fd_by_session_.erase(session_id);
   event_loop_.remove(fd);
   ::close(fd);
   sessions_by_fd_.erase(it);
   current_sessions_.store(sessions_by_fd_.size(), std::memory_order_relaxed);
+
+  bool has_completed_packet = false;
+  try {
+    has_completed_packet = session->codec().peekPacket().has_value();
+  } catch (const protocol::ProtocolError&) {
+  }
+
+  if (has_completed_packet || !enqueueDisconnected(session_id)) {
+    deferDisconnected(std::move(session));
+  }
 }
 
 void TcpServer::drainOutbound() {
@@ -433,7 +438,27 @@ void TcpServer::resumeReads() {
   overload_stats_.recordReadResume();
 }
 
-void TcpServer::deferDisconnected(std::uint64_t session_id) {
+bool TcpServer::enqueueDisconnected(std::uint64_t session_id) {
+  const auto push_result = inbox_.tryPush(service::SessionEvent{
+      service::SessionEventKind::Disconnected, session_id, {}});
+  if (!push_result.succeeded) {
+    overload_stats_.recordInboundQueueFull();
+    static_cast<void>(
+        read_backpressure_.onInboundSize(config_.inbound_queue_capacity));
+    pauseReads();
+    return false;
+  }
+
+  overload_stats_.observeInboundQueueSize(push_result.size);
+  if (read_backpressure_.onInboundSize(push_result.size) ==
+      ReadTransition::Pause) {
+    pauseReads();
+  }
+  return true;
+}
+
+void TcpServer::deferDisconnected(std::unique_ptr<Session> session) {
+  const auto session_id = session->id();
   if (deferred_disconnect_ids_.contains(session_id)) {
     return;
   }
@@ -441,30 +466,45 @@ void TcpServer::deferDisconnected(std::uint64_t session_id) {
     throw std::logic_error("deferred disconnect limit exceeded");
   }
 
-  deferred_disconnects_.push_back(session_id);
+  deferred_disconnects_.push_back(std::move(session));
   deferred_disconnect_ids_.insert(session_id);
 }
 
 void TcpServer::drainDeferredInput() {
   while (!deferred_disconnects_.empty()) {
-    const auto session_id = deferred_disconnects_.front();
-    const auto push_result = inbox_.tryPush(service::SessionEvent{
-        service::SessionEventKind::Disconnected, session_id, {}});
-    if (!push_result.succeeded) {
-      overload_stats_.recordInboundQueueFull();
+    auto& session = *deferred_disconnects_.front();
+    try {
+      if (!enqueueDecodedPackets(session)) {
+        return;
+      }
+    } catch (const protocol::ProtocolError&) {
+    }
+
+    const auto session_id = session.id();
+    if (!enqueueDisconnected(session_id)) {
       return;
     }
 
     deferred_disconnects_.pop_front();
     deferred_disconnect_ids_.erase(session_id);
-    overload_stats_.observeInboundQueueSize(push_result.size);
-    if (push_result.size >= config_.inbound_high_watermark) {
+    if (inbox_.size() >= config_.inbound_high_watermark) {
       return;
     }
   }
 
-  for (auto& [_, session] : sessions_by_fd_) {
-    if (!enqueueDecodedPackets(*session)) {
+  std::vector<int> protocol_error_fds;
+  for (auto& [fd, session] : sessions_by_fd_) {
+    try {
+      if (!enqueueDecodedPackets(*session)) {
+        return;
+      }
+    } catch (const protocol::ProtocolError&) {
+      protocol_error_fds.push_back(fd);
+    }
+  }
+  for (const auto fd : protocol_error_fds) {
+    disconnect(fd);
+    if (inbox_.size() >= config_.inbound_high_watermark) {
       return;
     }
   }

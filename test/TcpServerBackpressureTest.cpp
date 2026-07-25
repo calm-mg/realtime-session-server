@@ -1,24 +1,30 @@
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <exception>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "rss/net/ServerConfig.h"
 #include "rss/net/TcpServer.h"
+#include "rss/net/detail/AcceptBatchLimiter.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/service/SessionEventHandler.h"
 
@@ -30,6 +36,21 @@ using rss::protocol::PacketType;
 using rss::service::OutboundMessage;
 using rss::service::SessionEvent;
 using rss::service::SessionEventKind;
+
+TEST(AcceptBatchLimiterTest, AllowsOnlyConfiguredNumberOfAccepts) {
+  rss::net::detail::AcceptBatchLimiter limiter(2);
+
+  EXPECT_TRUE(limiter.tryAcquire(false));
+  EXPECT_TRUE(limiter.tryAcquire(false));
+  EXPECT_FALSE(limiter.tryAcquire(false));
+}
+
+TEST(AcceptBatchLimiterTest, StopsBeforeRemainingBudgetOnStopRequest) {
+  rss::net::detail::AcceptBatchLimiter limiter(3);
+
+  EXPECT_TRUE(limiter.tryAcquire(false));
+  EXPECT_FALSE(limiter.tryAcquire(true));
+}
 
 template <typename Predicate>
 bool waitUntil(Predicate&& predicate,
@@ -81,6 +102,8 @@ class ClientSocket {
   [[nodiscard]] bool valid() const { return fd_ >= 0; }
   [[nodiscard]] int get() const { return fd_; }
 
+  bool shutdownWrite() { return ::shutdown(fd_, SHUT_WR) == 0; }
+
   void reset() noexcept {
     if (fd_ < 0) {
       return;
@@ -94,9 +117,16 @@ class ClientSocket {
   int fd_{-1};
 };
 
-ClientSocket connectClient(std::uint16_t port) {
+ClientSocket connectClient(std::uint16_t port,
+                           std::chrono::steady_clock::duration timeout = 1s) {
   const auto fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) {
+    return {};
+  }
+
+  const auto flags = ::fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    ::close(fd);
     return {};
   }
 
@@ -104,8 +134,37 @@ ClientSocket connectClient(std::uint16_t port) {
   address.sin_family = AF_INET;
   address.sin_port = htons(port);
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  if (::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) <
-      0) {
+  const auto connect_result =
+      ::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+  if (connect_result < 0 && errno != EINPROGRESS) {
+    ::close(fd);
+    return {};
+  }
+
+  if (connect_result < 0) {
+    pollfd entry{};
+    entry.fd = fd;
+    entry.events = POLLOUT;
+    const auto timeout_ms = std::max<std::int64_t>(
+        1,
+        std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    int ready = -1;
+    do {
+      ready = ::poll(&entry, 1, static_cast<int>(timeout_ms));
+    } while (ready < 0 && errno == EINTR);
+
+    int socket_error = 0;
+    socklen_t socket_error_size = sizeof(socket_error);
+    if (ready != 1 ||
+        ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &socket_error,
+                     &socket_error_size) < 0 ||
+        socket_error != 0) {
+      ::close(fd);
+      return {};
+    }
+  }
+
+  if (::fcntl(fd, F_SETFL, flags) < 0) {
     ::close(fd);
     return {};
   }
@@ -197,9 +256,50 @@ bool waitForPeerClose(int fd,
   return false;
 }
 
+class ConnectionFlood {
+ public:
+  explicit ConnectionFlood(std::uint16_t port, std::size_t thread_count = 24)
+      : port_(port) {
+    threads_.reserve(thread_count);
+    for (std::size_t index = 0; index < thread_count; ++index) {
+      threads_.emplace_back([this] {
+        while (running_.load(std::memory_order_acquire)) {
+          auto client = connectClient(port_, 50ms);
+          if (!client.valid()) {
+            std::this_thread::yield();
+          }
+        }
+      });
+    }
+  }
+
+  ~ConnectionFlood() { stop(); }
+
+  ConnectionFlood(const ConnectionFlood&) = delete;
+  ConnectionFlood& operator=(const ConnectionFlood&) = delete;
+
+  void stop() {
+    if (!running_.exchange(false, std::memory_order_acq_rel)) {
+      return;
+    }
+    for (auto& thread : threads_) {
+      if (thread.joinable()) {
+        thread.join();
+      }
+    }
+  }
+
+ private:
+  std::uint16_t port_;
+  std::atomic<bool> running_{true};
+  std::vector<std::thread> threads_;
+};
+
 class BlockingPongHandler final : public rss::service::SessionEventHandler {
  public:
   std::vector<OutboundMessage> handle(const SessionEvent& event) override {
+    std::function<void(std::string_view)> packet_observer;
+    std::string payload;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       ++entered_count_;
@@ -208,18 +308,22 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
 
       if (event.kind == SessionEventKind::Disconnected) {
         ++disconnected_count_;
+        handled_events_.push_back("Disconnected");
         changed_.notify_all();
         return {};
       }
 
-      handled_payloads_.push_back(rss::protocol::payloadToString(event.packet));
+      payload = rss::protocol::payloadToString(event.packet);
+      handled_payloads_.push_back(payload);
+      handled_events_.push_back("Packet:" + payload);
+      packet_observer = packet_observer_;
       changed_.notify_all();
     }
 
-    return {
-        {event.session_id,
-         PacketCodec::encode(PacketType::Pong,
-                             rss::protocol::payloadToString(event.packet))}};
+    if (packet_observer) {
+      packet_observer(payload);
+    }
+    return {{event.session_id, PacketCodec::encode(PacketType::Pong, payload)}};
   }
 
   void release() {
@@ -228,6 +332,12 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
       release_requested_ = true;
     }
     released_.notify_all();
+  }
+
+  void setPacketObserver(
+      std::function<void(std::string_view)> packet_observer) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    packet_observer_ = std::move(packet_observer);
   }
 
   bool waitForEnteredCount(std::size_t count,
@@ -244,6 +354,14 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
         lock, timeout, [this, count] { return disconnected_count_ >= count; });
   }
 
+  bool waitForHandledEventCount(
+      std::size_t count, std::chrono::steady_clock::duration timeout = 1s) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, timeout, [this, count] {
+      return handled_events_.size() >= count;
+    });
+  }
+
   [[nodiscard]] std::size_t disconnectedCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return disconnected_count_;
@@ -254,6 +372,11 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
     return handled_payloads_;
   }
 
+  [[nodiscard]] std::vector<std::string> handledEvents() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return handled_events_;
+  }
+
  private:
   mutable std::mutex mutex_;
   std::condition_variable released_;
@@ -262,17 +385,30 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
   std::size_t entered_count_{0};
   std::size_t disconnected_count_{0};
   std::vector<std::string> handled_payloads_;
+  std::vector<std::string> handled_events_;
+  std::function<void(std::string_view)> packet_observer_;
 };
 
 class TcpServerBackpressureTest : public testing::Test {
  protected:
-  ~TcpServerBackpressureTest() override {
+  ~TcpServerBackpressureTest() override { stopAndJoin(false); }
+
+  void TearDown() override { stopAndJoin(true); }
+
+  void stopAndJoin(bool report_server_error) {
     handler_.release();
     if (server_ != nullptr) {
       server_->stop();
     }
     if (server_thread_.joinable()) {
       server_thread_.join();
+    }
+    if (report_server_error && !server_error_reported_) {
+      const auto message = serverErrorMessage();
+      if (!message.empty()) {
+        ADD_FAILURE() << "server thread failed after readiness: " << message;
+      }
+      server_error_reported_ = true;
     }
   }
 
@@ -295,6 +431,11 @@ class TcpServerBackpressureTest : public testing::Test {
         std::lock_guard<std::mutex> lock(server_error_mutex_);
         server_error_ = std::current_exception();
       }
+      {
+        std::lock_guard<std::mutex> lock(server_finished_mutex_);
+        server_finished_ = true;
+      }
+      server_finished_changed_.notify_all();
     });
 
     return waitUntil(
@@ -308,6 +449,31 @@ class TcpServerBackpressureTest : public testing::Test {
     return server_error_ != nullptr;
   }
 
+  [[nodiscard]] std::string serverErrorMessage() const {
+    std::exception_ptr error;
+    {
+      std::lock_guard<std::mutex> lock(server_error_mutex_);
+      error = server_error_;
+    }
+    if (error == nullptr) {
+      return {};
+    }
+
+    try {
+      std::rethrow_exception(error);
+    } catch (const std::exception& exception) {
+      return exception.what();
+    } catch (...) {
+      return "unknown exception";
+    }
+  }
+
+  bool waitForServerFinished(std::chrono::steady_clock::duration timeout = 1s) {
+    std::unique_lock<std::mutex> lock(server_finished_mutex_);
+    return server_finished_changed_.wait_for(
+        lock, timeout, [this] { return server_finished_; });
+  }
+
   [[nodiscard]] std::uint16_t boundPort() const { return server_->boundPort(); }
 
   BlockingPongHandler handler_;
@@ -315,6 +481,10 @@ class TcpServerBackpressureTest : public testing::Test {
   std::thread server_thread_;
   mutable std::mutex server_error_mutex_;
   std::exception_ptr server_error_;
+  std::mutex server_finished_mutex_;
+  std::condition_variable server_finished_changed_;
+  bool server_finished_{false};
+  bool server_error_reported_{false};
 };
 
 TEST_F(TcpServerBackpressureTest,
@@ -425,6 +595,205 @@ TEST_F(TcpServerBackpressureTest,
   }));
   EXPECT_TRUE(remainsTrueFor(
       [this] { return handler_.disconnectedCount() == 1; }, 100ms));
+}
+
+TEST_F(TcpServerBackpressureTest,
+       DrainsClosedSessionPacketsBeforeDisconnectedAfterReadPause) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 4;
+  config.inbound_high_watermark = 3;
+  config.inbound_low_watermark = 1;
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+
+  const std::vector<std::string> batch{"one",  "two",  "three",
+                                       "four", "five", "six"};
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch(batch)));
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().read_pauses >= 1; }));
+
+  client.reset();
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  handler_.release();
+
+  ASSERT_TRUE(handler_.waitForHandledEventCount(8, 2s));
+  EXPECT_EQ(handler_.handledEvents(),
+            (std::vector<std::string>{
+                "Packet:gate", "Packet:one", "Packet:two", "Packet:three",
+                "Packet:four", "Packet:five", "Packet:six", "Disconnected"}));
+  EXPECT_EQ(handler_.disconnectedCount(), 1U);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       ReadsReadyPacketBeforeHandlingSimultaneousPeerShutdown) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 4;
+  config.inbound_high_watermark = 3;
+  config.inbound_low_watermark = 1;
+  config.max_sessions = 2;
+  ASSERT_TRUE(startServer(config));
+
+  auto control = connectClient(boundPort());
+  ASSERT_TRUE(control.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+
+  ASSERT_TRUE(sendSingleWrite(control.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(
+      sendSingleWrite(control.get(), encodePingBatch({"one", "two", "three"})));
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().read_pauses >= 1; }));
+
+  auto closing = connectClient(boundPort());
+  ASSERT_TRUE(closing.valid());
+  ASSERT_TRUE(sendSingleWrite(closing.get(), encodePingBatch({"final"})));
+  ASSERT_TRUE(closing.shutdownWrite());
+  handler_.release();
+
+  ASSERT_TRUE(handler_.waitForHandledEventCount(6, 2s));
+  const auto events = handler_.handledEvents();
+  const auto packet = std::find(events.begin(), events.end(), "Packet:final");
+  const auto disconnected =
+      std::find(events.begin(), events.end(), "Disconnected");
+  ASSERT_NE(packet, events.end());
+  ASSERT_NE(disconnected, events.end());
+  EXPECT_LT(packet, disconnected);
+  EXPECT_EQ(handler_.disconnectedCount(), 1U);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       IsolatesMalformedDeferredCodecAfterDeliveringValidPackets) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 4;
+  config.inbound_high_watermark = 3;
+  config.inbound_low_watermark = 1;
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+
+  auto bytes = encodePingBatch({"one", "two", "three", "four"});
+  const std::vector<std::uint8_t> malformed_header{0, 3, 0, 1};
+  bytes.insert(bytes.end(), malformed_header.begin(), malformed_header.end());
+  ASSERT_TRUE(sendSingleWrite(client.get(), bytes));
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().read_pauses >= 1; }));
+
+  handler_.release();
+  ASSERT_TRUE(handler_.waitForHandledEventCount(6, 2s));
+  EXPECT_EQ(handler_.handledEvents(),
+            (std::vector<std::string>{"Packet:gate", "Packet:one", "Packet:two",
+                                      "Packet:three", "Packet:four",
+                                      "Disconnected"}));
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+
+  auto survivor = connectClient(boundPort());
+  ASSERT_TRUE(survivor.valid());
+  ASSERT_TRUE(sendSingleWrite(survivor.get(), encodePingBatch({"alive"})));
+  const auto packets = receivePackets(survivor.get(), 1);
+  ASSERT_EQ(packets.size(), 1U);
+  EXPECT_EQ(rss::protocol::payloadToString(packets[0]), "alive");
+}
+
+TEST_F(TcpServerBackpressureTest,
+       LimitsAcceptsPerTurnAndKeepsListenerLevelTriggered) {
+  auto config = loopbackConfig();
+  config.max_sessions = 1;
+  config.max_events = 1;
+  config.backlog = 512;
+  config.inbound_queue_capacity = 4;
+  config.inbound_high_watermark = 3;
+  config.inbound_low_watermark = 1;
+  ASSERT_TRUE(startServer(config));
+
+  auto established = connectClient(boundPort());
+  ASSERT_TRUE(established.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+
+  ASSERT_TRUE(sendSingleWrite(established.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(sendSingleWrite(established.get(),
+                              encodePingBatch({"one", "two", "three"})));
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().read_pauses >= 1; }));
+
+  constexpr std::size_t backlog_clients = 128;
+  std::vector<ClientSocket> pending_clients;
+  pending_clients.reserve(backlog_clients);
+  for (std::size_t index = 0; index < backlog_clients; ++index) {
+    auto pending = connectClient(boundPort());
+    ASSERT_TRUE(pending.valid());
+    pending_clients.push_back(std::move(pending));
+  }
+
+  std::atomic<std::uint64_t> rejected_at_probe{
+      std::numeric_limits<std::uint64_t>::max()};
+  handler_.setPacketObserver([this,
+                              &rejected_at_probe](std::string_view value) {
+    if (value == "probe") {
+      rejected_at_probe.store(server_->overloadSnapshot().rejected_connections,
+                              std::memory_order_release);
+    }
+  });
+  ASSERT_TRUE(sendSingleWrite(established.get(), encodePingBatch({"probe"})));
+  handler_.release();
+
+  ASSERT_TRUE(waitUntil(
+      [&rejected_at_probe] {
+        return rejected_at_probe.load(std::memory_order_acquire) !=
+               std::numeric_limits<std::uint64_t>::max();
+      },
+      2s));
+  EXPECT_LT(rejected_at_probe.load(std::memory_order_acquire), backlog_clients);
+  EXPECT_TRUE(waitUntil(
+      [this] {
+        return server_->overloadSnapshot().rejected_connections ==
+               backlog_clients;
+      },
+      2s));
+}
+
+TEST_F(TcpServerBackpressureTest,
+       StopRequestInterruptsContinuouslyReadyAcceptLoop) {
+  auto config = loopbackConfig();
+  config.max_sessions = 1;
+  config.max_events = 1;
+  config.backlog = 4096;
+  handler_.release();
+  ASSERT_TRUE(startServer(config));
+
+  auto established = connectClient(boundPort());
+  ASSERT_TRUE(established.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+
+  ConnectionFlood flood(boundPort());
+  ASSERT_TRUE(waitUntil(
+      [this] {
+        return server_->overloadSnapshot().rejected_connections >= 100;
+      },
+      2s));
+
+  server_->stop();
+  const auto stopped_while_flooding = waitForServerFinished(500ms);
+  flood.stop();
+  EXPECT_TRUE(stopped_while_flooding);
 }
 
 }  // namespace
