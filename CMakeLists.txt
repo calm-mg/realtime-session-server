@@ -88,6 +88,7 @@ if(RSS_BUILD_TESTS)
         test/MessageRouterTest.cpp
         test/PacketCodecTest.cpp
         test/RoomServiceTest.cpp
+        test/BoundedBlockingQueueTest.cpp
         test/WorkerPoolNotificationTest.cpp
     )
     target_link_libraries(
