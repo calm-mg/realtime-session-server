@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -65,30 +66,38 @@ TcpServer::TcpServer(ServerConfig config, service::SessionEventHandler* handler)
 
 TcpServer::~TcpServer() {
   stop();
-  for (auto& [fd, _] : sessions_by_fd_) {
-    ::close(fd);
-  }
-  if (listen_fd_ >= 0) {
-    ::close(listen_fd_);
+  if (!running_.load(std::memory_order_acquire)) {
+    closeNetworkResources();
   }
 }
 
 void TcpServer::run() {
-  openListener();
-  workers_.start(config_.worker_count);
-
-  std::cout << "rss_server listening on " << config_.host << ':' << boundPort()
-            << " with " << config_.worker_count << " workers\n";
+  if (running_.exchange(true, std::memory_order_acq_rel)) {
+    throw std::logic_error("server is already running");
+  }
 
   try {
-    while (!stop_requested_.load(std::memory_order_acquire)) {
-      auto events = event_loop_.wait(1000, config_.max_events);
+    openListener();
+    workers_.start(config_.worker_count);
+
+    std::cout << "rss_server listening on " << config_.host << ':'
+              << boundPort() << " with " << config_.worker_count
+              << " workers\n";
+
+    while (shutdown_phase_ != ShutdownPhase::Complete) {
       if (stop_requested_.load(std::memory_order_acquire)) {
+        beginShutdown();
+      }
+      advanceShutdown();
+      if (shutdown_phase_ == ShutdownPhase::Complete) {
         break;
       }
+
+      auto events =
+          event_loop_.wait(eventLoopWaitTimeoutMs(), config_.max_events);
       for (const auto& event : events) {
         if (stop_requested_.load(std::memory_order_acquire)) {
-          break;
+          beginShutdown();
         }
 
         const auto fd = event.data.fd;
@@ -100,18 +109,23 @@ void TcpServer::run() {
 
         if (fd == input_capacity_wakeup_.fd()) {
           input_capacity_wakeup_.drain();
-          drainDeferredInput();
+          if (shutdown_phase_ == ShutdownPhase::Running ||
+              shutdown_phase_ == ShutdownPhase::DrainingInput) {
+            static_cast<void>(drainDeferredInput());
+          }
           continue;
         }
 
         if (fd == listen_fd_) {
-          if (listener_registered_ && !reads_paused_) {
+          if (shutdown_phase_ == ShutdownPhase::Running &&
+              listener_registered_ && !reads_paused_) {
             acceptLoop();
           }
           continue;
         }
 
-        if ((event.events & EPOLLIN) != 0U) {
+        if (shutdown_phase_ == ShutdownPhase::Running &&
+            (event.events & EPOLLIN) != 0U) {
           readSession(fd);
         }
 
@@ -127,16 +141,25 @@ void TcpServer::run() {
       }
 
       drainOutbound();
-      expireIdleSessions();
+      if (shutdown_phase_ == ShutdownPhase::Running) {
+        expireIdleSessions();
+      }
+      advanceShutdown();
     }
   } catch (...) {
     workers_.beginStop();
+    outbox_.close();
     workers_.join();
+    closeNetworkResources();
+    running_.store(false, std::memory_order_release);
     throw;
   }
 
-  workers_.beginStop();
   workers_.join();
+  drainOutbound();
+  flushAllSessions();
+  closeNetworkResources();
+  running_.store(false, std::memory_order_release);
 }
 
 void TcpServer::stop() {
@@ -229,7 +252,8 @@ void TcpServer::acceptLoop() {
     }
 
     const auto session_id = next_session_id_++;
-    auto session = std::make_unique<Session>(fd, session_id);
+    auto session = std::make_unique<Session>(fd, session_id,
+                                             config_.max_pending_write_bytes);
     fd_by_session_[session_id] = fd;
     sessions_by_fd_[fd] = std::move(session);
     event_loop_.add(fd, EPOLLIN | EPOLLRDHUP);
@@ -251,6 +275,10 @@ void TcpServer::readSession(int fd) {
   std::uint8_t buffer[4096];
 
   while (true) {
+    if (stop_requested_.load(std::memory_order_acquire)) {
+      return;
+    }
+
     const auto n = ::recv(fd, buffer, sizeof(buffer), 0);
     if (n == 0) {
       disconnect(fd);
@@ -349,6 +377,11 @@ void TcpServer::disconnect(int fd) {
   sessions_by_fd_.erase(it);
   current_sessions_.store(sessions_by_fd_.size(), std::memory_order_relaxed);
 
+  if (shutdown_phase_ != ShutdownPhase::Running ||
+      stop_requested_.load(std::memory_order_acquire)) {
+    return;
+  }
+
   bool has_completed_packet = false;
   try {
     has_completed_packet = session->codec().peekPacket().has_value();
@@ -377,14 +410,22 @@ void TcpServer::drainOutbound() {
       continue;
     }
 
-    session_it->second->enqueue(std::move(message->bytes));
-    updateInterest(*session_it->second);
+    auto& session = *session_it->second;
+    if (!session.tryEnqueue(std::move(message->bytes))) {
+      overload_stats_.recordSlowClientDisconnect();
+      disconnect(session.fd());
+      continue;
+    }
+
+    overload_stats_.observeSessionPendingWriteBytes(
+        session.pendingWriteBytes());
+    updateInterest(session);
   }
 }
 
 void TcpServer::updateInterest(Session& session) {
   auto events = static_cast<std::uint32_t>(EPOLLRDHUP);
-  if (!reads_paused_) {
+  if (shutdown_phase_ == ShutdownPhase::Running && !reads_paused_) {
     events |= EPOLLIN;
   }
   if (session.hasPendingWrite()) {
@@ -423,7 +464,7 @@ void TcpServer::pauseReads() {
 }
 
 void TcpServer::resumeReads() {
-  if (!reads_paused_) {
+  if (!reads_paused_ || shutdown_phase_ != ShutdownPhase::Running) {
     return;
   }
 
@@ -470,25 +511,25 @@ void TcpServer::deferDisconnected(std::unique_ptr<Session> session) {
   deferred_disconnect_ids_.insert(session_id);
 }
 
-void TcpServer::drainDeferredInput() {
+bool TcpServer::drainDeferredInput() {
   while (!deferred_disconnects_.empty()) {
     auto& session = *deferred_disconnects_.front();
     try {
       if (!enqueueDecodedPackets(session)) {
-        return;
+        return false;
       }
     } catch (const protocol::ProtocolError&) {
     }
 
     const auto session_id = session.id();
     if (!enqueueDisconnected(session_id)) {
-      return;
+      return false;
     }
 
     deferred_disconnects_.pop_front();
     deferred_disconnect_ids_.erase(session_id);
     if (inbox_.size() >= config_.inbound_high_watermark) {
-      return;
+      return false;
     }
   }
 
@@ -496,7 +537,7 @@ void TcpServer::drainDeferredInput() {
   for (auto& [fd, session] : sessions_by_fd_) {
     try {
       if (!enqueueDecodedPackets(*session)) {
-        return;
+        return false;
       }
     } catch (const protocol::ProtocolError&) {
       protocol_error_fds.push_back(fd);
@@ -505,15 +546,146 @@ void TcpServer::drainDeferredInput() {
   for (const auto fd : protocol_error_fds) {
     disconnect(fd);
     if (inbox_.size() >= config_.inbound_high_watermark) {
-      return;
+      return false;
     }
   }
 
   const auto inbound_size = inbox_.size();
-  if (read_backpressure_.onCapacityAvailable(inbound_size) ==
-      ReadTransition::Resume) {
+  if (shutdown_phase_ == ShutdownPhase::Running &&
+      read_backpressure_.onCapacityAvailable(inbound_size) ==
+          ReadTransition::Resume) {
     resumeReads();
   }
+  return true;
+}
+
+void TcpServer::beginShutdown() {
+  if (shutdown_phase_ != ShutdownPhase::Running) {
+    return;
+  }
+
+  shutdown_phase_ = ShutdownPhase::DrainingInput;
+  shutdown_deadline_ =
+      std::chrono::steady_clock::now() + config_.graceful_shutdown_timeout;
+  reads_paused_ = true;
+
+  if (listener_registered_) {
+    event_loop_.remove(listen_fd_);
+    listener_registered_ = false;
+  }
+  for (auto& [_, session] : sessions_by_fd_) {
+    updateInterest(*session);
+  }
+}
+
+void TcpServer::advanceShutdown() {
+  if (shutdown_phase_ == ShutdownPhase::Running ||
+      shutdown_phase_ == ShutdownPhase::Complete) {
+    return;
+  }
+
+  drainOutbound();
+
+  if (shutdown_phase_ == ShutdownPhase::DrainingInput && drainDeferredInput()) {
+    workers_.beginStop();
+    shutdown_phase_ = ShutdownPhase::DrainingOutput;
+  }
+
+  drainOutbound();
+  if (shutdown_phase_ == ShutdownPhase::DrainingOutput && workers_.finished()) {
+    drainOutbound();
+    if (outbox_.size() == 0 && allSessionWritesDrained()) {
+      outbox_.close();
+      shutdown_phase_ = ShutdownPhase::Complete;
+      return;
+    }
+  }
+
+  if (shutdown_phase_ != ShutdownPhase::Forced &&
+      std::chrono::steady_clock::now() >= shutdown_deadline_) {
+    forceShutdown();
+  }
+
+  if (shutdown_phase_ == ShutdownPhase::Forced) {
+    drainOutbound();
+    if (workers_.finished()) {
+      drainOutbound();
+      shutdown_phase_ = ShutdownPhase::Complete;
+    }
+  }
+}
+
+void TcpServer::forceShutdown() {
+  if (shutdown_phase_ == ShutdownPhase::Forced ||
+      shutdown_phase_ == ShutdownPhase::Complete) {
+    return;
+  }
+
+  workers_.beginStop();
+  outbox_.close();
+  shutdown_phase_ = ShutdownPhase::Forced;
+}
+
+bool TcpServer::allSessionWritesDrained() const {
+  return std::all_of(
+      sessions_by_fd_.begin(), sessions_by_fd_.end(),
+      [](const auto& entry) { return !entry.second->hasPendingWrite(); });
+}
+
+int TcpServer::eventLoopWaitTimeoutMs() const {
+  if (shutdown_phase_ == ShutdownPhase::Running) {
+    return 1000;
+  }
+  if (shutdown_phase_ == ShutdownPhase::Forced) {
+    return 10;
+  }
+  if (shutdown_phase_ == ShutdownPhase::Complete) {
+    return 0;
+  }
+
+  const auto remaining = shutdown_deadline_ - std::chrono::steady_clock::now();
+  if (remaining <= std::chrono::steady_clock::duration::zero()) {
+    return 0;
+  }
+  const auto remaining_ms =
+      std::chrono::ceil<std::chrono::milliseconds>(remaining).count();
+  return static_cast<int>(std::min<std::int64_t>(10, remaining_ms));
+}
+
+void TcpServer::flushAllSessions() {
+  std::vector<int> session_fds;
+  session_fds.reserve(sessions_by_fd_.size());
+  for (const auto& [fd, _] : sessions_by_fd_) {
+    session_fds.push_back(fd);
+  }
+  for (const auto fd : session_fds) {
+    if (sessions_by_fd_.contains(fd)) {
+      flushSession(fd);
+    }
+  }
+}
+
+void TcpServer::closeNetworkResources() noexcept {
+  if (listener_registered_ && listen_fd_ >= 0) {
+    event_loop_.remove(listen_fd_);
+  }
+  listener_registered_ = false;
+
+  for (const auto& [fd, _] : sessions_by_fd_) {
+    event_loop_.remove(fd);
+    ::close(fd);
+  }
+  sessions_by_fd_.clear();
+  fd_by_session_.clear();
+  deferred_disconnects_.clear();
+  deferred_disconnect_ids_.clear();
+  current_sessions_.store(0, std::memory_order_relaxed);
+
+  if (listen_fd_ >= 0) {
+    ::close(listen_fd_);
+    listen_fd_ = -1;
+  }
+  bound_port_.store(0, std::memory_order_release);
 }
 
 }  // namespace rss::net

@@ -17,7 +17,6 @@ struct PendingWrite {
 
 class Session {
  public:
-  Session(int fd, std::uint64_t id);
   Session(int fd, std::uint64_t id, std::size_t max_pending_write_bytes);
 
   [[nodiscard]] int fd() const;
@@ -30,7 +29,6 @@ class Session {
   [[nodiscard]] bool tryEnqueue(std::vector<std::uint8_t> bytes);
   [[nodiscard]] std::size_t pendingWriteBytes() const;
 
-  void enqueue(std::vector<std::uint8_t> bytes);
   [[nodiscard]] bool hasPendingWrite() const;
   [[nodiscard]] PendingWrite& currentWrite();
   void consumeWrite(std::size_t byte_count);

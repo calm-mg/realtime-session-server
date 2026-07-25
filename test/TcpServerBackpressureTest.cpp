@@ -13,9 +13,11 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <future>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -118,9 +120,17 @@ class ClientSocket {
 };
 
 ClientSocket connectClient(std::uint16_t port,
-                           std::chrono::steady_clock::duration timeout = 1s) {
+                           std::chrono::steady_clock::duration timeout = 1s,
+                           int receive_buffer_size = 0) {
   const auto fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) {
+    return {};
+  }
+
+  if (receive_buffer_size > 0 &&
+      ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &receive_buffer_size,
+                   sizeof(receive_buffer_size)) < 0) {
+    ::close(fd);
     return {};
   }
 
@@ -300,6 +310,7 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
   std::vector<OutboundMessage> handle(const SessionEvent& event) override {
     std::function<void(std::string_view)> packet_observer;
     std::string payload;
+    std::size_t response_byte_count = 0;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       ++entered_count_;
@@ -317,11 +328,16 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
       handled_payloads_.push_back(payload);
       handled_events_.push_back("Packet:" + payload);
       packet_observer = packet_observer_;
+      response_byte_count = response_byte_count_;
       changed_.notify_all();
     }
 
     if (packet_observer) {
       packet_observer(payload);
+    }
+    if (response_byte_count != 0) {
+      return {{event.session_id,
+               std::vector<std::uint8_t>(response_byte_count, 0x5aU)}};
     }
     return {{event.session_id, PacketCodec::encode(PacketType::Pong, payload)}};
   }
@@ -338,6 +354,11 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
       std::function<void(std::string_view)> packet_observer) {
     std::lock_guard<std::mutex> lock(mutex_);
     packet_observer_ = std::move(packet_observer);
+  }
+
+  void setResponseByteCount(std::size_t response_byte_count) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    response_byte_count_ = response_byte_count;
   }
 
   bool waitForEnteredCount(std::size_t count,
@@ -387,6 +408,61 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
   std::vector<std::string> handled_payloads_;
   std::vector<std::string> handled_events_;
   std::function<void(std::string_view)> packet_observer_;
+  std::size_t response_byte_count_{0};
+};
+
+class SlowClientIsolationHandler final
+    : public rss::service::SessionEventHandler {
+ public:
+  static constexpr std::size_t kLargeResponseBytes = 8U * 1024U * 1024U;
+
+  std::vector<OutboundMessage> handle(const SessionEvent& event) override {
+    if (event.kind == SessionEventKind::Disconnected) {
+      return {};
+    }
+
+    const auto payload = rss::protocol::payloadToString(event.packet);
+    if (payload == "register-fast") {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        fast_session_id_ = event.session_id;
+      }
+      changed_.notify_all();
+      return {};
+    }
+
+    if (payload != "overflow-slow") {
+      return {};
+    }
+
+    std::uint64_t fast_session_id = 0;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      fast_session_id = fast_session_id_.value_or(0);
+    }
+
+    std::vector<OutboundMessage> messages;
+    messages.reserve(3);
+    messages.push_back(
+        {event.session_id, std::vector<std::uint8_t>(kLargeResponseBytes, 1U)});
+    messages.push_back(
+        {event.session_id, std::vector<std::uint8_t>(kLargeResponseBytes, 2U)});
+    messages.push_back({fast_session_id, PacketCodec::encode(PacketType::Pong,
+                                                             "fast-survives")});
+    return messages;
+  }
+
+  bool waitForFastSession(
+      std::chrono::steady_clock::duration timeout = 1s) const {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, timeout,
+                             [this] { return fast_session_id_.has_value(); });
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  mutable std::condition_variable changed_;
+  std::optional<std::uint64_t> fast_session_id_;
 };
 
 class TcpServerBackpressureTest : public testing::Test {
@@ -421,9 +497,10 @@ class TcpServerBackpressureTest : public testing::Test {
     return config;
   }
 
-  bool startServer(rss::net::ServerConfig config) {
-    server_ =
-        std::make_unique<rss::net::TcpServer>(std::move(config), &handler_);
+  bool startServer(rss::net::ServerConfig config,
+                   rss::service::SessionEventHandler* handler = nullptr) {
+    server_ = std::make_unique<rss::net::TcpServer>(
+        std::move(config), handler == nullptr ? &handler_ : handler);
     server_thread_ = std::thread([this] {
       try {
         server_->run();
@@ -436,6 +513,7 @@ class TcpServerBackpressureTest : public testing::Test {
         server_finished_ = true;
       }
       server_finished_changed_.notify_all();
+      server_finished_promise_.set_value();
     });
 
     return waitUntil(
@@ -474,6 +552,11 @@ class TcpServerBackpressureTest : public testing::Test {
         lock, timeout, [this] { return server_finished_; });
   }
 
+  std::future_status waitForServerFinishedFuture(
+      std::chrono::steady_clock::duration timeout) const {
+    return server_finished_future_.wait_for(timeout);
+  }
+
   [[nodiscard]] std::uint16_t boundPort() const { return server_->boundPort(); }
 
   BlockingPongHandler handler_;
@@ -484,7 +567,11 @@ class TcpServerBackpressureTest : public testing::Test {
   std::mutex server_finished_mutex_;
   std::condition_variable server_finished_changed_;
   bool server_finished_{false};
+  std::promise<void> server_finished_promise_;
+  std::shared_future<void> server_finished_future_{
+      server_finished_promise_.get_future().share()};
   bool server_error_reported_{false};
+  SlowClientIsolationHandler slow_client_handler_;
 };
 
 TEST_F(TcpServerBackpressureTest,
@@ -794,6 +881,115 @@ TEST_F(TcpServerBackpressureTest,
   const auto stopped_while_flooding = waitForServerFinished(500ms);
   flood.stop();
   EXPECT_TRUE(stopped_while_flooding);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       DisconnectsOnlySlowSessionAndContinuesOutboundBatch) {
+  auto config = loopbackConfig();
+  config.max_pending_write_bytes =
+      SlowClientIsolationHandler::kLargeResponseBytes;
+  config.outbound_queue_capacity = 4;
+  config.graceful_shutdown_timeout = 1s;
+  ASSERT_TRUE(startServer(config, &slow_client_handler_));
+
+  auto fast = connectClient(boundPort());
+  ASSERT_TRUE(fast.valid());
+  ASSERT_TRUE(sendSingleWrite(fast.get(), encodePingBatch({"register-fast"})));
+  ASSERT_TRUE(slow_client_handler_.waitForFastSession());
+
+  auto slow = connectClient(boundPort(), 1s, 1024);
+  ASSERT_TRUE(slow.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 2; }));
+  ASSERT_TRUE(sendSingleWrite(slow.get(), encodePingBatch({"overflow-slow"})));
+
+  ASSERT_TRUE(waitUntil(
+      [this] {
+        const auto snapshot = server_->overloadSnapshot();
+        return snapshot.current_sessions == 1 &&
+               snapshot.slow_client_disconnects == 1;
+      },
+      3s));
+
+  const auto packets = receivePackets(fast.get(), 1, 3s);
+  ASSERT_EQ(packets.size(), 1U);
+  EXPECT_EQ(packets[0].type, PacketType::Pong);
+  EXPECT_EQ(rss::protocol::payloadToString(packets[0]), "fast-survives");
+
+  const auto snapshot = server_->overloadSnapshot();
+  EXPECT_EQ(snapshot.slow_client_disconnects, 1U);
+  EXPECT_EQ(snapshot.max_session_pending_write_bytes,
+            SlowClientIsolationHandler::kLargeResponseBytes);
+
+  stopAndJoin(true);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       PreservesAlreadyReceivedResponsesDuringGracefulShutdown) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 2;
+  config.inbound_high_watermark = 2;
+  config.inbound_low_watermark = 1;
+  config.graceful_shutdown_timeout = 1s;
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  const std::vector<std::string> payloads{"gate", "one", "two", "three",
+                                          "four"};
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch(payloads)));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(waitUntil([this] {
+    const auto snapshot = server_->overloadSnapshot();
+    return snapshot.current_inbound_queue_size == 2 &&
+           snapshot.read_pauses >= 1;
+  }));
+
+  server_->stop();
+  handler_.release();
+
+  const auto packets = receivePackets(client.get(), payloads.size(), 2s);
+  ASSERT_EQ(packets.size(), payloads.size());
+  for (std::size_t index = 0; index < packets.size(); ++index) {
+    EXPECT_EQ(rss::protocol::payloadToString(packets[index]), payloads[index]);
+  }
+  EXPECT_EQ(waitForServerFinishedFuture(2s), std::future_status::ready);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       StopsWithinDeadlineWhenInputAndOutputQueuesAreSaturated) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 2;
+  config.inbound_high_watermark = 2;
+  config.inbound_low_watermark = 1;
+  config.outbound_queue_capacity = 1;
+  config.max_pending_write_bytes = 32U * 1024U * 1024U;
+  config.graceful_shutdown_timeout = 1s;
+  handler_.setResponseByteCount(8U * 1024U * 1024U);
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort(), 1s, 1024);
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"one", "two"})));
+  ASSERT_TRUE(waitUntil([this] {
+    const auto snapshot = server_->overloadSnapshot();
+    return snapshot.current_inbound_queue_size == 2 &&
+           snapshot.current_outbound_queue_size == 0;
+  }));
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  server_->stop();
+  EXPECT_EQ(waitForServerFinishedFuture(100ms), std::future_status::timeout);
+  handler_.release();
+
+  EXPECT_EQ(waitForServerFinishedFuture(500ms), std::future_status::timeout);
+  EXPECT_EQ(waitForServerFinishedFuture(config.graceful_shutdown_timeout + 1s),
+            std::future_status::ready);
+  const auto elapsed = std::chrono::steady_clock::now() - stop_started;
+  EXPECT_GE(elapsed, config.graceful_shutdown_timeout - 100ms);
+  EXPECT_LT(elapsed, config.graceful_shutdown_timeout + 1s);
 }
 
 }  // namespace

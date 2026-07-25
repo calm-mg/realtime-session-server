@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -36,6 +37,14 @@ class TcpServer {
   [[nodiscard]] OverloadSnapshot overloadSnapshot() const;
 
  private:
+  enum class ShutdownPhase {
+    Running,
+    DrainingInput,
+    DrainingOutput,
+    Forced,
+    Complete,
+  };
+
   void openListener();
   void acceptLoop();
   void readSession(int fd);
@@ -49,7 +58,14 @@ class TcpServer {
   bool enqueueDecodedPackets(Session& session);
   bool enqueueDisconnected(std::uint64_t session_id);
   void deferDisconnected(std::unique_ptr<Session> session);
-  void drainDeferredInput();
+  [[nodiscard]] bool drainDeferredInput();
+  void beginShutdown();
+  void advanceShutdown();
+  void forceShutdown();
+  [[nodiscard]] bool allSessionWritesDrained() const;
+  [[nodiscard]] int eventLoopWaitTimeoutMs() const;
+  void flushAllSessions();
+  void closeNetworkResources() noexcept;
 
   ServerConfig config_;
   EpollEventLoop event_loop_;
@@ -68,8 +84,11 @@ class TcpServer {
   bool listener_registered_{false};
   bool reads_paused_{false};
   std::atomic<bool> stop_requested_{false};
+  std::atomic<bool> running_{false};
   std::atomic<std::uint16_t> bound_port_{0};
   std::atomic<std::size_t> current_sessions_{0};
+  ShutdownPhase shutdown_phase_{ShutdownPhase::Running};
+  std::chrono::steady_clock::time_point shutdown_deadline_{};
   std::uint64_t next_session_id_{1};
   std::unordered_map<int, std::unique_ptr<Session>> sessions_by_fd_;
   std::unordered_map<std::uint64_t, int> fd_by_session_;
