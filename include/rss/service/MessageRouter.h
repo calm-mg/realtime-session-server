@@ -6,14 +6,16 @@
 
 #include "rss/service/Command.h"
 #include "rss/service/RoomService.h"
+#include "rss/service/SessionEventHandler.h"
 
 namespace rss::service {
 
-class MessageRouter {
+class MessageRouter final : public SessionEventHandler {
  public:
   explicit MessageRouter(RoomService& room_service);
 
-  [[nodiscard]] std::vector<OutboundMessage> handle(const SessionEvent& event);
+  [[nodiscard]] std::vector<OutboundMessage> handle(
+      const SessionEvent& event) override;
 
  private:
   [[nodiscard]] std::vector<OutboundMessage> handlePacket(

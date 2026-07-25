@@ -3,15 +3,12 @@
 #include <atomic>
 #include <chrono>
 #include <optional>
-#include <stdexcept>
-#include <string_view>
 #include <thread>
 #include <utility>
 
 #include "rss/net/CompletionNotifier.h"
 #include "rss/net/WorkerPool.h"
-#include "rss/protocol/PacketCodec.h"
-#include "rss/service/MessageRouter.h"
+#include "rss/service/SessionEventHandler.h"
 
 namespace {
 
@@ -22,17 +19,17 @@ class RecordingNotifier final : public rss::net::CompletionNotifier {
   std::atomic<int> notifications{0};
 };
 
-rss::protocol::Packet decodeSinglePacket(rss::protocol::PacketType type,
-                                         std::string_view payload) {
-  const auto bytes = rss::protocol::PacketCodec::encode(type, payload);
-  rss::protocol::PacketCodec codec;
-  codec.feed(bytes.data(), bytes.size());
-  auto packets = codec.drainPackets();
-  if (packets.size() != 1) {
-    throw std::runtime_error("expected exactly one decoded packet");
+class RecordingSessionEventHandler final
+    : public rss::service::SessionEventHandler {
+ public:
+  std::vector<rss::service::OutboundMessage> handle(
+      const rss::service::SessionEvent& event) override {
+    handled_session_id.store(event.session_id);
+    return {{event.session_id, {0x01U}}};
   }
-  return std::move(packets.front());
-}
+
+  std::atomic<std::uint64_t> handled_session_id{0};
+};
 
 std::optional<rss::service::OutboundMessage> waitForOutbound(
     rss::util::BlockingQueue<rss::service::OutboundMessage>& outbox) {
@@ -47,28 +44,26 @@ std::optional<rss::service::OutboundMessage> waitForOutbound(
   return std::nullopt;
 }
 
-TEST(WorkerPoolNotificationTest, NotifiesWhenOutboundMessageIsReady) {
-  using rss::protocol::PacketType;
-  using rss::service::MessageRouter;
-  using rss::service::RoomService;
+TEST(WorkerPoolNotificationTest, ProcessesEventsThroughSessionEventHandler) {
   using rss::service::SessionEvent;
   using rss::service::SessionEventKind;
 
   rss::util::BlockingQueue<SessionEvent> inbox;
   rss::util::BlockingQueue<rss::service::OutboundMessage> outbox;
-  RoomService service;
-  MessageRouter router(service);
+  RecordingSessionEventHandler handler;
   RecordingNotifier notifier;
-  rss::net::WorkerPool workers(inbox, outbox, router, &notifier);
+  rss::net::WorkerPool workers(inbox, outbox, handler, &notifier);
 
   workers.start(1);
-  ASSERT_TRUE(inbox.push(SessionEvent{
-      SessionEventKind::Packet, 1, decodeSinglePacket(PacketType::Ping, "")}));
+  ASSERT_TRUE(inbox.push(SessionEvent{SessionEventKind::Packet, 42, {}}));
 
   const auto message = waitForOutbound(outbox);
   workers.stop();
 
   ASSERT_TRUE(message.has_value());
+  EXPECT_EQ(handler.handled_session_id.load(), 42);
+  EXPECT_EQ(message->session_id, 42);
+  EXPECT_EQ(message->bytes, (std::vector<std::uint8_t>{0x01U}));
   EXPECT_EQ(notifier.notifications.load(), 1);
 }
 

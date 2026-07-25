@@ -5,8 +5,7 @@
 #include <vector>
 
 #include "rss/net/CompletionNotifier.h"
-#include "rss/service/Command.h"
-#include "rss/service/MessageRouter.h"
+#include "rss/service/SessionEventHandler.h"
 #include "rss/util/BlockingQueue.h"
 
 namespace rss::net {
@@ -15,7 +14,7 @@ class WorkerPool {
  public:
   WorkerPool(util::BlockingQueue<service::SessionEvent>& inbox,
              util::BlockingQueue<service::OutboundMessage>& outbox,
-             service::MessageRouter& router,
+             service::SessionEventHandler& handler,
              CompletionNotifier* completion_notifier = nullptr);
   ~WorkerPool();
 
@@ -30,7 +29,7 @@ class WorkerPool {
 
   util::BlockingQueue<service::SessionEvent>& inbox_;
   util::BlockingQueue<service::OutboundMessage>& outbox_;
-  service::MessageRouter& router_;
+  service::SessionEventHandler& handler_;
   CompletionNotifier* completion_notifier_{nullptr};
   std::vector<std::thread> threads_;
 };

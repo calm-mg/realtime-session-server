@@ -6,11 +6,11 @@ namespace rss::net {
 
 WorkerPool::WorkerPool(util::BlockingQueue<service::SessionEvent>& inbox,
                        util::BlockingQueue<service::OutboundMessage>& outbox,
-                       service::MessageRouter& router,
+                       service::SessionEventHandler& handler,
                        CompletionNotifier* completion_notifier)
     : inbox_(inbox),
       outbox_(outbox),
-      router_(router),
+      handler_(handler),
       completion_notifier_(completion_notifier) {}
 
 WorkerPool::~WorkerPool() { stop(); }
@@ -41,7 +41,7 @@ void WorkerPool::stop() {
 void WorkerPool::run() {
   service::SessionEvent event;
   while (inbox_.pop(event)) {
-    auto messages = router_.handle(event);
+    auto messages = handler_.handle(event);
     for (auto& message : messages) {
       if (outbox_.push(std::move(message)) && completion_notifier_ != nullptr) {
         completion_notifier_->notify();
