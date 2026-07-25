@@ -12,8 +12,19 @@ namespace {
 
 using namespace std::chrono_literals;
 using Queue = rss::util::BoundedBlockingQueue<int>;
-constexpr auto kBlockingObservationTimeout = 100ms;
 constexpr auto kWakeupTimeout = 2s;
+
+template <typename Predicate>
+bool waitUntil(Predicate predicate) {
+  const auto deadline = std::chrono::steady_clock::now() + kWakeupTimeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (predicate()) {
+      return true;
+    }
+    std::this_thread::yield();
+  }
+  return predicate();
+}
 
 TEST(BoundedBlockingQueueTest, TryPushStopsAtCapacityAndKeepsFifoOrder) {
   Queue queue(2);
@@ -51,27 +62,21 @@ TEST(BoundedBlockingQueueTest, PushWaitsUntilPopCreatesCapacity) {
   Queue queue(1);
   ASSERT_TRUE(queue.tryPush(10).succeeded);
 
-  std::promise<void> started_promise;
-  auto started = started_promise.get_future();
   std::promise<Queue::OperationResult> result_promise;
   auto result = result_promise.get_future();
-  std::thread producer([&] {
-    started_promise.set_value();
-    result_promise.set_value(queue.push(20));
-  });
+  std::thread producer([&] { result_promise.set_value(queue.push(20)); });
 
-  const bool started_on_time =
-      started.wait_for(kWakeupTimeout) == std::future_status::ready;
-  EXPECT_TRUE(started_on_time);
-  if (!started_on_time) {
+  const bool producer_is_waiting = waitUntil(
+      [&] { return queue.waiterCounts().producers == 1U; });
+  EXPECT_TRUE(producer_is_waiting);
+  if (!producer_is_waiting) {
     queue.close();
     producer.join();
     EXPECT_EQ(result.wait_for(0ms), std::future_status::ready);
     return;
   }
 
-  EXPECT_EQ(result.wait_for(kBlockingObservationTimeout),
-            std::future_status::timeout);
+  EXPECT_EQ(result.wait_for(0ms), std::future_status::timeout);
 
   int popped_value = 0;
   EXPECT_TRUE(queue.pop(popped_value).succeeded);
@@ -92,33 +97,30 @@ TEST(BoundedBlockingQueueTest, PushWaitsUntilPopCreatesCapacity) {
 
   EXPECT_TRUE(push_result.succeeded);
   EXPECT_EQ(push_result.size, 1U);
+  EXPECT_EQ(queue.waiterCounts().producers, 0U);
 }
 
 TEST(BoundedBlockingQueueTest, PopWaitsUntilPushProvidesValue) {
   Queue queue(1);
 
-  std::promise<void> started_promise;
-  auto started = started_promise.get_future();
   std::promise<std::pair<Queue::OperationResult, int>> result_promise;
   auto result = result_promise.get_future();
   std::thread consumer([&] {
     int popped_value = 0;
-    started_promise.set_value();
     result_promise.set_value({queue.pop(popped_value), popped_value});
   });
 
-  const bool started_on_time =
-      started.wait_for(kWakeupTimeout) == std::future_status::ready;
-  EXPECT_TRUE(started_on_time);
-  if (!started_on_time) {
+  const bool consumer_is_waiting = waitUntil(
+      [&] { return queue.waiterCounts().consumers == 1U; });
+  EXPECT_TRUE(consumer_is_waiting);
+  if (!consumer_is_waiting) {
     queue.close();
     consumer.join();
     EXPECT_EQ(result.wait_for(0ms), std::future_status::ready);
     return;
   }
 
-  EXPECT_EQ(result.wait_for(kBlockingObservationTimeout),
-            std::future_status::timeout);
+  EXPECT_EQ(result.wait_for(0ms), std::future_status::timeout);
   EXPECT_TRUE(queue.push(30).succeeded);
 
   const auto completion_status = result.wait_for(kWakeupTimeout);
@@ -137,33 +139,28 @@ TEST(BoundedBlockingQueueTest, PopWaitsUntilPushProvidesValue) {
   EXPECT_TRUE(pop_result.succeeded);
   EXPECT_EQ(pop_result.size, 0U);
   EXPECT_EQ(popped_value, 30);
+  EXPECT_EQ(queue.waiterCounts().consumers, 0U);
 }
 
 TEST(BoundedBlockingQueueTest, CloseWakesBlockedProducerAndReportsFailure) {
   Queue queue(1);
   ASSERT_TRUE(queue.tryPush(10).succeeded);
 
-  std::promise<void> started_promise;
-  auto started = started_promise.get_future();
   std::promise<Queue::OperationResult> result_promise;
   auto result = result_promise.get_future();
-  std::thread producer([&] {
-    started_promise.set_value();
-    result_promise.set_value(queue.push(20));
-  });
+  std::thread producer([&] { result_promise.set_value(queue.push(20)); });
 
-  const bool started_on_time =
-      started.wait_for(kWakeupTimeout) == std::future_status::ready;
-  EXPECT_TRUE(started_on_time);
-  if (!started_on_time) {
+  const bool producer_is_waiting = waitUntil(
+      [&] { return queue.waiterCounts().producers == 1U; });
+  EXPECT_TRUE(producer_is_waiting);
+  if (!producer_is_waiting) {
     queue.close();
     producer.join();
     EXPECT_EQ(result.wait_for(0ms), std::future_status::ready);
     return;
   }
 
-  EXPECT_EQ(result.wait_for(kBlockingObservationTimeout),
-            std::future_status::timeout);
+  EXPECT_EQ(result.wait_for(0ms), std::future_status::timeout);
   queue.close();
 
   const auto completion_status = result.wait_for(kWakeupTimeout);
@@ -181,33 +178,30 @@ TEST(BoundedBlockingQueueTest, CloseWakesBlockedProducerAndReportsFailure) {
 
   EXPECT_FALSE(push_result.succeeded);
   EXPECT_EQ(push_result.size, 1U);
+  EXPECT_EQ(queue.waiterCounts().producers, 0U);
 }
 
 TEST(BoundedBlockingQueueTest, CloseWakesBlockedConsumerAndReportsFailure) {
   Queue queue(1);
 
-  std::promise<void> started_promise;
-  auto started = started_promise.get_future();
   std::promise<Queue::OperationResult> result_promise;
   auto result = result_promise.get_future();
   std::thread consumer([&] {
     int popped_value = 0;
-    started_promise.set_value();
     result_promise.set_value(queue.pop(popped_value));
   });
 
-  const bool started_on_time =
-      started.wait_for(kWakeupTimeout) == std::future_status::ready;
-  EXPECT_TRUE(started_on_time);
-  if (!started_on_time) {
+  const bool consumer_is_waiting = waitUntil(
+      [&] { return queue.waiterCounts().consumers == 1U; });
+  EXPECT_TRUE(consumer_is_waiting);
+  if (!consumer_is_waiting) {
     queue.close();
     consumer.join();
     EXPECT_EQ(result.wait_for(0ms), std::future_status::ready);
     return;
   }
 
-  EXPECT_EQ(result.wait_for(kBlockingObservationTimeout),
-            std::future_status::timeout);
+  EXPECT_EQ(result.wait_for(0ms), std::future_status::timeout);
   queue.close();
 
   const auto completion_status = result.wait_for(kWakeupTimeout);
@@ -225,6 +219,7 @@ TEST(BoundedBlockingQueueTest, CloseWakesBlockedConsumerAndReportsFailure) {
 
   EXPECT_FALSE(pop_result.succeeded);
   EXPECT_EQ(pop_result.size, 0U);
+  EXPECT_EQ(queue.waiterCounts().consumers, 0U);
 }
 
 TEST(BoundedBlockingQueueTest, CloseDrainsQueuedValuesBeforePopFails) {

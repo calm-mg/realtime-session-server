@@ -23,6 +23,11 @@ class BoundedBlockingQueue {
     std::size_t size{};
   };
 
+  struct WaiterCounts {
+    std::size_t producers{};
+    std::size_t consumers{};
+  };
+
   explicit BoundedBlockingQueue(std::size_t capacity) : capacity_(capacity) {
     if (capacity == 0) {
       throw std::invalid_argument("queue capacity must be greater than zero");
@@ -47,9 +52,11 @@ class BoundedBlockingQueue {
     std::size_t new_size = 0;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      not_full_.wait(lock, [this] {
-        return closed_ || queue_.size() < capacity_;
-      });
+      while (!closed_ && queue_.size() == capacity_) {
+        ++waiting_producers_;
+        not_full_.wait(lock);
+        --waiting_producers_;
+      }
       if (closed_) {
         return {false, queue_.size()};
       }
@@ -64,7 +71,11 @@ class BoundedBlockingQueue {
     std::size_t new_size = 0;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      not_empty_.wait(lock, [this] { return closed_ || !queue_.empty(); });
+      while (!closed_ && queue_.empty()) {
+        ++waiting_consumers_;
+        not_empty_.wait(lock);
+        --waiting_consumers_;
+      }
       if (queue_.empty()) {
         return {false, 0};
       }
@@ -113,6 +124,11 @@ class BoundedBlockingQueue {
     return closed_;
   }
 
+  [[nodiscard]] WaiterCounts waiterCounts() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {waiting_producers_, waiting_consumers_};
+  }
+
  private:
   const std::size_t capacity_;
   mutable std::mutex mutex_;
@@ -120,6 +136,8 @@ class BoundedBlockingQueue {
   std::condition_variable not_full_;
   std::queue<T> queue_;
   bool closed_{false};
+  std::size_t waiting_producers_{0};
+  std::size_t waiting_consumers_{0};
 };
 
 }  // namespace rss::util
