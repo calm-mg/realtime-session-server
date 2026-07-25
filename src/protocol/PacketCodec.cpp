@@ -7,6 +7,8 @@
 namespace rss::protocol {
 namespace {
 
+constexpr std::size_t kCompactionThreshold = 4096;
+
 std::uint16_t readU16(const std::uint8_t* data) {
   return static_cast<std::uint16_t>(
       (static_cast<std::uint16_t>(data[0]) << 8U) |
@@ -94,17 +96,22 @@ void PacketCodec::feed(const std::uint8_t* data, std::size_t size) {
   if (data == nullptr && size != 0) {
     throw ProtocolError("null input buffer");
   }
+  compactConsumedPrefix();
   buffer_.insert(buffer_.end(), data, data + size);
 }
 
 std::optional<PacketCodec::PacketFrame> PacketCodec::packetFrameAt(
     std::size_t offset) const {
-  const auto available = buffer_.size() - offset;
+  const auto buffered_bytes = bufferedByteCount();
+  if (offset > buffered_bytes) {
+    return std::nullopt;
+  }
+  const auto available = buffered_bytes - offset;
   if (available < kPacketHeaderSize) {
     return std::nullopt;
   }
 
-  const auto* header = buffer_.data() + offset;
+  const auto* header = buffer_.data() + head_ + offset;
   const auto packet_size = readU16(header);
   const auto packet_type = readU16(header + 2);
 
@@ -129,8 +136,8 @@ std::optional<Packet> PacketCodec::peekPacket() const {
 
   Packet packet;
   packet.type = frame->type;
-  packet.payload.assign(buffer_.begin() + kPacketHeaderSize,
-                        buffer_.begin() + frame->size);
+  packet.payload.assign(buffer_.begin() + head_ + kPacketHeaderSize,
+                        buffer_.begin() + head_ + frame->size);
   return packet;
 }
 
@@ -140,7 +147,8 @@ void PacketCodec::consumePacket() {
     throw std::logic_error("no completed packet to consume");
   }
 
-  buffer_.erase(buffer_.begin(), buffer_.begin() + frame->size);
+  head_ += frame->size;
+  compactConsumedPrefix();
 }
 
 std::vector<Packet> PacketCodec::drainPackets() {
@@ -150,8 +158,8 @@ std::vector<Packet> PacketCodec::drainPackets() {
   while (const auto frame = packetFrameAt(offset)) {
     Packet packet;
     packet.type = frame->type;
-    const auto payload_begin = offset + kPacketHeaderSize;
-    const auto payload_end = offset + frame->size;
+    const auto payload_begin = head_ + offset + kPacketHeaderSize;
+    const auto payload_end = head_ + offset + frame->size;
     packet.payload.assign(buffer_.begin() + payload_begin,
                           buffer_.begin() + payload_end);
     packets.push_back(std::move(packet));
@@ -159,10 +167,30 @@ std::vector<Packet> PacketCodec::drainPackets() {
   }
 
   if (offset != 0) {
-    buffer_.erase(buffer_.begin(), buffer_.begin() + offset);
+    head_ += offset;
+    compactConsumedPrefix();
   }
 
   return packets;
+}
+
+std::size_t PacketCodec::bufferedByteCount() const noexcept {
+  return buffer_.size() - head_;
+}
+
+void PacketCodec::compactConsumedPrefix() {
+  if (head_ == 0) {
+    return;
+  }
+  if (head_ == buffer_.size()) {
+    buffer_.clear();
+    head_ = 0;
+    return;
+  }
+  if (head_ >= kCompactionThreshold && head_ >= buffer_.size() / 2) {
+    buffer_.erase(buffer_.begin(), buffer_.begin() + head_);
+    head_ = 0;
+  }
 }
 
 std::string payloadToString(const Packet& packet) {

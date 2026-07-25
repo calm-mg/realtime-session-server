@@ -14,6 +14,16 @@ std::uint64_t Session::id() const { return id_; }
 
 protocol::PacketCodec& Session::codec() { return codec_; }
 
+std::uint64_t Session::nextEventSequence() const {
+  return next_event_sequence_;
+}
+
+void Session::commitEventSequence() { ++next_event_sequence_; }
+
+void Session::markPeerReadClosed() noexcept { peer_read_closed_ = true; }
+
+bool Session::peerReadClosed() const noexcept { return peer_read_closed_; }
+
 void Session::touch() { last_seen_ = std::chrono::steady_clock::now(); }
 
 std::chrono::steady_clock::time_point Session::lastSeen() const {
@@ -21,6 +31,9 @@ std::chrono::steady_clock::time_point Session::lastSeen() const {
 }
 
 bool Session::tryEnqueue(std::vector<std::uint8_t> bytes) {
+  if (bytes.empty()) {
+    return false;
+  }
   if (bytes.size() > max_pending_write_bytes_ - pending_write_bytes_) {
     return false;
   }

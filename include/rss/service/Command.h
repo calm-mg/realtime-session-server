@@ -16,6 +16,7 @@ struct SessionEvent {
   SessionEventKind kind{SessionEventKind::Packet};
   std::uint64_t session_id{};
   protocol::Packet packet;
+  std::uint64_t sequence{};
 };
 
 struct OutboundMessage {

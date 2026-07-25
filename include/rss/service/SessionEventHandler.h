@@ -1,17 +1,21 @@
 #pragma once
 
-#include <vector>
-
 #include "rss/service/Command.h"
 
 namespace rss::service {
+
+class OutboundMessageSink {
+ public:
+  virtual ~OutboundMessageSink() = default;
+
+  [[nodiscard]] virtual bool emit(OutboundMessage message) = 0;
+};
 
 class SessionEventHandler {
  public:
   virtual ~SessionEventHandler() = default;
 
-  [[nodiscard]] virtual std::vector<OutboundMessage> handle(
-      const SessionEvent& event) = 0;
+  virtual void handle(const SessionEvent& event, OutboundMessageSink& sink) = 0;
 };
 
 }  // namespace rss::service

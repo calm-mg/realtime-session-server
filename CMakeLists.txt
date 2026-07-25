@@ -103,15 +103,24 @@ if(RSS_BUILD_TESTS)
             Threads::Threads
             GTest::gtest_main
     )
-    gtest_discover_tests(rss_core_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(
+        rss_core_tests
+        DISCOVERY_MODE PRE_TEST
+        PROPERTIES TIMEOUT 15
+    )
 
     if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(rss_net_tests
+            test/EpollEventLoopTest.cpp
             test/EventFdCompletionNotifierTest.cpp
             test/TcpServerBackpressureTest.cpp
         )
         target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
-        gtest_discover_tests(rss_net_tests DISCOVERY_MODE PRE_TEST)
+        gtest_discover_tests(
+            rss_net_tests
+            DISCOVERY_MODE PRE_TEST
+            PROPERTIES TIMEOUT 30
+        )
     endif()
 endif()
 

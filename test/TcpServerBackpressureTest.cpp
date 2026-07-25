@@ -35,7 +35,6 @@ namespace {
 using namespace std::chrono_literals;
 using rss::protocol::PacketCodec;
 using rss::protocol::PacketType;
-using rss::service::OutboundMessage;
 using rss::service::SessionEvent;
 using rss::service::SessionEventKind;
 
@@ -307,7 +306,8 @@ class ConnectionFlood {
 
 class BlockingPongHandler final : public rss::service::SessionEventHandler {
  public:
-  std::vector<OutboundMessage> handle(const SessionEvent& event) override {
+  void handle(const SessionEvent& event,
+              rss::service::OutboundMessageSink& sink) override {
     std::function<void(std::string_view)> packet_observer;
     std::string payload;
     std::size_t response_byte_count = 0;
@@ -321,7 +321,7 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
         ++disconnected_count_;
         handled_events_.push_back("Disconnected");
         changed_.notify_all();
-        return {};
+        return;
       }
 
       payload = rss::protocol::payloadToString(event.packet);
@@ -336,10 +336,13 @@ class BlockingPongHandler final : public rss::service::SessionEventHandler {
       packet_observer(payload);
     }
     if (response_byte_count != 0) {
-      return {{event.session_id,
-               std::vector<std::uint8_t>(response_byte_count, 0x5aU)}};
+      static_cast<void>(
+          sink.emit({event.session_id,
+                     std::vector<std::uint8_t>(response_byte_count, 0x5aU)}));
+      return;
     }
-    return {{event.session_id, PacketCodec::encode(PacketType::Pong, payload)}};
+    static_cast<void>(sink.emit(
+        {event.session_id, PacketCodec::encode(PacketType::Pong, payload)}));
   }
 
   void release() {
@@ -416,9 +419,10 @@ class SlowClientIsolationHandler final
  public:
   static constexpr std::size_t kLargeResponseBytes = 8U * 1024U * 1024U;
 
-  std::vector<OutboundMessage> handle(const SessionEvent& event) override {
+  void handle(const SessionEvent& event,
+              rss::service::OutboundMessageSink& sink) override {
     if (event.kind == SessionEventKind::Disconnected) {
-      return {};
+      return;
     }
 
     const auto payload = rss::protocol::payloadToString(event.packet);
@@ -428,11 +432,11 @@ class SlowClientIsolationHandler final
         fast_session_id_ = event.session_id;
       }
       changed_.notify_all();
-      return {};
+      return;
     }
 
     if (payload != "overflow-slow") {
-      return {};
+      return;
     }
 
     std::uint64_t fast_session_id = 0;
@@ -441,15 +445,17 @@ class SlowClientIsolationHandler final
       fast_session_id = fast_session_id_.value_or(0);
     }
 
-    std::vector<OutboundMessage> messages;
-    messages.reserve(3);
-    messages.push_back(
-        {event.session_id, std::vector<std::uint8_t>(kLargeResponseBytes, 1U)});
-    messages.push_back(
-        {event.session_id, std::vector<std::uint8_t>(kLargeResponseBytes, 2U)});
-    messages.push_back({fast_session_id, PacketCodec::encode(PacketType::Pong,
-                                                             "fast-survives")});
-    return messages;
+    if (!sink.emit({event.session_id,
+                    std::vector<std::uint8_t>(kLargeResponseBytes, 1U)})) {
+      return;
+    }
+    if (!sink.emit({event.session_id,
+                    std::vector<std::uint8_t>(kLargeResponseBytes, 2U)})) {
+      return;
+    }
+    static_cast<void>(
+        sink.emit({fast_session_id,
+                   PacketCodec::encode(PacketType::Pong, "fast-survives")}));
   }
 
   bool waitForFastSession(
@@ -465,6 +471,44 @@ class SlowClientIsolationHandler final
   std::optional<std::uint64_t> fast_session_id_;
 };
 
+class DeadlineGateHandler final : public rss::service::SessionEventHandler {
+ public:
+  ~DeadlineGateHandler() override { release(); }
+
+  void handle(const SessionEvent&,
+              rss::service::OutboundMessageSink&) override {
+    const auto entered = entered_.fetch_add(1) + 1;
+    changed_.notify_all();
+    if (entered != 1) {
+      return;
+    }
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    changed_.wait(lock, [this] { return released_; });
+  }
+
+  bool waitForFirstEntry() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s, [this] { return entered_.load() >= 1; });
+  }
+
+  void release() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released_ = true;
+    }
+    changed_.notify_all();
+  }
+
+  [[nodiscard]] std::size_t entered() const { return entered_.load(); }
+
+ private:
+  std::atomic<std::size_t> entered_{0};
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  bool released_{false};
+};
+
 class TcpServerBackpressureTest : public testing::Test {
  protected:
   ~TcpServerBackpressureTest() override { stopAndJoin(false); }
@@ -477,6 +521,9 @@ class TcpServerBackpressureTest : public testing::Test {
       server_->stop();
     }
     if (server_thread_.joinable()) {
+      if (!waitForServerFinished(3s) && report_server_error) {
+        ADD_FAILURE() << "server thread did not stop within cleanup deadline";
+      }
       server_thread_.join();
     }
     if (report_server_error && !server_error_reported_) {
@@ -669,11 +716,13 @@ TEST_F(TcpServerBackpressureTest,
   }));
 
   closing_client.reset();
-  ASSERT_TRUE(waitUntil(
-      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
-  ASSERT_GE(server_->overloadSnapshot().inbound_queue_full, 1U);
+  EXPECT_TRUE(remainsTrueFor(
+      [this] { return server_->overloadSnapshot().current_sessions == 2; },
+      50ms));
 
   handler_.release();
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
   const auto packets = receivePackets(packet_client.get(), batch.size() + 1);
   ASSERT_EQ(packets.size(), batch.size() + 1);
   ASSERT_TRUE(handler_.waitForDisconnectedCount(1));
@@ -707,15 +756,50 @@ TEST_F(TcpServerBackpressureTest,
       [this] { return server_->overloadSnapshot().read_pauses >= 1; }));
 
   client.reset();
-  ASSERT_TRUE(waitUntil(
-      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  EXPECT_TRUE(remainsTrueFor(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; },
+      50ms));
   handler_.release();
 
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
   ASSERT_TRUE(handler_.waitForHandledEventCount(8, 2s));
   EXPECT_EQ(handler_.handledEvents(),
             (std::vector<std::string>{
                 "Packet:gate", "Packet:one", "Packet:two", "Packet:three",
                 "Packet:four", "Packet:five", "Packet:six", "Disconnected"}));
+  EXPECT_EQ(handler_.disconnectedCount(), 1U);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       DrainsKernelReceiveBufferBeforeDisconnectingPausedPeer) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 3;
+  config.inbound_high_watermark = 2;
+  config.inbound_low_watermark = 1;
+  ASSERT_TRUE(startServer(config));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler_.waitForEnteredCount(1));
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"one", "two"})));
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().read_pauses >= 1; }));
+
+  ASSERT_TRUE(sendSingleWrite(client.get(),
+                              encodePingBatch({"three", "four", "five"})));
+  ASSERT_TRUE(client.shutdownWrite());
+  handler_.release();
+
+  ASSERT_TRUE(handler_.waitForHandledEventCount(7, 2s));
+  EXPECT_EQ(handler_.handledEvents(),
+            (std::vector<std::string>{"Packet:gate", "Packet:one", "Packet:two",
+                                      "Packet:three", "Packet:four",
+                                      "Packet:five", "Disconnected"}));
   EXPECT_EQ(handler_.disconnectedCount(), 1U);
 }
 
@@ -889,6 +973,9 @@ TEST_F(TcpServerBackpressureTest,
   config.max_pending_write_bytes =
       SlowClientIsolationHandler::kLargeResponseBytes;
   config.outbound_queue_capacity = 4;
+  config.max_outbound_messages_per_event = 3;
+  config.max_outbound_bytes_per_event =
+      2U * SlowClientIsolationHandler::kLargeResponseBytes + 4096U;
   config.graceful_shutdown_timeout = 1s;
   ASSERT_TRUE(startServer(config, &slow_client_handler_));
 
@@ -981,10 +1068,10 @@ TEST_F(TcpServerBackpressureTest,
 
   server_->stop();
   client.reset();
-  ASSERT_TRUE(waitUntil(
-      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
   handler_.release();
 
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
   ASSERT_TRUE(handler_.waitForHandledEventCount(payloads.size() + 1, 1500ms));
   std::vector<std::string> expected;
   expected.reserve(payloads.size() + 1);
@@ -1044,6 +1131,7 @@ TEST_F(TcpServerBackpressureTest,
   config.inbound_low_watermark = 1;
   config.outbound_queue_capacity = 1;
   config.max_pending_write_bytes = 32U * 1024U * 1024U;
+  config.max_outbound_bytes_per_event = 8U * 1024U * 1024U;
   config.graceful_shutdown_timeout = 1s;
   handler_.setResponseByteCount(8U * 1024U * 1024U);
   ASSERT_TRUE(startServer(config));
@@ -1071,6 +1159,86 @@ TEST_F(TcpServerBackpressureTest,
   EXPECT_GE(elapsed, config.graceful_shutdown_timeout - 100ms);
   EXPECT_LT(elapsed, config.graceful_shutdown_timeout + 1s);
   EXPECT_TRUE(server_->overloadSnapshot().outbound_queue_closed);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       ForcedShutdownSkipsFullInboxAfterCurrentEmptyHandler) {
+  auto config = loopbackConfig();
+  config.inbound_queue_capacity = 2;
+  config.inbound_high_watermark = 2;
+  config.inbound_low_watermark = 1;
+  config.outbound_queue_capacity = 1;
+  config.graceful_shutdown_timeout = 1s;
+  DeadlineGateHandler handler;
+  ASSERT_TRUE(startServer(config, &handler));
+
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"gate"})));
+  ASSERT_TRUE(handler.waitForFirstEntry());
+  ASSERT_TRUE(sendSingleWrite(client.get(), encodePingBatch({"one", "two"})));
+  ASSERT_TRUE(waitUntil([this] {
+    return server_->overloadSnapshot().current_inbound_queue_size == 2;
+  }));
+
+  const auto stop_started = std::chrono::steady_clock::now();
+  server_->stop();
+  EXPECT_EQ(waitForServerFinishedFuture(1100ms), std::future_status::timeout);
+  handler.release();
+
+  EXPECT_EQ(waitForServerFinishedFuture(500ms), std::future_status::ready);
+  EXPECT_LT(std::chrono::steady_clock::now() - stop_started, 1600ms);
+  EXPECT_EQ(handler.entered(), 1U);
+}
+
+TEST_F(TcpServerBackpressureTest,
+       ObservesFullOutboxAndBlockedProducerBeforeSaturatedShutdown) {
+  auto config = loopbackConfig();
+  config.worker_count = 16;
+  config.inbound_queue_capacity = 32;
+  config.inbound_high_watermark = 24;
+  config.inbound_low_watermark = 8;
+  config.outbound_queue_capacity = 1;
+  config.max_pending_write_bytes = 128U * 1024U;
+  config.max_outbound_bytes_per_event = 64U * 1024U;
+  config.graceful_shutdown_timeout = 1s;
+  handler_.setResponseByteCount(64U * 1024U);
+  ASSERT_TRUE(startServer(config));
+
+  std::vector<ClientSocket> clients;
+  clients.reserve(config.worker_count);
+  for (std::size_t index = 0; index < config.worker_count; ++index) {
+    auto client = connectClient(boundPort());
+    ASSERT_TRUE(client.valid());
+    clients.push_back(std::move(client));
+  }
+  ASSERT_TRUE(waitUntil([this, &config] {
+    return server_->overloadSnapshot().current_sessions == config.worker_count;
+  }));
+  for (std::size_t index = 0; index < clients.size(); ++index) {
+    ASSERT_TRUE(
+        sendSingleWrite(clients[index].get(),
+                        encodePingBatch({"session-" + std::to_string(index)})));
+  }
+  ASSERT_TRUE(handler_.waitForEnteredCount(config.worker_count));
+
+  handler_.release();
+  bool observed_saturation = false;
+  const auto observation_deadline = std::chrono::steady_clock::now() + 1s;
+  while (std::chrono::steady_clock::now() < observation_deadline) {
+    const auto snapshot = server_->overloadSnapshot();
+    if (snapshot.current_outbound_queue_size == 1 &&
+        snapshot.outbound_queue_waiting_producers > 0) {
+      observed_saturation = true;
+      break;
+    }
+    std::this_thread::yield();
+  }
+  EXPECT_TRUE(observed_saturation);
+  EXPECT_EQ(server_->overloadSnapshot().max_outbound_queue_size, 1U);
+
+  server_->stop();
+  EXPECT_EQ(waitForServerFinishedFuture(1500ms), std::future_status::ready);
 }
 
 }  // namespace

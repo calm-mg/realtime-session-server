@@ -22,7 +22,7 @@ jobs:
               -DRSS_BUILD_NETWORK_TARGETS=OFF
               -DRSS_BUILD_BENCHMARKS=ON
             build: cmake --build build/core --parallel
-            test: ctest --test-dir build/core --output-on-failure
+            test: ctest --test-dir build/core --output-on-failure --timeout 30
             benchmark: ./build/core/rss_microbenchmarks --benchmark_dry_run
           - os: windows-latest
             configure: >-
@@ -30,7 +30,7 @@ jobs:
               -DRSS_BUILD_NETWORK_TARGETS=OFF
               -DRSS_BUILD_BENCHMARKS=ON
             build: cmake --build build/core --config Release --parallel
-            test: ctest --test-dir build/core -C Release --output-on-failure
+            test: ctest --test-dir build/core -C Release --output-on-failure --timeout 30
             benchmark: .\build\core\Release\rss_microbenchmarks.exe --benchmark_dry_run
     runs-on: ${{ matrix.os }}
     steps:
@@ -68,7 +68,7 @@ jobs:
         run: cmake --build build/release --parallel
 
       - name: Test
-        run: ctest --test-dir build/release --output-on-failure
+        run: ctest --test-dir build/release --output-on-failure --timeout 30
 
       - name: Check microbenchmarks
         run: ./build/release/rss_microbenchmarks --benchmark_dry_run
@@ -97,7 +97,7 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build/sanitizers --output-on-failure
+        run: ctest --test-dir build/sanitizers --output-on-failure --timeout 60
 
   code-quality:
     runs-on: ubuntu-24.04

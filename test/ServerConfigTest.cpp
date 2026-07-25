@@ -17,6 +17,8 @@ TEST(ServerConfigTest, UsesBackpressureDefaults) {
   EXPECT_EQ(config.inbound_high_watermark, 3072U);
   EXPECT_EQ(config.inbound_low_watermark, 2048U);
   EXPECT_EQ(config.outbound_queue_capacity, 4096U);
+  EXPECT_EQ(config.max_outbound_messages_per_event, 10000U);
+  EXPECT_EQ(config.max_outbound_bytes_per_event, 40U * 1024U * 1024U);
   EXPECT_EQ(config.max_pending_write_bytes, 1024U * 1024U);
   EXPECT_EQ(config.max_sessions, 10000U);
   EXPECT_EQ(config.graceful_shutdown_timeout, std::chrono::seconds{5});
@@ -39,6 +41,8 @@ enum class InvalidConfigCase {
   ReversedWatermarks,
   HighWatermarkAboveCapacity,
   ZeroOutboundCapacity,
+  ZeroOutboundMessagesPerEvent,
+  ZeroOutboundBytesPerEvent,
   ZeroPendingWriteBytes,
   ZeroMaxSessions,
   ZeroShutdownTimeout,
@@ -60,6 +64,10 @@ const char* invalidConfigCaseName(
       return "HighWatermarkAboveCapacity";
     case InvalidConfigCase::ZeroOutboundCapacity:
       return "ZeroOutboundCapacity";
+    case InvalidConfigCase::ZeroOutboundMessagesPerEvent:
+      return "ZeroOutboundMessagesPerEvent";
+    case InvalidConfigCase::ZeroOutboundBytesPerEvent:
+      return "ZeroOutboundBytesPerEvent";
     case InvalidConfigCase::ZeroPendingWriteBytes:
       return "ZeroPendingWriteBytes";
     case InvalidConfigCase::ZeroMaxSessions:
@@ -97,6 +105,12 @@ TEST_P(InvalidServerConfigTest, RejectsInvalidBackpressureValue) {
     case InvalidConfigCase::ZeroOutboundCapacity:
       config.outbound_queue_capacity = 0;
       break;
+    case InvalidConfigCase::ZeroOutboundMessagesPerEvent:
+      config.max_outbound_messages_per_event = 0;
+      break;
+    case InvalidConfigCase::ZeroOutboundBytesPerEvent:
+      config.max_outbound_bytes_per_event = 0;
+      break;
     case InvalidConfigCase::ZeroPendingWriteBytes:
       config.max_pending_write_bytes = 0;
       break;
@@ -122,6 +136,8 @@ INSTANTIATE_TEST_SUITE_P(
                     InvalidConfigCase::ReversedWatermarks,
                     InvalidConfigCase::HighWatermarkAboveCapacity,
                     InvalidConfigCase::ZeroOutboundCapacity,
+                    InvalidConfigCase::ZeroOutboundMessagesPerEvent,
+                    InvalidConfigCase::ZeroOutboundBytesPerEvent,
                     InvalidConfigCase::ZeroPendingWriteBytes,
                     InvalidConfigCase::ZeroMaxSessions,
                     InvalidConfigCase::ZeroShutdownTimeout,

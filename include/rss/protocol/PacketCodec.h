@@ -35,6 +35,7 @@ class PacketCodec {
   [[nodiscard]] std::optional<Packet> peekPacket() const;
   void consumePacket();
   [[nodiscard]] std::vector<Packet> drainPackets();
+  [[nodiscard]] std::size_t bufferedByteCount() const noexcept;
 
  private:
   struct PacketFrame {
@@ -44,8 +45,10 @@ class PacketCodec {
 
   [[nodiscard]] std::optional<PacketFrame> packetFrameAt(
       std::size_t offset) const;
+  void compactConsumedPrefix();
 
   std::vector<std::uint8_t> buffer_;
+  std::size_t head_{};
 };
 
 std::string payloadToString(const Packet& packet);

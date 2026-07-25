@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -47,7 +48,8 @@ class TcpServer {
 
   void openListener();
   void acceptLoop();
-  void readSession(int fd);
+  void readSession(int fd, bool drain_after_peer_close = false,
+                   std::size_t* remaining_work = nullptr);
   void flushSession(int fd);
   void disconnect(int fd);
   void drainOutbound();
@@ -55,8 +57,10 @@ class TcpServer {
   void expireIdleSessions();
   void pauseReads();
   void resumeReads();
-  bool enqueueDecodedPackets(Session& session);
-  bool enqueueDisconnected(std::uint64_t session_id);
+  bool enqueueDecodedPackets(Session& session,
+                             std::size_t* remaining_work = nullptr);
+  bool enqueueDisconnected(Session& session);
+  void deferRead(int fd);
   void deferDisconnected(std::unique_ptr<Session> session);
   [[nodiscard]] bool drainDeferredInput();
   void beginShutdown();
@@ -76,9 +80,9 @@ class TcpServer {
   service::RoomService room_service_;
   service::MessageRouter router_;
   service::SessionEventHandler& handler_;
-  WorkerPool workers_;
   ReadBackpressureController read_backpressure_;
   OverloadStats overload_stats_;
+  WorkerPool workers_;
 
   int listen_fd_{-1};
   bool listener_registered_{false};
@@ -90,10 +94,16 @@ class TcpServer {
   ShutdownPhase shutdown_phase_{ShutdownPhase::Running};
   std::chrono::steady_clock::time_point shutdown_deadline_{};
   std::uint64_t next_session_id_{1};
+  std::uint64_t next_registration_token_{4};
   std::unordered_map<int, std::unique_ptr<Session>> sessions_by_fd_;
   std::unordered_map<std::uint64_t, int> fd_by_session_;
+  std::unordered_map<int, std::uint64_t> registration_token_by_fd_;
+  std::unordered_map<std::uint64_t, int> fd_by_registration_token_;
   std::deque<std::unique_ptr<Session>> deferred_disconnects_;
   std::unordered_set<std::uint64_t> deferred_disconnect_ids_;
+  std::deque<int> deferred_read_fds_;
+  std::unordered_set<int> deferred_read_fd_set_;
+  bool forced_shutdown_{false};
 };
 
 }  // namespace rss::net

@@ -52,4 +52,21 @@ TEST(SessionTest, RejectsInvalidWriteConsumption) {
   EXPECT_EQ(session.pendingWriteBytes(), 3U);
 }
 
+TEST(SessionTest, RejectsEmptyWritesWithoutCreatingQueueNodes) {
+  rss::net::Session session(7, 42, 10);
+
+  EXPECT_FALSE(session.tryEnqueue({}));
+  EXPECT_FALSE(session.hasPendingWrite());
+  EXPECT_EQ(session.pendingWriteBytes(), 0U);
+}
+
+TEST(SessionTest, AdvancesEventSequenceOnlyAfterCommit) {
+  rss::net::Session session(7, 42, 10);
+
+  EXPECT_EQ(session.nextEventSequence(), 0U);
+  EXPECT_EQ(session.nextEventSequence(), 0U);
+  session.commitEventSequence();
+  EXPECT_EQ(session.nextEventSequence(), 1U);
+}
+
 }  // namespace

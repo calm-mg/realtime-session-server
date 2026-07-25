@@ -2,7 +2,6 @@
 
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "rss/service/Command.h"
 #include "rss/service/RoomService.h"
@@ -14,12 +13,11 @@ class MessageRouter final : public SessionEventHandler {
  public:
   explicit MessageRouter(RoomService& room_service);
 
-  [[nodiscard]] std::vector<OutboundMessage> handle(
-      const SessionEvent& event) override;
+  void handle(const SessionEvent& event, OutboundMessageSink& sink) override;
 
  private:
-  [[nodiscard]] std::vector<OutboundMessage> handlePacket(
-      std::uint64_t session_id, const protocol::Packet& packet);
+  void handlePacket(std::uint64_t session_id, const protocol::Packet& packet,
+                    OutboundMessageSink& sink);
   [[nodiscard]] OutboundMessage make(std::uint64_t session_id,
                                      protocol::PacketType type,
                                      std::string_view payload) const;

@@ -22,6 +22,12 @@ namespace rss::net {
 namespace {
 
 constexpr std::size_t kAcceptBatchLimit = 64;
+constexpr std::size_t kOutboundDrainMessageLimit = 256;
+constexpr std::size_t kDeferredInputWorkLimit = 256;
+constexpr std::size_t kSessionFlushByteLimit = 256U * 1024U;
+constexpr std::uint64_t kListenerToken = 1;
+constexpr std::uint64_t kOutboundWakeupToken = 2;
+constexpr std::uint64_t kInputCapacityWakeupToken = 3;
 
 int setNonBlocking(int fd) {
   const auto flags = ::fcntl(fd, F_GETFL, 0);
@@ -57,10 +63,17 @@ TcpServer::TcpServer(ServerConfig config, service::SessionEventHandler* handler)
       handler_(handler == nullptr
                    ? static_cast<service::SessionEventHandler&>(router_)
                    : *handler),
-      workers_(inbox_, outbox_, handler_, config_.inbound_low_watermark,
-               &outbound_wakeup_, &input_capacity_wakeup_),
       read_backpressure_(config_.inbound_high_watermark,
-                         config_.inbound_low_watermark) {
+                         config_.inbound_low_watermark),
+      workers_(inbox_, outbox_, handler_,
+               WorkerPoolConfig{
+                   .inbound_low_watermark = config_.inbound_low_watermark,
+                   .max_outbound_messages_per_event =
+                       config_.max_outbound_messages_per_event,
+                   .max_outbound_bytes_per_event =
+                       config_.max_outbound_bytes_per_event,
+               },
+               &outbound_wakeup_, &input_capacity_wakeup_, &overload_stats_) {
   config_.validate();
 }
 
@@ -99,15 +112,24 @@ void TcpServer::run() {
         if (stop_requested_.load(std::memory_order_acquire)) {
           beginShutdown();
         }
+        if (shutdown_phase_ != ShutdownPhase::Running &&
+            shutdown_phase_ != ShutdownPhase::Forced &&
+            shutdown_phase_ != ShutdownPhase::Complete &&
+            std::chrono::steady_clock::now() >= shutdown_deadline_) {
+          forceShutdown();
+          break;
+        }
 
-        const auto fd = event.data.fd;
-        if (fd == outbound_wakeup_.fd()) {
+        const auto token = event.data.u64;
+        if (token == kOutboundWakeupToken) {
           outbound_wakeup_.drain();
-          drainOutbound();
+          if (shutdown_phase_ != ShutdownPhase::Forced) {
+            drainOutbound();
+          }
           continue;
         }
 
-        if (fd == input_capacity_wakeup_.fd()) {
+        if (token == kInputCapacityWakeupToken) {
           input_capacity_wakeup_.drain();
           if (shutdown_phase_ == ShutdownPhase::Running ||
               shutdown_phase_ == ShutdownPhase::DrainingInput) {
@@ -116,7 +138,7 @@ void TcpServer::run() {
           continue;
         }
 
-        if (fd == listen_fd_) {
+        if (token == kListenerToken) {
           if (shutdown_phase_ == ShutdownPhase::Running &&
               listener_registered_ && !reads_paused_) {
             acceptLoop();
@@ -124,15 +146,38 @@ void TcpServer::run() {
           continue;
         }
 
-        if (shutdown_phase_ == ShutdownPhase::Running &&
-            (event.events & EPOLLIN) != 0U) {
-          readSession(fd);
+        const auto token_it = fd_by_registration_token_.find(token);
+        if (token_it == fd_by_registration_token_.end()) {
+          continue;
+        }
+        const auto fd = token_it->second;
+        const auto current_token = registration_token_by_fd_.find(fd);
+        if (current_token == registration_token_by_fd_.end() ||
+            current_token->second != token) {
+          continue;
         }
 
-        if (sessions_by_fd_.contains(fd) &&
-            (event.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) != 0U) {
+        if ((event.events & EPOLLERR) != 0U) {
           disconnect(fd);
           continue;
+        }
+
+        auto session_it = sessions_by_fd_.find(fd);
+        if (session_it == sessions_by_fd_.end()) {
+          continue;
+        }
+        const auto peer_close = (event.events & (EPOLLHUP | EPOLLRDHUP)) != 0U;
+        if (peer_close) {
+          session_it->second->markPeerReadClosed();
+        }
+
+        if (shutdown_phase_ == ShutdownPhase::Running && !reads_paused_ &&
+            ((event.events & EPOLLIN) != 0U || peer_close)) {
+          readSession(fd);
+        } else if (peer_close &&
+                   (shutdown_phase_ == ShutdownPhase::Running ||
+                    shutdown_phase_ == ShutdownPhase::DrainingInput)) {
+          deferRead(fd);
         }
 
         if (sessions_by_fd_.contains(fd) && (event.events & EPOLLOUT) != 0U) {
@@ -140,7 +185,9 @@ void TcpServer::run() {
         }
       }
 
-      drainOutbound();
+      if (shutdown_phase_ != ShutdownPhase::Forced) {
+        drainOutbound();
+      }
       if (shutdown_phase_ == ShutdownPhase::Running) {
         expireIdleSessions();
       }
@@ -156,8 +203,10 @@ void TcpServer::run() {
   }
 
   workers_.join();
-  drainOutbound();
-  flushAllSessions();
+  if (!forced_shutdown_) {
+    drainOutbound();
+    flushAllSessions();
+  }
   closeNetworkResources();
   running_.store(false, std::memory_order_release);
 }
@@ -176,6 +225,7 @@ OverloadSnapshot TcpServer::overloadSnapshot() const {
       inbox_.size(), outbox_.size(),
       current_sessions_.load(std::memory_order_relaxed));
   snapshot.outbound_queue_closed = outbox_.closed();
+  snapshot.outbound_queue_waiting_producers = outbox_.waiterCounts().producers;
   return snapshot;
 }
 
@@ -212,10 +262,11 @@ void TcpServer::openListener() {
     throw systemError("getsockname failed");
   }
 
-  event_loop_.add(listen_fd_, EPOLLIN);
+  event_loop_.add(listen_fd_, EPOLLIN, kListenerToken);
   listener_registered_ = true;
-  event_loop_.add(outbound_wakeup_.fd(), EPOLLIN);
-  event_loop_.add(input_capacity_wakeup_.fd(), EPOLLIN);
+  event_loop_.add(outbound_wakeup_.fd(), EPOLLIN, kOutboundWakeupToken);
+  event_loop_.add(input_capacity_wakeup_.fd(), EPOLLIN,
+                  kInputCapacityWakeupToken);
   bound_port_.store(ntohs(bound_address.sin_port), std::memory_order_release);
 }
 
@@ -258,13 +309,17 @@ void TcpServer::acceptLoop() {
                                              config_.max_pending_write_bytes);
     fd_by_session_[session_id] = fd;
     sessions_by_fd_[fd] = std::move(session);
-    event_loop_.add(fd, EPOLLIN | EPOLLRDHUP);
+    const auto registration_token = next_registration_token_++;
+    registration_token_by_fd_[fd] = registration_token;
+    fd_by_registration_token_[registration_token] = fd;
+    event_loop_.add(fd, EPOLLIN | EPOLLRDHUP, registration_token);
     current_sessions_.store(sessions_by_fd_.size(), std::memory_order_relaxed);
   }
 }
 
-void TcpServer::readSession(int fd) {
-  if (reads_paused_) {
+void TcpServer::readSession(int fd, bool drain_after_peer_close,
+                            std::size_t* remaining_work) {
+  if (reads_paused_ && !drain_after_peer_close) {
     return;
   }
 
@@ -277,7 +332,8 @@ void TcpServer::readSession(int fd) {
   std::uint8_t buffer[4096];
 
   while (true) {
-    if (stop_requested_.load(std::memory_order_acquire)) {
+    if (stop_requested_.load(std::memory_order_acquire) &&
+        !drain_after_peer_close) {
       return;
     }
 
@@ -297,7 +353,8 @@ void TcpServer::readSession(int fd) {
     try {
       session.touch();
       session.codec().feed(buffer, static_cast<std::size_t>(n));
-      if (!enqueueDecodedPackets(session)) {
+      if (!enqueueDecodedPackets(session, remaining_work)) {
+        deferRead(fd);
         return;
       }
     } catch (const protocol::ProtocolError&) {
@@ -307,10 +364,15 @@ void TcpServer::readSession(int fd) {
   }
 }
 
-bool TcpServer::enqueueDecodedPackets(Session& session) {
+bool TcpServer::enqueueDecodedPackets(Session& session,
+                                      std::size_t* remaining_work) {
   while (auto packet = session.codec().peekPacket()) {
-    const auto push_result = inbox_.tryPush(service::SessionEvent{
-        service::SessionEventKind::Packet, session.id(), std::move(*packet)});
+    if (remaining_work != nullptr && *remaining_work == 0) {
+      return false;
+    }
+    const auto push_result = inbox_.tryPush(
+        service::SessionEvent{service::SessionEventKind::Packet, session.id(),
+                              std::move(*packet), session.nextEventSequence()});
     if (!push_result.succeeded) {
       overload_stats_.recordInboundQueueFull();
       static_cast<void>(
@@ -320,6 +382,10 @@ bool TcpServer::enqueueDecodedPackets(Session& session) {
     }
 
     session.codec().consumePacket();
+    session.commitEventSequence();
+    if (remaining_work != nullptr) {
+      --*remaining_work;
+    }
     overload_stats_.observeInboundQueueSize(push_result.size);
     const auto transition = read_backpressure_.onInboundSize(push_result.size);
     if (transition == ReadTransition::Pause) {
@@ -332,6 +398,13 @@ bool TcpServer::enqueueDecodedPackets(Session& session) {
   return true;
 }
 
+void TcpServer::deferRead(int fd) {
+  if (!deferred_read_fd_set_.insert(fd).second) {
+    return;
+  }
+  deferred_read_fds_.push_back(fd);
+}
+
 void TcpServer::flushSession(int fd) {
   auto it = sessions_by_fd_.find(fd);
   if (it == sessions_by_fd_.end()) {
@@ -339,11 +412,14 @@ void TcpServer::flushSession(int fd) {
   }
 
   auto& session = *it->second;
-  while (session.hasPendingWrite()) {
+  std::size_t sent_bytes = 0;
+  while (session.hasPendingWrite() && sent_bytes < kSessionFlushByteLimit) {
     auto& write = session.currentWrite();
     const auto* data = write.bytes.data() + write.offset;
     const auto remaining = write.bytes.size() - write.offset;
-    const auto n = ::send(fd, data, remaining, MSG_NOSIGNAL);
+    const auto send_size =
+        std::min(remaining, kSessionFlushByteLimit - sent_bytes);
+    const auto n = ::send(fd, data, send_size, MSG_NOSIGNAL);
 
     if (n == 0) {
       disconnect(fd);
@@ -360,6 +436,7 @@ void TcpServer::flushSession(int fd) {
     }
 
     session.consumeWrite(static_cast<std::size_t>(n));
+    sent_bytes += static_cast<std::size_t>(n);
   }
 
   updateInterest(session);
@@ -374,6 +451,12 @@ void TcpServer::disconnect(int fd) {
   auto session = std::move(it->second);
   const auto session_id = session->id();
   fd_by_session_.erase(session_id);
+  deferred_read_fd_set_.erase(fd);
+  const auto token_it = registration_token_by_fd_.find(fd);
+  if (token_it != registration_token_by_fd_.end()) {
+    fd_by_registration_token_.erase(token_it->second);
+    registration_token_by_fd_.erase(token_it);
+  }
   event_loop_.remove(fd);
   ::close(fd);
   sessions_by_fd_.erase(it);
@@ -394,17 +477,19 @@ void TcpServer::disconnect(int fd) {
   } catch (const protocol::ProtocolError&) {
   }
 
-  if (has_completed_packet || !enqueueDisconnected(session_id)) {
+  if (has_completed_packet || !enqueueDisconnected(*session)) {
     deferDisconnected(std::move(session));
   }
 }
 
 void TcpServer::drainOutbound() {
-  while (true) {
+  std::size_t drained = 0;
+  while (drained < kOutboundDrainMessageLimit) {
     auto result = outbox_.tryPop();
     if (!result.value.has_value()) {
       break;
     }
+    ++drained;
     auto message = std::move(result.value);
     const auto fd_it = fd_by_session_.find(message->session_id);
     if (fd_it == fd_by_session_.end()) {
@@ -427,6 +512,9 @@ void TcpServer::drainOutbound() {
         session.pendingWriteBytes());
     updateInterest(session);
   }
+  if (outbox_.size() != 0) {
+    outbound_wakeup_.notify();
+  }
 }
 
 void TcpServer::updateInterest(Session& session) {
@@ -437,7 +525,11 @@ void TcpServer::updateInterest(Session& session) {
   if (session.hasPendingWrite()) {
     events |= EPOLLOUT;
   }
-  event_loop_.modify(session.fd(), events);
+  const auto token_it = registration_token_by_fd_.find(session.fd());
+  if (token_it == registration_token_by_fd_.end()) {
+    return;
+  }
+  event_loop_.modify(session.fd(), events, token_it->second);
 }
 
 void TcpServer::expireIdleSessions() {
@@ -476,18 +568,32 @@ void TcpServer::resumeReads() {
 
   reads_paused_ = false;
   if (!listener_registered_) {
-    event_loop_.add(listen_fd_, EPOLLIN);
+    event_loop_.add(listen_fd_, EPOLLIN, kListenerToken);
     listener_registered_ = true;
   }
+  std::vector<int> peer_closed_fds;
   for (auto& [_, session] : sessions_by_fd_) {
     updateInterest(*session);
+    if (session->peerReadClosed()) {
+      peer_closed_fds.push_back(session->fd());
+    }
   }
   overload_stats_.recordReadResume();
+
+  for (const auto fd : peer_closed_fds) {
+    if (reads_paused_) {
+      break;
+    }
+    readSession(fd);
+  }
 }
 
-bool TcpServer::enqueueDisconnected(std::uint64_t session_id) {
-  const auto push_result = inbox_.tryPush(service::SessionEvent{
-      service::SessionEventKind::Disconnected, session_id, {}});
+bool TcpServer::enqueueDisconnected(Session& session) {
+  const auto push_result = inbox_.tryPush(
+      service::SessionEvent{service::SessionEventKind::Disconnected,
+                            session.id(),
+                            {},
+                            session.nextEventSequence()});
   if (!push_result.succeeded) {
     overload_stats_.recordInboundQueueFull();
     static_cast<void>(
@@ -501,6 +607,7 @@ bool TcpServer::enqueueDisconnected(std::uint64_t session_id) {
       ReadTransition::Pause) {
     pauseReads();
   }
+  session.commitEventSequence();
   return true;
 }
 
@@ -518,19 +625,35 @@ void TcpServer::deferDisconnected(std::unique_ptr<Session> session) {
 }
 
 bool TcpServer::drainDeferredInput() {
+  std::size_t remaining_work = kDeferredInputWorkLimit;
+  const auto yieldForWorkBudget = [this, &remaining_work] {
+    if (remaining_work == 0 && shutdown_phase_ != ShutdownPhase::Forced &&
+        shutdown_phase_ != ShutdownPhase::Complete) {
+      input_capacity_wakeup_.notify();
+    }
+    return false;
+  };
+
   while (!deferred_disconnects_.empty()) {
+    if (remaining_work == 0) {
+      return yieldForWorkBudget();
+    }
     auto& session = *deferred_disconnects_.front();
     try {
-      if (!enqueueDecodedPackets(session)) {
-        return false;
+      if (!enqueueDecodedPackets(session, &remaining_work)) {
+        return yieldForWorkBudget();
       }
     } catch (const protocol::ProtocolError&) {
     }
 
+    if (remaining_work == 0) {
+      return yieldForWorkBudget();
+    }
     const auto session_id = session.id();
-    if (!enqueueDisconnected(session_id)) {
+    if (!enqueueDisconnected(session)) {
       return false;
     }
+    --remaining_work;
 
     deferred_disconnects_.pop_front();
     deferred_disconnect_ids_.erase(session_id);
@@ -539,22 +662,43 @@ bool TcpServer::drainDeferredInput() {
     }
   }
 
-  std::vector<int> protocol_error_fds;
-  for (auto& [fd, session] : sessions_by_fd_) {
+  while (!deferred_read_fds_.empty()) {
+    if (remaining_work == 0) {
+      return yieldForWorkBudget();
+    }
+    const auto fd = deferred_read_fds_.front();
+    const auto session_it = sessions_by_fd_.find(fd);
+    if (!deferred_read_fd_set_.contains(fd) ||
+        session_it == sessions_by_fd_.end()) {
+      deferred_read_fds_.pop_front();
+      continue;
+    }
+
+    bool protocol_error = false;
     try {
-      if (!enqueueDecodedPackets(*session)) {
-        return false;
+      if (!enqueueDecodedPackets(*session_it->second, &remaining_work)) {
+        return yieldForWorkBudget();
       }
     } catch (const protocol::ProtocolError&) {
-      protocol_error_fds.push_back(fd);
+      protocol_error = true;
+    }
+
+    deferred_read_fds_.pop_front();
+    deferred_read_fd_set_.erase(fd);
+    if (protocol_error) {
+      disconnect(fd);
+      if (inbox_.size() >= config_.inbound_high_watermark) {
+        return false;
+      }
+    } else {
+      const auto current = sessions_by_fd_.find(fd);
+      if (current != sessions_by_fd_.end() &&
+          current->second->peerReadClosed()) {
+        readSession(fd, true, &remaining_work);
+      }
     }
   }
-  for (const auto fd : protocol_error_fds) {
-    disconnect(fd);
-    if (inbox_.size() >= config_.inbound_high_watermark) {
-      return false;
-    }
-  }
+
   if (!deferred_disconnects_.empty()) {
     return false;
   }
@@ -593,13 +737,30 @@ void TcpServer::advanceShutdown() {
     return;
   }
 
-  drainOutbound();
+  if (std::chrono::steady_clock::now() >= shutdown_deadline_) {
+    forceShutdown();
+  }
+  if (shutdown_phase_ == ShutdownPhase::Forced) {
+    if (workers_.finished()) {
+      shutdown_phase_ = ShutdownPhase::Complete;
+    }
+    return;
+  }
 
+  drainOutbound();
+  if (std::chrono::steady_clock::now() >= shutdown_deadline_) {
+    forceShutdown();
+    return;
+  }
   if (shutdown_phase_ == ShutdownPhase::DrainingInput && drainDeferredInput()) {
     workers_.beginStop();
     shutdown_phase_ = ShutdownPhase::DrainingOutput;
   }
 
+  if (std::chrono::steady_clock::now() >= shutdown_deadline_) {
+    forceShutdown();
+    return;
+  }
   drainOutbound();
   if (shutdown_phase_ == ShutdownPhase::DrainingOutput && workers_.finished()) {
     drainOutbound();
@@ -607,19 +768,6 @@ void TcpServer::advanceShutdown() {
       outbox_.close();
       shutdown_phase_ = ShutdownPhase::Complete;
       return;
-    }
-  }
-
-  if (shutdown_phase_ != ShutdownPhase::Forced &&
-      std::chrono::steady_clock::now() >= shutdown_deadline_) {
-    forceShutdown();
-  }
-
-  if (shutdown_phase_ == ShutdownPhase::Forced) {
-    drainOutbound();
-    if (workers_.finished()) {
-      drainOutbound();
-      shutdown_phase_ = ShutdownPhase::Complete;
     }
   }
 }
@@ -631,6 +779,7 @@ void TcpServer::forceShutdown() {
   }
 
   workers_.forceStop();
+  forced_shutdown_ = true;
   shutdown_phase_ = ShutdownPhase::Forced;
 }
 
@@ -685,8 +834,12 @@ void TcpServer::closeNetworkResources() noexcept {
   }
   sessions_by_fd_.clear();
   fd_by_session_.clear();
+  registration_token_by_fd_.clear();
+  fd_by_registration_token_.clear();
   deferred_disconnects_.clear();
   deferred_disconnect_ids_.clear();
+  deferred_read_fds_.clear();
+  deferred_read_fd_set_.clear();
   current_sessions_.store(0, std::memory_order_relaxed);
 
   if (listen_fd_ >= 0) {

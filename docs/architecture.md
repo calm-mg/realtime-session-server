@@ -44,13 +44,23 @@ I/O 스레드
 서버의 중심 객체입니다. listener와 세션 소켓을 `epoll`로 감시하고,
 입력·출력 queue, 읽기 흐름 제어, 세션 수 제한, 정상 종료를 관리합니다.
 `accept4`, `recv`, `send`, `epoll_ctl`, `close`는 I/O 스레드만 호출합니다.
+`epoll` 이벤트에는 fd 대신 등록할 때마다 달라지는 식별자를 저장합니다.
+이미 반환된 이벤트 묶음에 닫힌 연결의 이벤트가 남아 있어도, 같은 fd를
+재사용한 새 세션과 식별자가 다르면 해당 이벤트를 무시합니다.
 
 ### `WorkerPool`과 `SessionEventHandler`
 
 `WorkerPool`은 구체적인 메시지 라우터가 아니라 애플리케이션 처리 포트인
 `SessionEventHandler`에만 의존합니다. `MessageRouter`가 이 포트를
-구현하고 `RoomService`와 협력해 `SessionEvent`를 `OutboundMessage` 목록으로
-변환합니다. worker는 소켓이나 `epoll`을 직접 조작하지 않습니다.
+구현하고 `RoomService`와 협력해 응답을 출력 sink로 하나씩 전달합니다.
+worker는 응답 목록 전체를 로컬에 쌓지 않으며 소켓이나 `epoll`을 직접
+조작하지 않습니다.
+
+각 `SessionEvent`에는 세션 안에서 증가하는 순서 번호가 있습니다. 여러
+worker가 동시에 동작해도 같은 세션의 이벤트는 이 번호 순서대로 하나씩
+처리합니다. 따라서 마지막 패킷 처리보다 `Disconnected`가 먼저 실행되어
+종료한 사용자가 다시 생성되는 순서 역전을 막습니다. 서로 다른 세션은
+계속 병렬로 처리할 수 있습니다.
 
 ### `BoundedBlockingQueue`
 
@@ -65,6 +75,10 @@ worker 종료를 기다리며 멈추지 않습니다.
 보관합니다. `PacketCodec`은 다음 완성 패킷을 먼저 확인하고, 입력 queue
 삽입이 성공한 뒤에만 해당 패킷을 소비합니다. 입력 queue가 가득 차도 이미
 디코딩한 패킷은 codec에 남아 순서와 내용을 보존합니다.
+
+codec은 패킷 하나를 소비할 때마다 앞부분을 이동하지 않고 읽기 위치를
+전진시킵니다. 소비한 영역이 일정 크기 이상 쌓였을 때만 한 번에 압축해,
+작은 패킷을 연속으로 처리할 때 반복적인 전체 버퍼 이동을 피합니다.
 
 ## 입력 흐름 제어
 
@@ -88,12 +102,24 @@ listener와 세션의 `EPOLLIN`을 다시 등록합니다.
 버리지 않습니다. 해당 세션은 최대 `max_sessions`개까지 보관하는 지연 목록에
 넣고, queue가 회복된 뒤 보류 패킷과 종료 이벤트를 전달합니다.
 
+읽기가 일시정지된 동안 상대가 정상적으로 송신을 종료하면 서버는 종료
+상태만 먼저 기록합니다. 입력 queue에 여유가 생긴 뒤 소켓 수신 버퍼를
+non-blocking 방식으로 EOF까지 읽고, 그 안의 완성 패킷을 모두 전달한 다음
+`Disconnected`를 전달합니다.
+
 ## 출력 흐름과 느린 클라이언트 격리
 
 출력 queue가 포화되면 worker의 출력 생산이 제한됩니다. worker 처리량이
 낮아지면 입력 queue가 high watermark에 도달해 앞에서 설명한 읽기
 일시정지로 압력이 역전파됩니다. 이 동안에도 I/O 스레드는 socket write,
 notifier, 종료 이벤트를 계속 처리합니다.
+
+한 입력 이벤트가 만들 수 있는 출력 메시지 수와 총 바이트도
+`max_outbound_messages_per_event`,
+`max_outbound_bytes_per_event`로 제한합니다. 출력 sink는 한도를 넘는
+메시지와 크기가 0인 메시지를 queue에 넣지 않습니다. 기본 메시지 수 한도는
+기본 최대 세션 수와 같아, 내장 방 broadcast가 정상 범위에서 잘리지 않도록
+설정되어 있습니다.
 
 각 세션은 `max_pending_write_bytes`를 넘지 않는 미전송 응답만 보관합니다.
 한도를 넘기는 출력은 그 세션의 연결만 종료하며, 같은 출력 batch의 다른
@@ -108,6 +134,8 @@ accept된 연결만 즉시 닫고 기존 세션은 유지합니다.
 | `inbound_high_watermark` | 3072 | 읽기·accept 일시정지 기준 |
 | `inbound_low_watermark` | 2048 | 읽기·accept 재개 기준 |
 | `outbound_queue_capacity` | 4096 | 출력 메시지 최대 개수 |
+| `max_outbound_messages_per_event` | 10000 | 입력 이벤트 하나의 출력 메시지 상한 |
+| `max_outbound_bytes_per_event` | 40 MiB | 입력 이벤트 하나의 출력 총 바이트 상한 |
 | `max_pending_write_bytes` | 1 MiB | 세션 하나의 미전송 바이트 상한 |
 | `max_sessions` | 10000 | 동시에 보유하는 세션 상한 |
 | `graceful_shutdown_timeout` | 5초 | 정상 종료 시 drain 최대 대기 시간 |
@@ -118,9 +146,9 @@ accept된 연결만 즉시 닫고 기존 세션은 유지합니다.
 ## 과부하 통계
 
 `TcpServer::overloadSnapshot()`은 읽기 일시정지·재개, 입력 queue 포화,
-느린 클라이언트 종료, 연결 거절 횟수와 관측한 최대 queue·세션 pending
-write 크기를 제공합니다. 현재 입력·출력 queue 크기와 세션 수도 함께
-제공합니다.
+출력 예산 거절, 느린 클라이언트 종료, 연결 거절 횟수와 관측한 최대
+queue·세션 pending write 크기를 제공합니다. 현재 입력·출력 queue 크기,
+출력 queue에서 공간을 기다리는 worker 수와 세션 수도 함께 제공합니다.
 
 snapshot의 각 항목은 동시 갱신 중에도 독립적으로 읽을 수 있지만, 여러
 필드가 하나의 동일한 시점을 나타내도록 묶이지는 않습니다. 따라서 단일
@@ -132,7 +160,10 @@ snapshot의 각 항목은 동시 갱신 중에도 독립적으로 읽을 수 있
 종료 요청을 받으면 서버는 새 연결 수락과 새 소켓 읽기를 멈춘 뒤, 이미
 디코딩된 패킷과 지연된 종료 이벤트를 입력 queue에 전달합니다. 이어서
 worker가 만든 출력과 세션의 pending write를 설정된 시간 동안 drain합니다.
-제한 시간에 도달하면 두 queue를 닫아 대기 중인 worker를 깨우고, 남은
+한 번의 I/O 순환에서 처리하는 지연 입력, 출력 메시지와 socket write
+바이트에는 작업 예산이 있어 종료 시각을 주기적으로 다시 확인합니다.
+제한 시간에 도달하면 두 queue를 닫아 대기 중인 worker를 깨웁니다. 현재
+실행 중인 handler가 반환하면 아직 queue에 남은 이벤트는 더 처리하지 않고
 네트워크 자원을 정리합니다.
 
 ## 스레드 사용 규칙

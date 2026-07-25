@@ -80,4 +80,26 @@ TEST(PacketCodecTest, PreservesBufferedPacketsWhenLaterFrameIsInvalid) {
   EXPECT_EQ(rss::protocol::payloadToString(*retained), "one");
 }
 
+TEST(PacketCodecTest, ConsumesManySmallFramesAndKeepsOnlyPartialTail) {
+  constexpr std::size_t frame_count = 4096;
+  const auto frame = PacketCodec::encode(PacketType::Ping, "x");
+  const auto partial = PacketCodec::encode(PacketType::Ping, "tail");
+  std::vector<std::uint8_t> bytes;
+  bytes.reserve(frame.size() * frame_count + 2);
+  for (std::size_t index = 0; index < frame_count; ++index) {
+    bytes.insert(bytes.end(), frame.begin(), frame.end());
+  }
+  bytes.insert(bytes.end(), partial.begin(), partial.begin() + 2);
+
+  PacketCodec codec;
+  codec.feed(bytes.data(), bytes.size());
+  for (std::size_t index = 0; index < frame_count; ++index) {
+    ASSERT_TRUE(codec.peekPacket().has_value());
+    codec.consumePacket();
+  }
+
+  EXPECT_FALSE(codec.peekPacket().has_value());
+  EXPECT_EQ(codec.bufferedByteCount(), 2U);
+}
+
 }  // namespace

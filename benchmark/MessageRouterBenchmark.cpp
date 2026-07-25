@@ -8,6 +8,20 @@
 
 namespace {
 
+class CountingSink final : public rss::service::OutboundMessageSink {
+ public:
+  bool emit(rss::service::OutboundMessage message) override {
+    benchmark::DoNotOptimize(message);
+    ++count_;
+    return true;
+  }
+
+  [[nodiscard]] std::size_t count() const { return count_; }
+
+ private:
+  std::size_t count_{};
+};
+
 class MessageRouterFixture : public benchmark::Fixture {
  public:
   void SetUp(const benchmark::State& state) override {
@@ -53,8 +67,9 @@ BENCHMARK_DEFINE_F(MessageRouterFixture, ChatFanout)
   }
 
   for (auto _ : state) {
-    auto messages = router_.handle(chat_event_);
-    benchmark::DoNotOptimize(messages);
+    CountingSink sink;
+    router_.handle(chat_event_, sink);
+    benchmark::DoNotOptimize(sink.count());
   }
 
   state.SetItemsProcessed(state.iterations() * state.range(0));
