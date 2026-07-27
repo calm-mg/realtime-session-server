@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "rss/protocol/PacketCodec.h"
 #include "rss/service/MessageRouter.h"
@@ -13,6 +14,8 @@ using rss::protocol::Packet;
 using rss::protocol::PacketCodec;
 using rss::protocol::PacketType;
 using rss::service::MessageRouter;
+using rss::service::OutboundMessage;
+using rss::service::OutboundMessageSink;
 using rss::service::RoomService;
 using rss::service::SessionEvent;
 using rss::service::SessionEventKind;
@@ -34,23 +37,41 @@ SessionEvent event(std::uint64_t session_id, PacketType type,
                       decodeSinglePacket(type, payload)};
 }
 
+class CollectingSink final : public OutboundMessageSink {
+ public:
+  bool emit(OutboundMessage message) override {
+    messages.push_back(std::move(message));
+    return true;
+  }
+
+  std::vector<OutboundMessage> messages;
+};
+
+std::vector<OutboundMessage> route(MessageRouter& router,
+                                   const SessionEvent& input) {
+  CollectingSink sink;
+  router.handle(input, sink);
+  return std::move(sink.messages);
+}
+
 TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
   RoomService service;
   MessageRouter router(service);
 
-  EXPECT_EQ(router.handle(event(1, PacketType::LoginReq, "alice")).size(), 1);
-  EXPECT_EQ(router.handle(event(1, PacketType::CreateRoomReq, "arena")).size(),
+  EXPECT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
+  EXPECT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
             1);
-  EXPECT_EQ(router.handle(event(2, PacketType::LoginReq, "bob")).size(), 1);
-  EXPECT_EQ(router.handle(event(2, PacketType::JoinRoomReq, "1")).size(), 2);
-  EXPECT_EQ(router.handle(event(1, PacketType::ChatReq, "hello")).size(), 2);
+  EXPECT_EQ(route(router, event(2, PacketType::LoginReq, "bob")).size(), 1);
+  EXPECT_EQ(route(router, event(2, PacketType::JoinRoomReq, "1")).size(), 2);
+  EXPECT_EQ(route(router, event(1, PacketType::ChatReq, "hello")).size(), 2);
 
   const auto position_payload = PacketCodec::encodePosition(1.0F, 2.0F);
-  const auto position = router.handle(SessionEvent{
-      SessionEventKind::Packet,
-      2,
-      Packet{PacketType::PositionUpdate, position_payload},
-  });
+  const auto position =
+      route(router, SessionEvent{
+                        SessionEventKind::Packet,
+                        2,
+                        Packet{PacketType::PositionUpdate, position_payload},
+                    });
   EXPECT_EQ(position.size(), 2);
 }
 
@@ -58,7 +79,7 @@ TEST(MessageRouterTest, RespondsToPing) {
   RoomService service;
   MessageRouter router(service);
 
-  const auto output = router.handle(event(1, PacketType::Ping, ""));
+  const auto output = route(router, event(1, PacketType::Ping, ""));
 
   ASSERT_EQ(output.size(), 1);
   PacketCodec codec;

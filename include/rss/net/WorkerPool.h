@@ -1,37 +1,69 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <cstddef>
+#include <cstdint>
+#include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "rss/net/CompletionNotifier.h"
-#include "rss/service/Command.h"
-#include "rss/service/MessageRouter.h"
-#include "rss/util/BlockingQueue.h"
+#include "rss/net/OverloadStats.h"
+#include "rss/service/SessionEventHandler.h"
+#include "rss/util/BoundedBlockingQueue.h"
 
 namespace rss::net {
 
+struct WorkerPoolConfig {
+  std::size_t inbound_low_watermark{};
+  std::size_t max_outbound_messages_per_event{};
+  std::size_t max_outbound_bytes_per_event{};
+};
+
 class WorkerPool {
  public:
-  WorkerPool(util::BlockingQueue<service::SessionEvent>& inbox,
-             util::BlockingQueue<service::OutboundMessage>& outbox,
-             service::MessageRouter& router,
-             CompletionNotifier* completion_notifier = nullptr);
-  ~WorkerPool();
+  WorkerPool(util::BoundedBlockingQueue<service::SessionEvent>& inbox,
+             util::BoundedBlockingQueue<service::OutboundMessage>& outbox,
+             service::SessionEventHandler& handler, WorkerPoolConfig config,
+             CompletionNotifier* outbound_notifier = nullptr,
+             CompletionNotifier* input_capacity_notifier = nullptr,
+             OverloadStats* overload_stats = nullptr);
+  ~WorkerPool() noexcept;
 
   WorkerPool(const WorkerPool&) = delete;
   WorkerPool& operator=(const WorkerPool&) = delete;
 
   void start(std::size_t thread_count);
-  void stop();
+  void beginStop();
+  void forceStop();
+  [[nodiscard]] bool finished() const;
+  void join();
 
  private:
-  void run();
+  struct SessionSequenceState {
+    std::uint64_t next_sequence{};
+    std::size_t waiting_workers{};
+    bool active{};
+  };
 
-  util::BlockingQueue<service::SessionEvent>& inbox_;
-  util::BlockingQueue<service::OutboundMessage>& outbox_;
-  service::MessageRouter& router_;
-  CompletionNotifier* completion_notifier_{nullptr};
+  void run();
+  [[nodiscard]] bool waitForSessionTurn(const service::SessionEvent& event);
+  void completeSessionTurn(const service::SessionEvent& event);
+
+  util::BoundedBlockingQueue<service::SessionEvent>& inbox_;
+  util::BoundedBlockingQueue<service::OutboundMessage>& outbox_;
+  service::SessionEventHandler& handler_;
+  WorkerPoolConfig config_;
+  CompletionNotifier* outbound_notifier_{nullptr};
+  CompletionNotifier* input_capacity_notifier_{nullptr};
+  OverloadStats* overload_stats_{nullptr};
+  std::atomic<std::size_t> active_workers_{0};
+  std::atomic<bool> force_stop_requested_{false};
+  std::mutex sequence_mutex_;
+  std::condition_variable sequence_changed_;
+  std::unordered_map<std::uint64_t, SessionSequenceState> sequence_by_session_;
   std::vector<std::thread> threads_;
 };
 

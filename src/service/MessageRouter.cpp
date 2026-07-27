@@ -47,33 +47,35 @@ std::string okPayload(std::string_view event, const RoomActionResult& result) {
 MessageRouter::MessageRouter(RoomService& room_service)
     : room_service_(room_service) {}
 
-std::vector<OutboundMessage> MessageRouter::handle(const SessionEvent& event) {
+void MessageRouter::handle(const SessionEvent& event,
+                           OutboundMessageSink& sink) {
   if (event.kind == SessionEventKind::Disconnected) {
     const auto result = room_service_.disconnect(event.session_id);
     if (!result.ok || result.room_id == 0) {
-      return {};
+      return;
     }
 
-    std::vector<OutboundMessage> out;
     const auto payload = okPayload("LEAVE", result);
     for (const auto recipient : result.recipients) {
-      if (recipient != event.session_id) {
-        out.push_back(
-            make(recipient, protocol::PacketType::RoomBroadcast, payload));
+      if (recipient != event.session_id &&
+          !sink.emit(
+              make(recipient, protocol::PacketType::RoomBroadcast, payload))) {
+        return;
       }
     }
-    return out;
+    return;
   }
 
   try {
-    return handlePacket(event.session_id, event.packet);
+    handlePacket(event.session_id, event.packet, sink);
   } catch (const std::exception& ex) {
-    return {error(event.session_id, ex.what())};
+    static_cast<void>(sink.emit(error(event.session_id, ex.what())));
   }
 }
 
-std::vector<OutboundMessage> MessageRouter::handlePacket(
-    std::uint64_t session_id, const protocol::Packet& packet) {
+void MessageRouter::handlePacket(std::uint64_t session_id,
+                                 const protocol::Packet& packet,
+                                 OutboundMessageSink& sink) {
   using protocol::PacketType;
 
   switch (packet.type) {
@@ -81,90 +83,107 @@ std::vector<OutboundMessage> MessageRouter::handlePacket(
       const auto user = room_service_.login(session_id, payloadText(packet));
       std::ostringstream payload;
       payload << "OK|" << userPrefix(user);
-      return {make(session_id, PacketType::LoginRes, payload.str())};
+      static_cast<void>(
+          sink.emit(make(session_id, PacketType::LoginRes, payload.str())));
+      return;
     }
     case PacketType::CreateRoomReq: {
       const auto result =
           room_service_.createRoom(session_id, payloadText(packet));
       if (!result.ok) {
-        return {error(session_id, result.error)};
+        static_cast<void>(sink.emit(error(session_id, result.error)));
+        return;
       }
-      return {make(session_id, PacketType::CreateRoomRes,
-                   okPayload("CREATE_ROOM", result))};
+      static_cast<void>(sink.emit(make(session_id, PacketType::CreateRoomRes,
+                                       okPayload("CREATE_ROOM", result))));
+      return;
     }
     case PacketType::JoinRoomReq: {
       const auto result =
           room_service_.joinRoom(session_id, parseRoomId(payloadText(packet)));
       if (!result.ok) {
-        return {error(session_id, result.error)};
+        static_cast<void>(sink.emit(error(session_id, result.error)));
+        return;
       }
 
-      std::vector<OutboundMessage> out;
-      out.push_back(make(session_id, PacketType::JoinRoomRes,
-                         okPayload("JOIN_ROOM", result)));
+      if (!sink.emit(make(session_id, PacketType::JoinRoomRes,
+                          okPayload("JOIN_ROOM", result)))) {
+        return;
+      }
       const auto broadcast = okPayload("JOIN", result);
       for (const auto recipient : result.recipients) {
-        if (recipient != session_id) {
-          out.push_back(make(recipient, PacketType::RoomBroadcast, broadcast));
+        if (recipient != session_id &&
+            !sink.emit(make(recipient, PacketType::RoomBroadcast, broadcast))) {
+          return;
         }
       }
-      return out;
+      return;
     }
     case PacketType::LeaveRoomReq: {
       const auto result = room_service_.leaveRoom(session_id);
       if (!result.ok) {
-        return {error(session_id, result.error)};
+        static_cast<void>(sink.emit(error(session_id, result.error)));
+        return;
       }
 
-      std::vector<OutboundMessage> out;
-      out.push_back(make(session_id, PacketType::LeaveRoomRes,
-                         okPayload("LEAVE_ROOM", result)));
+      if (!sink.emit(make(session_id, PacketType::LeaveRoomRes,
+                          okPayload("LEAVE_ROOM", result)))) {
+        return;
+      }
       const auto broadcast = okPayload("LEAVE", result);
       for (const auto recipient : result.recipients) {
-        if (recipient != session_id) {
-          out.push_back(make(recipient, PacketType::RoomBroadcast, broadcast));
+        if (recipient != session_id &&
+            !sink.emit(make(recipient, PacketType::RoomBroadcast, broadcast))) {
+          return;
         }
       }
-      return out;
+      return;
     }
     case PacketType::ChatReq: {
       const auto result = room_service_.chat(session_id);
       if (!result.ok) {
-        return {error(session_id, result.error)};
+        static_cast<void>(sink.emit(error(session_id, result.error)));
+        return;
       }
       std::ostringstream payload;
       payload << "event=CHAT|room_id=" << result.room_id << "|"
               << userPrefix(result.actor) << "|message=" << payloadText(packet);
 
-      std::vector<OutboundMessage> out;
       for (const auto recipient : result.recipients) {
-        out.push_back(
-            make(recipient, PacketType::RoomBroadcast, payload.str()));
+        if (!sink.emit(
+                make(recipient, PacketType::RoomBroadcast, payload.str()))) {
+          return;
+        }
       }
-      return out;
+      return;
     }
     case PacketType::PositionUpdate: {
       const auto [x, y] = protocol::PacketCodec::decodePosition(packet.payload);
       const auto result =
           room_service_.updatePosition(session_id, domain::Position{x, y});
       if (!result.ok) {
-        return {error(session_id, result.error)};
+        static_cast<void>(sink.emit(error(session_id, result.error)));
+        return;
       }
       std::ostringstream payload;
       payload << "event=POSITION|room_id=" << result.room_id << "|"
               << userPrefix(result.actor) << "|x=" << x << "|y=" << y;
 
-      std::vector<OutboundMessage> out;
       for (const auto recipient : result.recipients) {
-        out.push_back(
-            make(recipient, PacketType::RoomBroadcast, payload.str()));
+        if (!sink.emit(
+                make(recipient, PacketType::RoomBroadcast, payload.str()))) {
+          return;
+        }
       }
-      return out;
+      return;
     }
     case PacketType::Ping:
-      return {make(session_id, PacketType::Pong, "PONG")};
+      static_cast<void>(sink.emit(make(session_id, PacketType::Pong, "PONG")));
+      return;
     default:
-      return {error(session_id, "unsupported packet type")};
+      static_cast<void>(
+          sink.emit(error(session_id, "unsupported packet type")));
+      return;
   }
 }
 

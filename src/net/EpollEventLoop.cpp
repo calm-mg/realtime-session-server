@@ -19,19 +19,19 @@ EpollEventLoop::~EpollEventLoop() {
   }
 }
 
-void EpollEventLoop::add(int fd, std::uint32_t events) {
+void EpollEventLoop::add(int fd, std::uint32_t events, std::uint64_t token) {
   epoll_event event{};
   event.events = events;
-  event.data.fd = fd;
+  event.data.u64 = token;
   if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &event) < 0) {
     throw std::runtime_error("epoll_ctl add failed");
   }
 }
 
-void EpollEventLoop::modify(int fd, std::uint32_t events) {
+void EpollEventLoop::modify(int fd, std::uint32_t events, std::uint64_t token) {
   epoll_event event{};
   event.events = events;
-  event.data.fd = fd;
+  event.data.u64 = token;
   if (::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &event) < 0) {
     throw std::runtime_error("epoll_ctl modify failed");
   }

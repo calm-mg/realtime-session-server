@@ -46,6 +46,8 @@ test/google-test-benchmark
 
 ## 2주차: 과부하 제어
 
+> 상태: 진행 중 (pull request 병합 전)
+
 ### 목표
 
 요청이나 응답이 처리 속도보다 빠르게 쌓여도 메모리가 제한 없이
@@ -55,9 +57,13 @@ test/google-test-benchmark
 
 - 입력 queue와 출력 queue에 최대 크기 설정
 - 세션별 pending write byte 제한
-- queue가 가득 찼을 때의 요청 거절 기준 정의
-- 느린 클라이언트의 연결 종료 기준 정의
-- queue full, dropped message, slow-client disconnect 통계 추가
+- 입력 queue high watermark에서 읽기와 accept를 일시정지하고 low
+  watermark에서 재개
+- 출력 queue 포화가 worker를 거쳐 입력 흐름으로 역전파되도록 처리
+- 같은 세션의 패킷과 연결 종료 이벤트 처리 순서 보장
+- 입력 이벤트별 출력 메시지 수와 총 byte 제한
+- 느린 클라이언트의 세션만 연결 종료
+- 읽기 일시정지·재개, queue 포화, 느린 세션 종료, 연결 거절 통계 추가
 - 정상 상태와 과부하 상태를 구분하는 GoogleTest 추가
 - 제한값을 `ServerConfig`에서 조정할 수 있도록 구성
 - README와 서버 구조 문서에 과부하 동작 설명

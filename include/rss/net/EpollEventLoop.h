@@ -15,8 +15,8 @@ class EpollEventLoop {
   EpollEventLoop(const EpollEventLoop&) = delete;
   EpollEventLoop& operator=(const EpollEventLoop&) = delete;
 
-  void add(int fd, std::uint32_t events);
-  void modify(int fd, std::uint32_t events);
+  void add(int fd, std::uint32_t events, std::uint64_t token);
+  void modify(int fd, std::uint32_t events, std::uint64_t token);
   void remove(int fd);
   [[nodiscard]] std::vector<epoll_event> wait(int timeout_ms,
                                               int max_events) const;
