@@ -1,0 +1,3 @@
+add_executable(rss_console_client src/main.cpp)
+target_link_libraries(rss_console_client PRIVATE rss_protocol Threads::Threads)
+rss_enable_project_warnings(rss_console_client)

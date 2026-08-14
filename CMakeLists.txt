@@ -29,38 +29,13 @@ find_package(Threads REQUIRED)
 
 add_subdirectory(libs/protocol)
 add_subdirectory(libs/server-core)
+add_subdirectory(libs/load-test-support)
 
 if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_library(rss_net
-        src/net/EventFdCompletionNotifier.cpp
-        src/net/EpollEventLoop.cpp
-        src/net/TcpServer.cpp
-    )
-
-    target_link_libraries(rss_net
-        PUBLIC
-            rss_protocol
-            rss_server_core
-            Threads::Threads
-    )
-
-    target_compile_features(rss_net PUBLIC cxx_std_20)
-
-    if(MSVC)
-        target_compile_options(rss_net PRIVATE /W4)
-    else()
-        target_compile_options(rss_net PRIVATE -Wall -Wextra -Wpedantic)
-    endif()
-
-    add_executable(rss_server src/main.cpp)
-    target_link_libraries(rss_server PRIVATE rss_net)
-
-    add_executable(rss_console_client client/console_client.cpp)
-    target_link_libraries(rss_console_client PRIVATE rss_protocol Threads::Threads)
-
-    add_executable(rss_load_test_client tools/load_test_client.cpp)
-    target_include_directories(rss_load_test_client PRIVATE ${PROJECT_SOURCE_DIR}/include)
-    target_link_libraries(rss_load_test_client PRIVATE rss_protocol Threads::Threads)
+    add_subdirectory(libs/server-net-linux)
+    add_subdirectory(apps/server)
+    add_subdirectory(apps/console-client)
+    add_subdirectory(apps/load-test-client)
 else()
     message(STATUS "Linux-only epoll server/client targets are disabled on this platform.")
 endif()
@@ -86,9 +61,9 @@ if(RSS_BUILD_TESTS)
         rss_core_tests
         PRIVATE
             rss_server_core
+            rss_load_test_support
             GTest::gtest_main
     )
-    target_include_directories(rss_core_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
     gtest_discover_tests(
         rss_core_tests
         DISCOVERY_MODE PRE_TEST
@@ -101,7 +76,7 @@ if(RSS_BUILD_TESTS)
             test/EventFdCompletionNotifierTest.cpp
             test/TcpServerBackpressureTest.cpp
         )
-        target_link_libraries(rss_net_tests PRIVATE rss_net GTest::gtest_main)
+        target_link_libraries(rss_net_tests PRIVATE rss_server_net GTest::gtest_main)
         gtest_discover_tests(
             rss_net_tests
             DISCOVERY_MODE PRE_TEST
@@ -123,9 +98,9 @@ if(RSS_BUILD_BENCHMARKS)
         PRIVATE
             rss_protocol
             rss_server_core
+            rss_load_test_support
             benchmark::benchmark_main
     )
-    target_include_directories(rss_microbenchmarks PRIVATE ${PROJECT_SOURCE_DIR}/include)
 endif()
 
 include(cmake/CodeQuality.cmake)
