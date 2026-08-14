@@ -23,7 +23,7 @@ jobs:
       - name: Qt 설치
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: '6.11.1'
           cache: true
 
       - name: Ninja 설치
