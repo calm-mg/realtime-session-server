@@ -3,7 +3,7 @@
 #include <string>
 
 #include "FakeSessionTransport.h"
-#include "application/ClientController.h"
+#include "rss/qt_client/application/ClientController.h"
 
 using rss::protocol::Packet;
 using rss::protocol::PacketType;

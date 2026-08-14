@@ -189,8 +189,9 @@ Linux와 Windows에서 Qt가 표준 검색 경로나 현재 셸 환경에 등록
 QT_QPA_PLATFORM=offscreen ctest --preset qt-client-dev
 ```
 
-화면 배치는 `apps/qt-client/src/ui/MainWindow.ui`, 상태와 사용자 동작은
-`MainWindow.cpp`, TCP 통신은 `src/network`에서 관리합니다. 생성 파일인
+화면 배치는 `apps/qt-client/ui/src/MainWindow.ui`, 상태와 사용자 동작은
+`apps/qt-client/ui/src/MainWindow.cpp`, TCP 통신은 `apps/qt-client/network`에서
+관리합니다. 생성 파일인
 `ui_MainWindow.h`는 빌드 디렉터리에만 두며 커밋하지 않습니다.
 
 ## 변경 전 확인 사항

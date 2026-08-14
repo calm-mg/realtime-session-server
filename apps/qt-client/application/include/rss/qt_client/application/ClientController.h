@@ -4,8 +4,8 @@
 #include <QString>
 #include <cstdint>
 
-#include "application/ClientState.h"
-#include "network/SessionTransport.h"
+#include "rss/qt_client/application/ClientState.h"
+#include "rss/qt_client/application/SessionTransport.h"
 
 namespace rss::qt_client {
 
