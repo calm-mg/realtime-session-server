@@ -1,15 +1,16 @@
 file(
     GLOB_RECURSE RSS_CXX_FORMAT_FILES
     CONFIGURE_DEPENDS
-    "${PROJECT_SOURCE_DIR}/benchmark/*.cpp"
-    "${PROJECT_SOURCE_DIR}/client/*.cpp"
-    "${PROJECT_SOURCE_DIR}/include/*.h"
-    "${PROJECT_SOURCE_DIR}/include/*.hpp"
-    "${PROJECT_SOURCE_DIR}/src/*.cpp"
-    "${PROJECT_SOURCE_DIR}/test/*.cpp"
-    "${PROJECT_SOURCE_DIR}/test/*.h"
-    "${PROJECT_SOURCE_DIR}/test/*.hpp"
-    "${PROJECT_SOURCE_DIR}/tools/*.cpp"
+    "${PROJECT_SOURCE_DIR}/apps/*.cpp"
+    "${PROJECT_SOURCE_DIR}/apps/*.h"
+    "${PROJECT_SOURCE_DIR}/apps/*.hpp"
+    "${PROJECT_SOURCE_DIR}/benchmarks/*.cpp"
+    "${PROJECT_SOURCE_DIR}/libs/*.cpp"
+    "${PROJECT_SOURCE_DIR}/libs/*.h"
+    "${PROJECT_SOURCE_DIR}/libs/*.hpp"
+    "${PROJECT_SOURCE_DIR}/tests/*.cpp"
+    "${PROJECT_SOURCE_DIR}/tests/*.h"
+    "${PROJECT_SOURCE_DIR}/tests/*.hpp"
 )
 
 find_program(
@@ -52,8 +53,8 @@ if(RSS_RUN_CLANG_TIDY)
             -p "${CMAKE_BINARY_DIR}"
             -config-file "${PROJECT_SOURCE_DIR}/.clang-tidy"
             -header-filter
-            "^${PROJECT_SOURCE_DIR}/(benchmark|client|include|src|test|tools)/.*"
-            "^${PROJECT_SOURCE_DIR}/(benchmark|client|src|test|tools)/.*\\.cpp$"
+            "^${PROJECT_SOURCE_DIR}/(apps|benchmarks|libs|tests)/.*"
+            "^${PROJECT_SOURCE_DIR}/(apps|benchmarks|libs|tests)/.*\\.cpp$"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
         COMMENT "Running Google clang-tidy checks"
         VERBATIM

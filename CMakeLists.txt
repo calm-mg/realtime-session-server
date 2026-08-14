@@ -49,20 +49,7 @@ endif()
 
 if(RSS_BUILD_BENCHMARKS)
     rss_enable_google_benchmark()
-
-    add_executable(rss_microbenchmarks
-        benchmark/LatencyStatsBenchmark.cpp
-        benchmark/MessageRouterBenchmark.cpp
-        benchmark/PacketCodecBenchmark.cpp
-    )
-    target_link_libraries(
-        rss_microbenchmarks
-        PRIVATE
-            rss_protocol
-            rss_server_core
-            rss_load_test_support
-            benchmark::benchmark_main
-    )
+    add_subdirectory(benchmarks)
 endif()
 
 include(cmake/CodeQuality.cmake)
