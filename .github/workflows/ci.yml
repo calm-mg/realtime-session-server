@@ -27,23 +27,46 @@ jobs:
           cache: true
 
       - name: Ninja 설치
+        if: runner.os != 'Windows'
         run: python -m pip install ninja
 
-      - name: Qt 클라이언트 구성
+      - name: Qt 클라이언트 구성 (Linux, macOS)
+        if: runner.os != 'Windows'
         run: >-
           cmake -S . -B build/qt-client -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DRSS_BUILD_NETWORK_TARGETS=OFF
           -DRSS_BUILD_QT_CLIENT=ON
 
-      - name: Qt 클라이언트 빌드
+      - name: Qt 클라이언트 구성 (Windows)
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build/qt-client -A x64
+          -DRSS_BUILD_NETWORK_TARGETS=OFF
+          -DRSS_BUILD_QT_CLIENT=ON
+
+      - name: Qt 클라이언트 빌드 (Linux, macOS)
+        if: runner.os != 'Windows'
         run: cmake --build build/qt-client --parallel
 
-      - name: Qt 클라이언트 테스트
+      - name: Qt 클라이언트 빌드 (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build/qt-client --config Release --parallel
+
+      - name: Qt 클라이언트 테스트 (Linux, macOS)
+        if: runner.os != 'Windows'
         env:
           QT_QPA_PLATFORM: offscreen
         run: >-
           ctest --test-dir build/qt-client
+          --output-on-failure --timeout 30
+
+      - name: Qt 클라이언트 테스트 (Windows)
+        if: runner.os == 'Windows'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >-
+          ctest --test-dir build/qt-client -C Release
           --output-on-failure --timeout 30
 
   core-cross-platform:
