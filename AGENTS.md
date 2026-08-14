@@ -16,6 +16,8 @@
 - `libs/server-net-linux`: epoll/eventfd/TCP 서버 코드. `server-core`와
   `protocol`에 의존한다.
 - `libs/load-test-support`: 부하 테스트 통계 지원 코드
+- `apps/qt-client`: Qt 6 Widgets 데스크톱 클라이언트. `protocol`에만
+  의존하며 Linux 전용 라이브러리에 의존하지 않는다.
 - `tests/`: 대상 라이브러리별 테스트
 - `benchmarks/`: 마이크로벤치마크
 
@@ -25,8 +27,8 @@
 ## 플랫폼 규칙
 
 - 전체 서버와 POSIX 콘솔 도구는 Linux에서만 빌드한다.
-- macOS와 Windows에서는 플랫폼 독립 라이브러리, 테스트, 벤치마크를
-  빌드한다.
+- macOS와 Windows에서는 플랫폼 독립 라이브러리, 테스트, 벤치마크와 Qt
+  데스크톱 클라이언트를 빌드할 수 있다.
 - 소켓과 epoll 상태는 I/O 스레드만 변경한다.
 - worker는 소켓을 직접 조작하지 않는다.
 
@@ -39,8 +41,19 @@ ctest --preset core-dev
 ```
 
 Linux 전체 빌드는 `linux-dev`, 벤치마크는 `benchmark` preset을 사용한다.
+Qt 클라이언트는 `qt-client-dev` preset을 사용한다.
 변경 전 관련 테스트를 실행하고, 완료 전 build, test, `format-check`, 가능한
 경우 `tidy-check`를 실행한다.
+
+## Qt 클라이언트 규칙
+
+- 화면 배치는 `MainWindow.ui`, 화면 상태와 사용자 동작은
+  `MainWindow.cpp`, TCP 통신은 `network` 계층에 둔다.
+- `ClientController`는 Widget과 Qt Network의 구체 클래스에 의존하지
+  않는다.
+- AUTOUIC 생성 파일인 `ui_MainWindow.h`를 커밋하지 않는다.
+- Widget의 `objectName`을 변경하면 Widget 테스트도 함께 수정한다.
+- Qt 클라이언트 변경은 Linux, macOS, Windows에서 빌드 가능해야 한다.
 
 ## 변경 규칙
 
@@ -50,6 +63,7 @@ Linux 전체 빌드는 `linux-dev`, 벤치마크는 `benchmark` preset을 사용
   수정한다.
 - public include는 `rss/...` 표기를 유지한다.
 - 관련 없는 리팩터링이나 formatting 변경을 같은 커밋에 섞지 않는다.
+- 커밋 메시지와 PR 설명은 한글을 기본으로 한다.
 
 ## 문서와 공개 저장소
 

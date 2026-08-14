@@ -21,6 +21,7 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 - 같은 세션의 패킷과 연결 종료 이벤트 순서 보장
 - 입력 이벤트별 출력 메시지 수와 총 byte 상한
 - 콘솔 클라이언트와 `PING` 부하 테스트 도구
+- Qt 6 Widgets 기반 크로스플랫폼 데스크톱 클라이언트
 - GoogleTest 기반 프로토콜, 서비스, 네트워크 구성 요소 테스트
 - Google Benchmark 기반 핵심 코드 경로 마이크로벤치마크
 
@@ -34,6 +35,9 @@ Windows에서는 WSL2의 Ubuntu를 사용할 수 있습니다.
 - Ninja 또는 Make
 - POSIX Threads
 
+Qt 데스크톱 클라이언트만 빌드할 때는 Linux, macOS, Windows에서 Qt 6.5
+이상의 Widgets, Network, Test 구성 요소가 추가로 필요합니다.
+
 Ubuntu에서는 다음 패키지로 시작할 수 있습니다.
 
 ```bash
@@ -46,6 +50,7 @@ sudo apt-get install --yes build-essential cmake ninja-build
 저장소에는 반복적인 개발 구성을 위한 `CMakePresets.json`도 포함되어
 있습니다. Linux 전체 개발 빌드는 `linux-dev`, macOS와 Windows의 플랫폼
 독립 빌드는 `core-dev`, 마이크로벤치마크는 `benchmark` preset을 사용합니다.
+Qt 데스크톱 클라이언트는 `qt-client-dev` preset을 사용합니다.
 
 ### 1. 빌드
 
@@ -119,6 +124,51 @@ rss_server <접속을 받을 주소> <포트> <worker 스레드 수>
 
 `/`로 시작하지 않는 일반 문장도 채팅 메시지로 전송됩니다.
 
+## Qt 데스크톱 클라이언트
+
+Qt 클라이언트는 Linux, macOS, Windows에서 같은 소스로 빌드됩니다. 서버
+주소와 포트를 입력해 연결한 뒤 로그인, 방 생성·참가·나가기, 채팅 송수신을
+GUI에서 수행할 수 있습니다. 기본 주소는 `127.0.0.1`, 기본 포트는
+`7777`입니다.
+
+### macOS
+
+```bash
+brew install qt
+cmake --preset qt-client-dev -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build --preset qt-client-dev --parallel
+ctest --preset qt-client-dev
+./build/qt-client-dev/rss_qt_client.app/Contents/MacOS/rss_qt_client
+```
+
+### Linux
+
+Ubuntu에서는 Qt 개발 패키지를 설치한 뒤 빌드합니다.
+
+```bash
+sudo apt-get install --yes qt6-base-dev qt6-base-dev-tools
+cmake --preset qt-client-dev
+cmake --build --preset qt-client-dev --parallel
+QT_QPA_PLATFORM=offscreen ctest --preset qt-client-dev
+./build/qt-client-dev/rss_qt_client
+```
+
+### Windows
+
+Qt 온라인 설치 프로그램에서 MSVC 2022 64-bit 데스크톱 패키지를 설치한
+예시입니다. 설치한 Qt 버전과 위치에 맞게 경로를 바꿉니다.
+
+```powershell
+cmake --preset qt-client-dev -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
+cmake --build --preset qt-client-dev --parallel
+ctest --preset qt-client-dev
+./build/qt-client-dev/rss_qt_client.exe
+```
+
+현재 Qt 클라이언트는 명시적인 수동 연결과 재연결만 지원합니다. 자동
+재접속, 로그인·방 상태 자동 복구, 위치 전송, `PING`, TLS는 포함하지
+않습니다.
+
 ## 간단한 부하 테스트
 
 다음 명령은 클라이언트 100개가 각각 `PING`을 100번 보내고 `PONG`
@@ -159,6 +209,7 @@ rss_server <접속을 받을 주소> <포트> <worker 스레드 수>
 apps/server/            Linux epoll 서버 실행 파일
 apps/console-client/    대화형 POSIX 콘솔 클라이언트
 apps/load-test-client/  PING 부하 테스트 클라이언트
+apps/qt-client/         Qt 6 Widgets 데스크톱 클라이언트
 libs/protocol/          패킷 종류와 인코딩 규칙
 libs/server-core/       플랫폼 독립 도메인, 서비스, session, worker
 libs/server-net-linux/  Linux epoll, eventfd, TCP 서버 구현
@@ -170,7 +221,8 @@ docs/                   구조, 프로토콜, 설계, 벤치마크 설명
 
 ## 현재 제약 사항
 
-- 네트워크 서버와 클라이언트는 Linux에서만 빌드됩니다.
+- epoll 서버와 POSIX 콘솔·부하 테스트 클라이언트는 Linux에서만 빌드됩니다.
+- Qt 데스크톱 클라이언트는 Linux, macOS, Windows를 지원합니다.
 - 방과 사용자 상태는 하나의 `RoomService` mutex로 보호합니다.
 - 부하 테스트 도구는 현재 `PING`/`PONG` 시나리오만 지원합니다.
 - TLS, 인증 토큰, 데이터 영속 저장은 구현되어 있지 않습니다.
