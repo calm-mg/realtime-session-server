@@ -25,6 +25,9 @@ target_link_libraries(rss_qt_client_lib
 
 target_compile_features(rss_qt_client_lib PUBLIC cxx_std_20)
 rss_enable_project_warnings(rss_qt_client_lib)
+if(MSVC)
+    target_compile_options(rss_qt_client_lib PRIVATE /utf-8)
+endif()
 
 qt_add_executable(rss_qt_client
     src/main.cpp

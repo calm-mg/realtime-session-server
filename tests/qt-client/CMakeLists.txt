@@ -40,6 +40,10 @@ target_link_libraries(rss_qt_main_window_tests
         Qt6::Widgets
 )
 
+if(MSVC)
+    target_compile_options(rss_qt_main_window_tests PRIVATE /utf-8)
+endif()
+
 add_test(
     NAME rss_qt_main_window_tests
     COMMAND rss_qt_main_window_tests
