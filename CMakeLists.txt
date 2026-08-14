@@ -15,13 +15,21 @@ option(RSS_BUILD_TESTS "Build unit tests" ON)
 option(RSS_BUILD_NETWORK_TARGETS "Build Linux epoll server and clients" ON)
 option(RSS_BUILD_BENCHMARKS "Build microbenchmarks" OFF)
 
+function(rss_enable_project_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endfunction()
+
 include(cmake/Dependencies.cmake)
 
 find_package(Threads REQUIRED)
 
+add_subdirectory(libs/protocol)
+
 add_library(rss_core
-    src/protocol/PacketCodec.cpp
-    src/protocol/PacketTypes.cpp
     src/domain/User.cpp
     src/domain/Room.cpp
     src/domain/Lobby.cpp
@@ -36,11 +44,8 @@ target_include_directories(rss_core
 
 target_compile_features(rss_core PUBLIC cxx_std_20)
 
-if(MSVC)
-    target_compile_options(rss_core PRIVATE /W4)
-else()
-    target_compile_options(rss_core PRIVATE -Wall -Wextra -Wpedantic)
-endif()
+target_link_libraries(rss_core PUBLIC rss_protocol)
+rss_enable_project_warnings(rss_core)
 
 if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_library(rss_net
