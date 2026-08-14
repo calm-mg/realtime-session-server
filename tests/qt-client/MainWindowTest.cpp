@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "FakeSessionTransport.h"
-#include "application/ClientController.h"
-#include "ui/MainWindow.h"
+#include "rss/qt_client/application/ClientController.h"
+#include "rss/qt_client/ui/MainWindow.h"
 
 namespace {
 

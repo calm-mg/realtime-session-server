@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "network/QtSessionClient.h"
+#include "rss/qt_client/network/QtSessionClient.h"
 #include "rss/protocol/PacketCodec.h"
 
 namespace {
