@@ -163,6 +163,36 @@ ctest --preset core-dev
 `rss_load_test_client`를 빌드하거나 Linux 네트워크 코드를 디버깅할 수
 없습니다.
 
+## Qt 데스크톱 클라이언트 개발
+
+Qt 클라이언트는 Qt 6.5 이상의 Widgets, Network, Test 구성 요소를
+사용합니다. 플랫폼별 준비 방법은 다음과 같습니다.
+
+- Linux: `qt6-base-dev`, `qt6-base-dev-tools` 설치
+- macOS: `brew install qt`
+- Windows: Qt 온라인 설치 프로그램의 MSVC 2022 64-bit 데스크톱 패키지와
+  Ninja 설치
+
+macOS에서는 Homebrew Qt 경로를 CMake에 전달합니다.
+
+```bash
+cmake --preset qt-client-dev -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake --build --preset qt-client-dev --parallel
+ctest --preset qt-client-dev
+```
+
+Linux와 Windows에서 Qt가 표준 검색 경로나 현재 셸 환경에 등록되어 있다면
+추가 경로 없이 같은 preset을 사용할 수 있습니다. GUI가 없는 Linux 환경은
+다음처럼 offscreen 플랫폼으로 Widget 테스트를 실행합니다.
+
+```bash
+QT_QPA_PLATFORM=offscreen ctest --preset qt-client-dev
+```
+
+화면 배치는 `apps/qt-client/src/ui/MainWindow.ui`, 상태와 사용자 동작은
+`MainWindow.cpp`, TCP 통신은 `src/network`에서 관리합니다. 생성 파일인
+`ui_MainWindow.h`는 빌드 디렉터리에만 두며 커밋하지 않습니다.
+
 ## 변경 전 확인 사항
 
 코드를 공유하기 전에 다음 명령이 모두 통과하는지 확인합니다.
@@ -180,3 +210,4 @@ cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 
 프로토콜 동작을 변경했다면 `docs/protocol.md`도 함께 수정합니다. 실행
 인자나 빌드 방법을 변경했다면 `README.md`의 빠른 시작도 확인합니다.
+Qt 클라이언트를 변경했다면 `qt-client-dev` 전체 테스트도 함께 실행합니다.

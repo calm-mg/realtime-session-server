@@ -36,6 +36,16 @@
         "RSS_BUILD_NETWORK_TARGETS": "OFF",
         "RSS_BUILD_BENCHMARKS": "ON"
       }
+    },
+    {
+      "name": "qt-client-dev",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/qt-client-dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "RSS_BUILD_NETWORK_TARGETS": "OFF",
+        "RSS_BUILD_QT_CLIENT": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -54,6 +64,10 @@
     {
       "name": "benchmark",
       "configurePreset": "benchmark"
+    },
+    {
+      "name": "qt-client-dev",
+      "configurePreset": "qt-client-dev"
     }
   ],
   "testPresets": [
@@ -67,6 +81,13 @@
     {
       "name": "linux-dev",
       "configurePreset": "linux-dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "qt-client-dev",
+      "configurePreset": "qt-client-dev",
       "output": {
         "outputOnFailure": true
       }
