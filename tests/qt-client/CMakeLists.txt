@@ -12,3 +12,19 @@ add_test(
     NAME rss_qt_client_controller_tests
     COMMAND rss_qt_client_controller_tests
 )
+
+qt_add_executable(rss_qt_session_client_tests
+    QtSessionClientTest.cpp
+)
+
+target_link_libraries(rss_qt_session_client_tests
+    PRIVATE
+        rss_qt_client_lib
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(
+    NAME rss_qt_session_client_tests
+    COMMAND rss_qt_session_client_tests
+)
