@@ -1,1 +1,14 @@
-# Qt 클라이언트 테스트 타깃은 기능 구현과 함께 추가한다.
+qt_add_executable(rss_qt_client_controller_tests
+    ClientControllerTest.cpp
+)
+
+target_link_libraries(rss_qt_client_controller_tests
+    PRIVATE
+        rss_qt_client_lib
+        Qt6::Test
+)
+
+add_test(
+    NAME rss_qt_client_controller_tests
+    COMMAND rss_qt_client_controller_tests
+)
