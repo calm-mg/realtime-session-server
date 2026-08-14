@@ -43,6 +43,10 @@ sudo apt-get install --yes build-essential cmake ninja-build
 
 ## 빠른 시작
 
+저장소에는 반복적인 개발 구성을 위한 `CMakePresets.json`도 포함되어
+있습니다. Linux 전체 개발 빌드는 `linux-dev`, macOS와 Windows의 플랫폼
+독립 빌드는 `core-dev`, 마이크로벤치마크는 `benchmark` preset을 사용합니다.
+
 ### 1. 빌드
 
 저장소 루트에서 다음 명령을 실행합니다.
@@ -152,16 +156,16 @@ rss_server <접속을 받을 주소> <포트> <worker 스레드 수>
 ## 디렉터리 구조
 
 ```text
-include/rss/net/       소켓, epoll, 세션, worker 인터페이스
-include/rss/protocol/  패킷 종류와 인코딩 규칙
-include/rss/domain/    사용자, 방, 로비 데이터
-include/rss/service/   로그인, 방, 메시지 처리
-src/                   라이브러리와 서버 구현
-client/                대화형 콘솔 클라이언트
-tools/                 PING 부하 테스트 클라이언트
-test/                  GoogleTest 자동 테스트
-benchmark/             Google Benchmark 마이크로벤치마크
-docs/                  구조, 프로토콜, 벤치마크 설명
+apps/server/            Linux epoll 서버 실행 파일
+apps/console-client/    대화형 POSIX 콘솔 클라이언트
+apps/load-test-client/  PING 부하 테스트 클라이언트
+libs/protocol/          패킷 종류와 인코딩 규칙
+libs/server-core/       플랫폼 독립 도메인, 서비스, session, worker
+libs/server-net-linux/  Linux epoll, eventfd, TCP 서버 구현
+libs/load-test-support/ 부하 테스트 통계 지원 코드
+tests/                  라이브러리별 GoogleTest 자동 테스트
+benchmarks/             Google Benchmark 마이크로벤치마크
+docs/                   구조, 프로토콜, 설계, 벤치마크 설명
 ```
 
 ## 현재 제약 사항

@@ -62,6 +62,7 @@ jobs:
         run: >
           cmake -S . -B build/release -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DRSS_BUILD_NETWORK_TARGETS=ON
           -DRSS_BUILD_BENCHMARKS=ON
 
       - name: Build
@@ -86,6 +87,7 @@ jobs:
         run: >
           cmake -S . -B build/sanitizers -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
+          -DRSS_BUILD_NETWORK_TARGETS=ON
           -DRSS_BUILD_BENCHMARKS=OFF
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
@@ -115,6 +117,7 @@ jobs:
         run: >
           cmake -S . -B build/quality -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
+          -DRSS_BUILD_NETWORK_TARGETS=ON
           -DRSS_BUILD_BENCHMARKS=ON
 
       - name: Check formatting

@@ -19,13 +19,8 @@ Google Benchmark 기반 실행 파일은 다음 세 코드 경로를 측정합�
 Release 설정과 `RSS_BUILD_BENCHMARKS` 옵션으로 빌드합니다.
 
 ```bash
-cmake -S . \
-  -B build/benchmark \
-  -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DRSS_BUILD_BENCHMARKS=ON
-
-cmake --build build/benchmark --target rss_microbenchmarks --parallel
+cmake --preset benchmark
+cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 ./build/benchmark/rss_microbenchmarks
 ```
 
