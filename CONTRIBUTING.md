@@ -33,13 +33,14 @@ sudo apt-get install --yes \
 ## Debug 빌드
 
 ```bash
-cmake -S . -B build/dev -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/dev --parallel
+cmake --preset linux-dev
+cmake --build --preset linux-dev --parallel
 ```
 
-CMake는 clangd가 읽을 수 있는 `build/dev/compile_commands.json`도
+CMake는 clangd가 읽을 수 있는 `build/linux-dev/compile_commands.json`도
 생성합니다. 처음 구성할 때 GoogleTest를 내려받으므로 인터넷 연결이
-필요합니다. 내려받은 파일은 `build/dev/_deps` 아래에만 저장됩니다.
+필요합니다. 내려받은 파일은 해당 build 디렉터리의 `_deps` 아래에만
+저장됩니다.
 
 ## 테스트
 
@@ -47,26 +48,26 @@ CMake는 clangd가 읽을 수 있는 `build/dev/compile_commands.json`도
 개별적으로 찾습니다.
 
 ```bash
-ctest --test-dir build/dev --output-on-failure
+ctest --preset linux-dev
 ```
 
 등록된 테스트 이름을 먼저 보고 싶다면 다음 명령을 실행합니다.
 
 ```bash
-ctest --test-dir build/dev -N
+ctest --test-dir build/linux-dev -N
 ```
 
 특정 테스트만 실행하려면 테스트 이름을 정규식으로 지정합니다.
 
 ```bash
-ctest --test-dir build/dev -R 'PacketCodecTest\.' --output-on-failure
+ctest --test-dir build/linux-dev -R 'PacketCodecTest\.' --output-on-failure
 ```
 
 GoogleTest 필터와 상세 출력을 직접 사용하려면 테스트 실행 파일을
 실행합니다.
 
 ```bash
-./build/dev/rss_core_tests \
+./build/linux-dev/tests/protocol/rss_protocol_tests \
   --gtest_filter='PacketCodecTest.*' \
   --gtest_color=yes
 ```
@@ -74,7 +75,8 @@ GoogleTest 필터와 상세 출력을 직접 사용하려면 테스트 실행 �
 Linux 네트워크 테스트는 별도 실행 파일에 들어 있습니다.
 
 ```bash
-./build/dev/rss_net_tests --gtest_color=yes
+./build/linux-dev/tests/server-net-linux/rss_server_net_tests \
+  --gtest_color=yes
 ```
 
 ## 마이크로벤치마크
@@ -83,13 +85,8 @@ Google Benchmark 기반 마이크로벤치마크는 기본 빌드에서 꺼져 �
 Release 빌드에서 다음 옵션으로 켭니다.
 
 ```bash
-cmake -S . \
-  -B build/benchmark \
-  -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DRSS_BUILD_BENCHMARKS=ON
-
-cmake --build build/benchmark --target rss_microbenchmarks --parallel
+cmake --preset benchmark
+cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 ./build/benchmark/rss_microbenchmarks
 ```
 
@@ -118,19 +115,19 @@ dry-run을 사용합니다.
 전체 C++ 파일을 자동으로 수정합니다.
 
 ```bash
-cmake --build build/dev --target format
+cmake --build --preset linux-dev --target format
 ```
 
 파일을 수정하지 않고 포맷 위반만 검사합니다.
 
 ```bash
-cmake --build build/dev --target format-check
+cmake --build --preset linux-dev --target format-check
 ```
 
 Google clang-tidy 규칙을 검사합니다.
 
 ```bash
-cmake --build build/dev --target tidy-check
+cmake --build --preset linux-dev --target tidy-check
 ```
 
 `format`은 파일을 변경합니다. `format-check`와 `tidy-check`는 검사만
@@ -157,14 +154,9 @@ macOS에는 `epoll`과 `eventfd`가 없으므로 네트워크 타깃을 끄고
 플랫폼 독립적인 코드와 테스트만 빌드할 수 있습니다.
 
 ```bash
-cmake -S . \
-  -B build/macos \
-  -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DRSS_BUILD_NETWORK_TARGETS=OFF
-
-cmake --build build/macos --parallel
-ctest --test-dir build/macos --output-on-failure
+cmake --preset core-dev
+cmake --build --preset core-dev --parallel
+ctest --preset core-dev
 ```
 
 이 설정으로는 `rss_server`, `rss_console_client`,
@@ -176,13 +168,13 @@ ctest --test-dir build/macos --output-on-failure
 코드를 공유하기 전에 다음 명령이 모두 통과하는지 확인합니다.
 
 ```bash
-cmake --build build/dev --target format-check
-cmake --build build/dev --target tidy-check
-cmake --build build/dev --parallel
-ctest --test-dir build/dev --output-on-failure
-cmake -S . -B build/benchmark -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release -DRSS_BUILD_BENCHMARKS=ON
-cmake --build build/benchmark --target rss_microbenchmarks --parallel
+cmake --preset linux-dev
+cmake --build --preset linux-dev --target format-check
+cmake --build --preset linux-dev --target tidy-check
+cmake --build --preset linux-dev --parallel
+ctest --preset linux-dev
+cmake --preset benchmark
+cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 ./build/benchmark/rss_microbenchmarks --benchmark_dry_run
 ```
 
