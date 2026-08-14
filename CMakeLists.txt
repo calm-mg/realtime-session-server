@@ -28,37 +28,19 @@ include(cmake/Dependencies.cmake)
 find_package(Threads REQUIRED)
 
 add_subdirectory(libs/protocol)
-
-add_library(rss_core
-    src/domain/User.cpp
-    src/domain/Room.cpp
-    src/domain/Lobby.cpp
-    src/service/RoomService.cpp
-    src/service/MessageRouter.cpp
-)
-
-target_include_directories(rss_core
-    PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
-)
-
-target_compile_features(rss_core PUBLIC cxx_std_20)
-
-target_link_libraries(rss_core PUBLIC rss_protocol)
-rss_enable_project_warnings(rss_core)
+add_subdirectory(libs/server-core)
 
 if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_library(rss_net
         src/net/EventFdCompletionNotifier.cpp
         src/net/EpollEventLoop.cpp
-        src/net/Session.cpp
         src/net/TcpServer.cpp
-        src/net/WorkerPool.cpp
     )
 
     target_link_libraries(rss_net
         PUBLIC
-            rss_core
+            rss_protocol
+            rss_server_core
             Threads::Threads
     )
 
@@ -74,10 +56,11 @@ if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(rss_server PRIVATE rss_net)
 
     add_executable(rss_console_client client/console_client.cpp)
-    target_link_libraries(rss_console_client PRIVATE rss_core Threads::Threads)
+    target_link_libraries(rss_console_client PRIVATE rss_protocol Threads::Threads)
 
     add_executable(rss_load_test_client tools/load_test_client.cpp)
-    target_link_libraries(rss_load_test_client PRIVATE rss_core Threads::Threads)
+    target_include_directories(rss_load_test_client PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(rss_load_test_client PRIVATE rss_protocol Threads::Threads)
 else()
     message(STATUS "Linux-only epoll server/client targets are disabled on this platform.")
 endif()
@@ -88,8 +71,6 @@ if(RSS_BUILD_TESTS)
     include(GoogleTest)
 
     add_executable(rss_core_tests
-        src/net/Session.cpp
-        src/net/WorkerPool.cpp
         test/LatencyStatsTest.cpp
         test/MessageRouterTest.cpp
         test/PacketCodecTest.cpp
@@ -104,10 +85,10 @@ if(RSS_BUILD_TESTS)
     target_link_libraries(
         rss_core_tests
         PRIVATE
-            rss_core
-            Threads::Threads
+            rss_server_core
             GTest::gtest_main
     )
+    target_include_directories(rss_core_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
     gtest_discover_tests(
         rss_core_tests
         DISCOVERY_MODE PRE_TEST
@@ -140,9 +121,11 @@ if(RSS_BUILD_BENCHMARKS)
     target_link_libraries(
         rss_microbenchmarks
         PRIVATE
-            rss_core
+            rss_protocol
+            rss_server_core
             benchmark::benchmark_main
     )
+    target_include_directories(rss_microbenchmarks PRIVATE ${PROJECT_SOURCE_DIR}/include)
 endif()
 
 include(cmake/CodeQuality.cmake)
