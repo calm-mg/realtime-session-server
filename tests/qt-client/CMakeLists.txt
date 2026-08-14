@@ -28,3 +28,23 @@ add_test(
     NAME rss_qt_session_client_tests
     COMMAND rss_qt_session_client_tests
 )
+
+qt_add_executable(rss_qt_main_window_tests
+    MainWindowTest.cpp
+)
+
+target_link_libraries(rss_qt_main_window_tests
+    PRIVATE
+        rss_qt_client_lib
+        Qt6::Test
+        Qt6::Widgets
+)
+
+add_test(
+    NAME rss_qt_main_window_tests
+    COMMAND rss_qt_main_window_tests
+)
+
+set_tests_properties(rss_qt_main_window_tests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
