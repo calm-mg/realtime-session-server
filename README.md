@@ -159,7 +159,7 @@ Qt 온라인 설치 프로그램에서 MSVC 2022 64-bit 데스크톱 패키지�
 예시입니다. 설치한 Qt 버전과 위치에 맞게 경로를 바꿉니다.
 
 ```powershell
-cmake --preset qt-client-dev -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/msvc2022_64
+cmake --preset qt-client-dev -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
 cmake --build --preset qt-client-dev --parallel
 ctest --preset qt-client-dev
 ./build/qt-client-dev/rss_qt_client.exe

@@ -14,7 +14,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            qt-version: '6.8.3'
+          - os: macos-latest
+            qt-version: '6.11.1'
+          - os: windows-latest
+            qt-version: '6.8.3'
     runs-on: ${{ matrix.os }}
     steps:
       - name: 저장소 체크아웃
@@ -23,7 +29,7 @@ jobs:
       - name: Qt 설치
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.11.1'
+          version: ${{ matrix.qt-version }}
           cache: true
 
       - name: Ninja 설치
