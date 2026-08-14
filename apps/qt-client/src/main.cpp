@@ -1,8 +1,8 @@
 #include <QApplication>
 
-#include "application/ClientController.h"
-#include "network/QtSessionClient.h"
-#include "ui/MainWindow.h"
+#include "rss/qt_client/application/ClientController.h"
+#include "rss/qt_client/network/QtSessionClient.h"
+#include "rss/qt_client/ui/MainWindow.h"
 
 int main(int argc, char* argv[]) {
   QApplication application(argc, argv);

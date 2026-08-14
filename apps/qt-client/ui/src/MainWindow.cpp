@@ -1,4 +1,4 @@
-#include "ui/MainWindow.h"
+#include "rss/qt_client/ui/MainWindow.h"
 
 #include <QLineEdit>
 #include <QPlainTextEdit>

@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <string_view>
 
-#include "network/SessionTransport.h"
 #include "rss/protocol/PacketCodec.h"
+#include "rss/qt_client/application/SessionTransport.h"
 
 namespace rss::qt_client {
 
