@@ -39,7 +39,7 @@
 - UI 프레임워크: Qt 6 Widgets
 - 네트워크: Qt Network의 `QTcpSocket`
 - 테스트: Qt Test와 기존 GoogleTest
-- 빌드: CMake와 CMake Presets
+- 빌드: CMake, CMake Presets, `AUTOMOC`, `AUTOUIC`
 - 패킷 처리: 기존 `rss_protocol`
 
 Qt Widgets는 전통적인 데스크톱 업무 프로그램의 구성과 유지보수를
@@ -92,7 +92,8 @@ apps/qt-client/
     │   └── QtSessionClient.h
     └── ui/
         ├── MainWindow.cpp
-        └── MainWindow.h
+        ├── MainWindow.h
+        └── MainWindow.ui
 
 tests/qt-client/
 ├── CMakeLists.txt
@@ -103,15 +104,17 @@ tests/qt-client/
 
 ### `MainWindow`
 
-- Qt Widgets를 생성하고 분할 레이아웃을 배치한다.
+- `MainWindow.ui`를 로드하고 Controller 상태를 Widget에 반영한다.
 - 사용자 입력을 검증 가능한 형태로 Controller에 전달한다.
 - Controller가 제공하는 상태에 맞춰 입력과 버튼을 활성화한다.
 - 채팅, 서버 응답, 오류를 로그에 추가한다.
 - 소켓이나 패킷 코덱을 직접 사용하지 않는다.
 
-UI는 `.ui` 파일 없이 C++ 코드로 작성한다. 작은 MVP에서는 화면 구조를 한
-곳에서 읽을 수 있고 CMake의 UI 코드 생성 단계가 필요 없다는 장점이 있다.
-화면이 커지면 `.ui` 파일 또는 화면별 Widget 분리를 별도 변경으로 검토한다.
+화면 배치는 Qt Designer 형식의 `MainWindow.ui`에 작성하고, signal 연결과
+화면 갱신 로직은 `MainWindow.cpp`에 둔다. 생성되는 `ui_MainWindow.h`는
+빌드 산출물이므로 저장소에 커밋하지 않는다. Widget의 `objectName`은 역할이
+드러나는 영어 이름을 사용해 자동 연결과 UI 테스트에서 안정적으로 찾을 수
+있게 한다.
 
 ### `ClientController`
 
@@ -266,7 +269,8 @@ RSS_BUILD_QT_CLIENT=ON   Qt 클라이언트와 관련 테스트 구성
 
 `RSS_BUILD_QT_CLIENT`의 기본값은 `OFF`다. 옵션이 `ON`이면 Qt 6의 Widgets,
 Network, Test 구성 요소를 필수로 찾고 누락 시 구성 단계에서 명확히
-실패한다. 조용히 타깃을 생략하지 않는다.
+실패한다. 조용히 타깃을 생략하지 않는다. Qt 클라이언트 타깃은 CMake의
+`AUTOMOC`와 `AUTOUIC`를 사용해 QObject 메타 코드와 `.ui` 헤더를 생성한다.
 
 개발용 `qt-client-dev` configure, build, test preset을 추가한다. 기존
 `core-dev`, `linux-dev`, `benchmark` preset의 동작은 유지한다.
@@ -301,6 +305,8 @@ Network, Test 구성 요소를 필수로 찾고 누락 시 구성 단계에서 �
 - 연결 또는 작업 버튼 클릭 시 Controller 호출
 - Enter 키를 이용한 채팅 전송
 - 상태와 오류 로그 표시
+- `.ui`에 정의한 주요 Widget의 `objectName`이 유지되고 MainWindow에서
+  정상적으로 연결되는지 확인
 
 Linux CI에서는 화면 서버 없이 Widget 테스트를 실행할 수 있는 Qt 플랫폼
 설정을 사용한다.
