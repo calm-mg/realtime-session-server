@@ -44,45 +44,7 @@ if(RSS_BUILD_TESTS)
     enable_testing()
     rss_enable_googletest()
     include(GoogleTest)
-
-    add_executable(rss_core_tests
-        test/LatencyStatsTest.cpp
-        test/MessageRouterTest.cpp
-        test/PacketCodecTest.cpp
-        test/RoomServiceTest.cpp
-        test/BoundedBlockingQueueTest.cpp
-        test/OverloadStatsTest.cpp
-        test/ReadBackpressureControllerTest.cpp
-        test/ServerConfigTest.cpp
-        test/SessionTest.cpp
-        test/WorkerPoolNotificationTest.cpp
-    )
-    target_link_libraries(
-        rss_core_tests
-        PRIVATE
-            rss_server_core
-            rss_load_test_support
-            GTest::gtest_main
-    )
-    gtest_discover_tests(
-        rss_core_tests
-        DISCOVERY_MODE PRE_TEST
-        PROPERTIES TIMEOUT 15
-    )
-
-    if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(rss_net_tests
-            test/EpollEventLoopTest.cpp
-            test/EventFdCompletionNotifierTest.cpp
-            test/TcpServerBackpressureTest.cpp
-        )
-        target_link_libraries(rss_net_tests PRIVATE rss_server_net GTest::gtest_main)
-        gtest_discover_tests(
-            rss_net_tests
-            DISCOVERY_MODE PRE_TEST
-            PROPERTIES TIMEOUT 30
-        )
-    endif()
+    add_subdirectory(tests)
 endif()
 
 if(RSS_BUILD_BENCHMARKS)
