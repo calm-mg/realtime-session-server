@@ -4,6 +4,10 @@ add_executable(rss_server_net_tests
     EventFdCompletionNotifierTest.cpp
     TcpServerBackpressureTest.cpp
 )
+target_include_directories(rss_server_net_tests
+    PRIVATE
+        "${PROJECT_SOURCE_DIR}/apps/load-scenario-runner/src"
+)
 target_link_libraries(rss_server_net_tests
     PRIVATE
         rss_load_scenario_runtime
