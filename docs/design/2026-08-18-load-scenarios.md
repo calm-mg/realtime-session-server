@@ -110,6 +110,7 @@ struct ScenarioResult {
   std::uint64_t received_broadcasts{};
   std::uint64_t missing_broadcasts{};
   std::uint64_t duplicate_broadcasts{};
+  std::uint64_t unexpected_broadcasts{};
   std::uint64_t failed_clients{};
   std::vector<std::chrono::microseconds> latencies;
   rss::net::OverloadSnapshot overload;
@@ -136,8 +137,8 @@ struct ScenarioResult {
 client의 `SO_RCVBUF`를 1 KiB로 요청한다. fast client가 `payload_bytes`
 크기의 메시지를 `messages_per_sender` 한도까지 보내는 동안 slow client
 종료를 관찰한다. 한도 안에서 종료되지 않으면 성공으로 추정하지 않고 해당
-반복을 실패 처리한다. 실제 적용된 socket buffer 크기는 운영체제가 조정할
-수 있으므로 결과 환경 정보에 함께 출력한다.
+반복을 실패 처리한다. 운영체제가 실제 socket buffer 크기를 조정할 수 있으므로
+결과 환경 정보에는 실행기가 요청한 크기임을 명시해 출력한다.
 
 측정 반복마다 새 `EmbeddedServer`를 만든다. 따라서 방, 세션, 누적 통계가
 반복 사이에 섞이지 않는다. warm-up도 별도 서버에서 한 번 실행하고 결과는
@@ -179,7 +180,7 @@ fast client는 계속 채팅을 송수신한다.
 
 이 시나리오의 성공 조건은 다음과 같다.
 
-- `slow_client_disconnects`가 1 이상 증가
+- `slow_client_disconnects`가 지정한 `slow_clients` 이상 증가
 - fast client의 누락·중복 broadcast가 없음
 - fast client 연결 실패가 없음
 
@@ -230,7 +231,7 @@ timeout이 끝날 때까지다.
 
 ```text
 environment commit=a965a8e os=Linux kernel=... cpu=... compiler=... build_type=Release workers=4
-run=1 scenario=broadcast clients=100 rooms=1 sent=10000 expected=1000000 received=1000000 missing=0 duplicates=0 failed_clients=0 elapsed_sec=... throughput_broadcasts_per_sec=... p50_ms=... p95_ms=... p99_ms=... read_pauses=... inbound_queue_full=... outbound_budget_rejections=... slow_client_disconnects=... rejected_connections=... max_inbound_queue_size=... max_outbound_queue_size=... max_session_pending_write_bytes=...
+run=1 scenario=broadcast clients=100 rooms=1 sent=10000 expected=1000000 received=1000000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=... throughput_broadcasts_per_sec=... p50_ms=... p95_ms=... p99_ms=... read_pauses=... inbound_queue_full=... outbound_budget_rejections=... slow_client_disconnects=... rejected_connections=... max_inbound_queue_size=... max_outbound_queue_size=... max_session_pending_write_bytes=...
 ```
 
 Git commit은 빌드 시 CMake가 전달한 값이 있으면 사용하고, 없으면 `unknown`을
