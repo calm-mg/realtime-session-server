@@ -24,6 +24,8 @@ struct OverloadReport {
 };
 
 struct ScenarioRunResult {
+  ScenarioOptions requested;
+  std::size_t effective_rooms{1};
   std::uint64_t sent{};
   std::uint64_t expected_broadcasts{};
   std::uint64_t received_broadcasts{};
@@ -36,12 +38,12 @@ struct ScenarioRunResult {
   std::chrono::microseconds elapsed{};
 };
 
-std::uint64_t expectedBroadcasts(std::span<const std::size_t> room_sizes,
-                                 std::size_t messages_per_sender);
+std::uint64_t expectedBroadcasts(
+    std::span<const std::size_t> room_sizes,
+    std::span<const std::uint64_t> successful_sends_by_room);
 bool isSuccessful(ScenarioKind kind, const ScenarioRunResult& result,
                   std::size_t required_slow_disconnects) noexcept;
 std::string formatRunResult(std::size_t run, ScenarioKind kind,
-                            const ScenarioOptions& options,
                             const ScenarioRunResult& result);
 
 }  // namespace rss::tools

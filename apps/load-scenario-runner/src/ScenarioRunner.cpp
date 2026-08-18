@@ -32,6 +32,7 @@ using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
 
 constexpr auto kSetupTimeout = std::chrono::seconds(30);
+constexpr auto kReceiverPollInterval = std::chrono::milliseconds(10);
 
 struct ParsedIdentity {
   std::size_t run{};
@@ -67,6 +68,23 @@ struct ReceiveState {
 struct SendState {
   std::uint64_t sent{};
   std::exception_ptr failure;
+};
+
+struct RoomSendProgress {
+  explicit RoomSendProgress(const std::vector<std::size_t>& room_sizes)
+      : successful_sends_by_room(room_sizes.size()),
+        completed_senders_by_room(room_sizes.size()),
+        sender_count_by_room(room_sizes) {}
+
+  std::mutex mutex;
+  std::vector<std::uint64_t> successful_sends_by_room;
+  std::vector<std::size_t> completed_senders_by_room;
+  std::vector<std::size_t> sender_count_by_room;
+};
+
+struct RoomSendSnapshot {
+  std::uint64_t successful_sends{};
+  bool all_senders_completed{};
 };
 
 struct ReceiveProgress {
@@ -198,6 +216,52 @@ void recordProgressFailure(ReceiveProgress& progress) {
   progress.changed.notify_all();
 }
 
+void recordSuccessfulSend(RoomSendProgress& progress, std::size_t room_index) {
+  std::lock_guard lock(progress.mutex);
+  auto& successful_sends = progress.successful_sends_by_room[room_index];
+  if (successful_sends == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::overflow_error("scenario successful send count overflow");
+  }
+  ++successful_sends;
+}
+
+void recordSenderCompleted(RoomSendProgress& progress, std::size_t room_index) {
+  std::lock_guard lock(progress.mutex);
+  ++progress.completed_senders_by_room[room_index];
+}
+
+RoomSendSnapshot roomSendSnapshot(RoomSendProgress& progress,
+                                  std::size_t room_index) {
+  std::lock_guard lock(progress.mutex);
+  return RoomSendSnapshot{
+      .successful_sends = progress.successful_sends_by_room[room_index],
+      .all_senders_completed = progress.completed_senders_by_room[room_index] ==
+                               progress.sender_count_by_room[room_index],
+  };
+}
+
+std::vector<std::uint64_t> successfulSendsByRoom(RoomSendProgress& progress) {
+  std::lock_guard lock(progress.mutex);
+  return progress.successful_sends_by_room;
+}
+
+bool runBeforeMeasurementStart(const std::function<void()>& before_start,
+                               std::exception_ptr& failure,
+                               ReceiveProgress* progress) {
+  try {
+    if (before_start) {
+      before_start();
+    }
+    return true;
+  } catch (...) {
+    failure = std::current_exception();
+    if (progress != nullptr) {
+      recordProgressFailure(*progress);
+    }
+    return false;
+  }
+}
+
 void acquireSendPermit(ReceiveProgress& progress, std::size_t sender,
                        std::size_t sequence, std::size_t sender_count,
                        Deadline deadline) {
@@ -235,19 +299,35 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
                        std::size_t receiver_room_index, std::size_t room_count,
                        std::size_t room_size, std::size_t messages_per_sender,
                        Deadline deadline, ReceiveState& state,
-                       ReceiveProgress* progress, std::size_t receiver_index) {
+                       ReceiveProgress* progress, std::size_t receiver_index,
+                       RoomSendProgress& send_progress) {
   try {
-    const auto expected = checkedProduct(room_size, messages_per_sender);
-    state.latencies.reserve(expected);
-    state.identities.reserve(expected);
+    const auto maximum_expected =
+        checkedProduct(room_size, messages_per_sender);
+    state.latencies.reserve(maximum_expected);
+    state.identities.reserve(maximum_expected);
 
-    while (state.identities.size() < expected) {
-      const auto packet = client.receivePacket(remainingTimeout(deadline));
-      if (packet.type != rss::protocol::PacketType::RoomBroadcast) {
+    while (true) {
+      const auto send_snapshot =
+          roomSendSnapshot(send_progress, receiver_room_index);
+      if (send_snapshot.all_senders_completed &&
+          state.identities.size() >= send_snapshot.successful_sends) {
+        break;
+      }
+      if (Clock::now() >= deadline) {
+        throw std::runtime_error("scenario receive timed out");
+      }
+
+      const auto packet = client.tryReceivePacket(
+          std::min(remainingTimeout(deadline), kReceiverPollInterval));
+      if (!packet.has_value()) {
+        continue;
+      }
+      if (packet->type != rss::protocol::PacketType::RoomBroadcast) {
         continue;
       }
 
-      const auto broadcast = rss::protocol::payloadToString(packet);
+      const auto broadcast = rss::protocol::payloadToString(*packet);
       if (!broadcast.starts_with("event=CHAT|")) {
         continue;
       }
@@ -289,20 +369,26 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
   }
 }
 
-void sendMessages(ScenarioClient& client, std::size_t run_id,
-                  std::size_t sender, std::size_t messages_per_sender,
-                  std::size_t payload_bytes, Deadline deadline,
-                  SendState& state, ReceiveProgress* progress,
-                  std::size_t sender_count) {
+void sendMessages(
+    ScenarioClient& client, std::size_t run_id, std::size_t sender,
+    std::size_t messages_per_sender, std::size_t payload_bytes,
+    Deadline deadline, SendState& state, ReceiveProgress* progress,
+    std::size_t sender_count,
+    const std::function<void(std::size_t, std::size_t)>& before_send,
+    RoomSendProgress& send_progress, std::size_t room_index) {
   try {
     for (std::size_t sequence = 0; sequence < messages_per_sender; ++sequence) {
       if (progress != nullptr) {
         acquireSendPermit(*progress, sender, sequence, sender_count, deadline);
       }
+      if (before_send) {
+        before_send(sender, sequence);
+      }
       const auto payload = makePayload(run_id, sender, sequence,
                                        nowMicroseconds(), payload_bytes);
       client.sendChat(payload, remainingTimeout(deadline));
       ++state.sent;
+      recordSuccessfulSend(send_progress, room_index);
     }
   } catch (...) {
     state.failure = std::current_exception();
@@ -310,6 +396,7 @@ void sendMessages(ScenarioClient& client, std::size_t run_id,
       recordProgressFailure(*progress);
     }
   }
+  recordSenderCompleted(send_progress, room_index);
 }
 
 }  // namespace
@@ -352,12 +439,24 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
   const auto fast_client_count = options.scenario == ScenarioKind::SlowClient
                                      ? options.clients - options.slow_clients
                                      : options.clients;
+  const auto room_count = options.scenario == ScenarioKind::MultiRoom
+                              ? options.rooms
+                              : std::size_t{1};
+
+  ScenarioRunResult result;
+  result.requested = options;
+  result.effective_rooms = room_count;
+  const auto pending_write_limit =
+      options.scenario == ScenarioKind::SlowClient
+          ? tuning_.slow_client_max_pending_write_bytes
+          : tuning_.max_pending_write_bytes;
 
   rss::net::ServerConfig config;
   config.host = "127.0.0.1";
   config.port = 0;
   config.worker_count = options.worker_count;
-  config.max_pending_write_bytes = tuning_.max_pending_write_bytes;
+  config.max_pending_write_bytes = pending_write_limit;
+  config.max_sessions = tuning_.max_sessions;
 
   EmbeddedServer server(config);
   server.start(kSetupTimeout);
@@ -365,41 +464,71 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
   try {
     std::vector<ScenarioClient> clients;
     clients.reserve(options.clients);
+    std::size_t completed_setup_clients{};
+    std::vector<bool> setup_completed(options.clients);
+    const auto markSetupCompleted = [&](std::size_t index) {
+      if (!setup_completed[index]) {
+        setup_completed[index] = true;
+        ++completed_setup_clients;
+      }
+    };
+    const auto setupFailureResult = [&] {
+      result.failed_clients = options.clients - completed_setup_clients;
+      result.overload = makeOverloadReport(server.snapshot());
+      server.stop();
+      return result;
+    };
+
     for (std::size_t index = 0; index < options.clients; ++index) {
       auto& client = clients.emplace_back();
-      client.connect("127.0.0.1", server.port(), kSetupTimeout);
-      client.login("scenario-client-" + std::to_string(index), kSetupTimeout);
+      try {
+        client.connect("127.0.0.1", server.port(), kSetupTimeout);
+        client.login("scenario-client-" + std::to_string(index), kSetupTimeout);
+      } catch (const std::runtime_error&) {
+        return setupFailureResult();
+      }
     }
 
-    const auto room_count = options.scenario == ScenarioKind::MultiRoom
-                                ? options.rooms
-                                : std::size_t{1};
     std::vector<std::size_t> room_sizes(room_count);
     std::vector<std::uint32_t> room_ids(room_count);
     for (std::size_t index = 0; index < clients.size(); ++index) {
       const auto room_index = index % room_count;
       ++room_sizes[room_index];
-      if (index < room_count) {
-        room_ids[room_index] = clients[index].createRoom(
-            "scenario-room-" + std::to_string(room_index), kSetupTimeout);
-      } else {
-        clients[index].joinRoom(room_ids[room_index], kSetupTimeout);
+      try {
+        if (index < room_count) {
+          room_ids[room_index] = clients[index].createRoom(
+              "scenario-room-" + std::to_string(room_index), kSetupTimeout);
+        } else {
+          clients[index].joinRoom(room_ids[room_index], kSetupTimeout);
+        }
+      } catch (const std::runtime_error&) {
+        return setupFailureResult();
+      }
+      if (options.scenario != ScenarioKind::SlowClient ||
+          index < fast_client_count) {
+        markSetupCompleted(index);
       }
     }
 
     if (options.scenario == ScenarioKind::SlowClient) {
       for (std::size_t index = fast_client_count; index < clients.size();
            ++index) {
-        clients[index].setReceiveBufferBytes(
-            tuning_.socket_receive_buffer_bytes);
+        try {
+          clients[index].setReceiveBufferBytes(
+              tuning_.socket_receive_buffer_bytes);
+        } catch (const std::runtime_error&) {
+          return setupFailureResult();
+        }
+        markSetupCompleted(index);
       }
       room_sizes.front() = fast_client_count;
     }
 
     std::vector<ReceiveState> receive_states(fast_client_count);
     std::vector<SendState> send_states(fast_client_count);
+    RoomSendProgress send_progress(room_sizes);
     const auto pending_packet_capacity =
-        tuning_.max_pending_write_bytes / rss::protocol::kMaxPacketSize;
+        pending_write_limit / rss::protocol::kMaxPacketSize;
     const auto max_outstanding_messages =
         pending_packet_capacity > 0 ? pending_packet_capacity : 1;
     ReceiveProgress receive_progress(fast_client_count,
@@ -407,31 +536,58 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     auto* progress = options.scenario == ScenarioKind::SlowClient
                          ? &receive_progress
                          : nullptr;
-    const auto participant_count = fast_client_count * 2 + 1;
-    std::barrier start_barrier(static_cast<std::ptrdiff_t>(participant_count));
-    std::vector<std::jthread> tasks;
-    tasks.reserve(fast_client_count * 2);
+    const auto task_count = checkedProduct(fast_client_count, 2);
+    if (task_count == std::numeric_limits<std::size_t>::max() ||
+        task_count + 1 > static_cast<std::size_t>(
+                             std::numeric_limits<std::ptrdiff_t>::max())) {
+      throw std::overflow_error("scenario barrier participant overflow");
+    }
+    const auto participant_count = task_count + 1;
+    Deadline started_at;
     Deadline scenario_deadline;
+    const auto start_measurement = [&]() noexcept {
+      started_at = Clock::now();
+      scenario_deadline = started_at + tuning_.scenario_timeout;
+    };
+    std::barrier start_barrier(static_cast<std::ptrdiff_t>(participant_count),
+                               start_measurement);
+    std::vector<std::jthread> tasks;
+    tasks.reserve(task_count);
     std::size_t launched{};
 
     try {
       for (std::size_t index = 0; index < fast_client_count; ++index) {
         tasks.emplace_back([&, index] {
+          const auto start_ready = runBeforeMeasurementStart(
+              tuning_.before_measurement_start, receive_states[index].failure,
+              progress);
           start_barrier.arrive_and_wait();
+          if (!start_ready) {
+            return;
+          }
           const auto room_index = index % room_count;
           receiveBroadcasts(clients[index], run_id, fast_client_count,
                             room_index, room_count, room_sizes[room_index],
                             options.messages_per_sender, scenario_deadline,
-                            receive_states[index], progress, index);
+                            receive_states[index], progress, index,
+                            send_progress);
         });
         ++launched;
 
         tasks.emplace_back([&, index] {
+          const auto start_ready =
+              runBeforeMeasurementStart(tuning_.before_measurement_start,
+                                        send_states[index].failure, progress);
           start_barrier.arrive_and_wait();
+          if (!start_ready) {
+            recordSenderCompleted(send_progress, index % room_count);
+            return;
+          }
           sendMessages(clients[index], run_id, index,
                        options.messages_per_sender, options.payload_bytes,
                        scenario_deadline, send_states[index], progress,
-                       fast_client_count);
+                       fast_client_count, tuning_.before_send, send_progress,
+                       index % room_count);
         });
         ++launched;
       }
@@ -446,8 +602,6 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       throw;
     }
 
-    const auto started_at = Clock::now();
-    scenario_deadline = started_at + tuning_.scenario_timeout;
     start_barrier.arrive_and_wait();
 
     for (auto& task : tasks) {
@@ -455,9 +609,9 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     }
     const auto finished_at = Clock::now();
 
-    ScenarioRunResult result;
+    const auto successful_sends = successfulSendsByRoom(send_progress);
     result.expected_broadcasts =
-        expectedBroadcasts(room_sizes, options.messages_per_sender);
+        expectedBroadcasts(room_sizes, successful_sends);
     result.elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         finished_at - started_at);
 

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "Program.h"
+#include "ScenarioRunner.h"
 
 namespace {
 
@@ -74,7 +75,7 @@ TEST(ProgramTest, PrintsEnvironmentAndMeasuredRunsButDiscardsOneWarmUp) {
   EXPECT_EQ(output.find("\nrun=0 "), std::string::npos);
 }
 
-TEST(ProgramTest, CompletesAllRepeatsAndReturnsMeasurementFailure) {
+TEST(ProgramTest, SetupFailureResultPrintsRunRowAndReturnsMeasurementFailure) {
   const std::array<std::string_view, 2> args{"--repeat", "2"};
   std::ostringstream out;
   std::ostringstream err;
@@ -84,8 +85,7 @@ TEST(ProgramTest, CompletesAllRepeatsAndReturnsMeasurementFailure) {
     run_ids.push_back(run_id);
     auto result = successfulResult();
     if (run_id == 1) {
-      result.received_broadcasts = 0;
-      result.missing_broadcasts = 1;
+      result.failed_clients = 1;
     }
     return result;
   };
@@ -97,7 +97,31 @@ TEST(ProgramTest, CompletesAllRepeatsAndReturnsMeasurementFailure) {
   EXPECT_TRUE(err.str().empty());
   EXPECT_EQ(run_ids, (std::vector<std::size_t>{0, 1, 2}));
   EXPECT_NE(out.str().find("run=1 "), std::string::npos);
+  EXPECT_NE(out.str().find("failed_clients=1"), std::string::npos);
   EXPECT_NE(out.str().find("run=2 "), std::string::npos);
+}
+
+TEST(ProgramTest, ActualClientSetupFailurePrintsRunRowAndReturnsOne) {
+  const std::array<std::string_view, 12> args{
+      "--scenario",      "broadcast", "--clients", "2", "--messages", "1",
+      "--payload-bytes", "128",       "--repeat",  "1", "--workers",  "1"};
+  std::ostringstream out;
+  std::ostringstream err;
+  const rss::tools::ScenarioRunner runner{{.max_sessions = 1}};
+  const auto run_once = [&](const rss::tools::ScenarioOptions& options,
+                            std::size_t run_id) {
+    return runner.runOnce(options, run_id);
+  };
+
+  const auto exit_code =
+      rss::tools::internal::runScenarioProgramWith(args, out, err, run_once);
+
+  EXPECT_EQ(exit_code, 1);
+  EXPECT_TRUE(err.str().empty());
+  EXPECT_NE(out.str().find("\nrun=1 scenario=broadcast clients=2 rooms=1 "),
+            std::string::npos);
+  EXPECT_NE(out.str().find("failed_clients=2"), std::string::npos);
+  EXPECT_NE(out.str().find("rejected_connections=1"), std::string::npos);
 }
 
 TEST(ProgramTest, MapsExecutionExceptionToExitCodeThree) {

@@ -41,7 +41,7 @@ int runScenarioProgramWith(std::span<const std::string_view> args,
     bool all_successful = true;
     for (std::size_t run = 1; run <= options.repeats; ++run) {
       const auto result = run_once(options, run);
-      out << formatRunResult(run, options.scenario, options, result) << '\n';
+      out << formatRunResult(run, options.scenario, result) << '\n';
       if (!isSuccessful(options.scenario, result, options.slow_clients)) {
         all_successful = false;
       }

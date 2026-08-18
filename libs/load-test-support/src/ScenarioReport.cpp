@@ -1,19 +1,40 @@
 #include "rss/tools/ScenarioReport.h"
 
 #include <iomanip>
+#include <limits>
 #include <sstream>
+#include <stdexcept>
 
 #include "rss/tools/LatencyStats.h"
 
 namespace rss::tools {
 
-std::uint64_t expectedBroadcasts(std::span<const std::size_t> room_sizes,
-                                 std::size_t messages_per_sender) {
+std::uint64_t expectedBroadcasts(
+    std::span<const std::size_t> room_sizes,
+    std::span<const std::uint64_t> successful_sends_by_room) {
+  if (room_sizes.size() != successful_sends_by_room.size()) {
+    throw std::invalid_argument(
+        "room sizes and successful send counts must have equal lengths");
+  }
+
+  constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
   std::uint64_t broadcasts{};
-  for (const auto room_size : room_sizes) {
-    broadcasts += static_cast<std::uint64_t>(room_size) *
-                  static_cast<std::uint64_t>(messages_per_sender) *
-                  static_cast<std::uint64_t>(room_size);
+  for (std::size_t index = 0; index < room_sizes.size(); ++index) {
+    if constexpr (sizeof(std::size_t) > sizeof(std::uint64_t)) {
+      if (room_sizes[index] > maximum) {
+        throw std::overflow_error("scenario room size overflow");
+      }
+    }
+    const auto room_size = static_cast<std::uint64_t>(room_sizes[index]);
+    const auto successful_sends = successful_sends_by_room[index];
+    if (room_size != 0 && successful_sends > maximum / room_size) {
+      throw std::overflow_error("scenario expected broadcast overflow");
+    }
+    const auto room_broadcasts = room_size * successful_sends;
+    if (room_broadcasts > maximum - broadcasts) {
+      throw std::overflow_error("scenario expected broadcast overflow");
+    }
+    broadcasts += room_broadcasts;
   }
   return broadcasts;
 }
@@ -30,7 +51,6 @@ bool isSuccessful(ScenarioKind kind, const ScenarioRunResult& result,
 }
 
 std::string formatRunResult(std::size_t run, ScenarioKind kind,
-                            const ScenarioOptions& options,
                             const ScenarioRunResult& result) {
   const auto latency = latencyReport(result.latencies);
   const auto elapsed_seconds = result.elapsed.count() / 1'000'000.0;
@@ -39,9 +59,14 @@ std::string formatRunResult(std::size_t run, ScenarioKind kind,
                               : 0.0;
 
   std::ostringstream output;
+  const auto& options = result.requested;
   output << std::fixed << std::setprecision(3) << "run=" << run
          << " scenario=" << scenarioName(kind) << " clients=" << options.clients
-         << " rooms=" << options.rooms << " sent=" << result.sent
+         << " rooms=" << result.effective_rooms
+         << " messages_per_sender=" << options.messages_per_sender
+         << " payload_bytes=" << options.payload_bytes
+         << " slow_clients=" << options.slow_clients
+         << " repeats=" << options.repeats << " sent=" << result.sent
          << " expected=" << result.expected_broadcasts
          << " received=" << result.received_broadcasts
          << " missing=" << result.missing_broadcasts

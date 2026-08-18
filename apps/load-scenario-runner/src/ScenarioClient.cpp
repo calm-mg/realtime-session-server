@@ -46,8 +46,8 @@ int remainingMilliseconds(Deadline deadline) {
       rounded.count(), static_cast<std::int64_t>(INT_MAX)));
 }
 
-void waitForSocket(int fd, short events, Deadline deadline,
-                   std::string_view operation) {
+bool waitForSocketReady(int fd, short events, Deadline deadline,
+                        std::string_view operation) {
   while (true) {
     pollfd descriptor{fd, events, 0};
     const auto result = ::poll(&descriptor, 1, remainingMilliseconds(deadline));
@@ -55,14 +55,21 @@ void waitForSocket(int fd, short events, Deadline deadline,
       if ((descriptor.revents & POLLNVAL) != 0) {
         throw std::runtime_error(std::string(operation) + ": invalid socket");
       }
-      return;
+      return true;
     }
     if (result == 0) {
-      throw std::runtime_error(std::string(operation) + " timed out");
+      return false;
     }
     if (errno != EINTR) {
       throw systemError(operation, errno);
     }
+  }
+}
+
+void waitForSocket(int fd, short events, Deadline deadline,
+                   std::string_view operation) {
+  if (!waitForSocketReady(fd, events, deadline, operation)) {
+    throw std::runtime_error(std::string(operation) + " timed out");
   }
 }
 
@@ -240,6 +247,15 @@ void ScenarioClient::sendChat(std::string_view payload,
 
 rss::protocol::Packet ScenarioClient::receivePacket(
     std::chrono::milliseconds timeout) {
+  auto packet = tryReceivePacket(timeout);
+  if (!packet.has_value()) {
+    throw std::runtime_error("receive timed out");
+  }
+  return std::move(*packet);
+}
+
+std::optional<rss::protocol::Packet> ScenarioClient::tryReceivePacket(
+    std::chrono::milliseconds timeout) {
   if (fd_ == -1) {
     throw std::logic_error("scenario client is not connected");
   }
@@ -252,7 +268,9 @@ rss::protocol::Packet ScenarioClient::receivePacket(
   const auto deadline = Clock::now() + timeout;
   std::array<std::uint8_t, rss::protocol::kMaxPacketSize> buffer{};
   while (true) {
-    ensureBeforeDeadline(deadline, "receive");
+    if (Clock::now() >= deadline) {
+      return std::nullopt;
+    }
     const auto received = receive_operation_(fd_, buffer.data(), buffer.size());
     if (received > 0) {
       codec_.feed(buffer.data(), static_cast<std::size_t>(received));
@@ -269,7 +287,9 @@ rss::protocol::Packet ScenarioClient::receivePacket(
       continue;
     }
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      waitForSocket(fd_, POLLIN, deadline, "receive");
+      if (!waitForSocketReady(fd_, POLLIN, deadline, "receive")) {
+        return std::nullopt;
+      }
       continue;
     }
     throw systemError("recv", errno);

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string_view>
 
 #include "rss/protocol/PacketCodec.h"
@@ -31,6 +32,8 @@ class ScenarioClient {
                            std::chrono::milliseconds timeout);
   void joinRoom(std::uint32_t room_id, std::chrono::milliseconds timeout);
   void sendChat(std::string_view payload, std::chrono::milliseconds timeout);
+  std::optional<rss::protocol::Packet> tryReceivePacket(
+      std::chrono::milliseconds timeout);
   rss::protocol::Packet receivePacket(std::chrono::milliseconds timeout);
   void close() noexcept;
 
