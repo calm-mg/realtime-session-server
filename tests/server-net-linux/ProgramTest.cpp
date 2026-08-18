@@ -118,7 +118,7 @@ TEST(ProgramTest, MapsExecutionExceptionToExitCodeThree) {
   EXPECT_NE(err.str().find("server start failed"), std::string::npos);
 }
 
-TEST(ProgramTest, SuppressesRunnerDiagnosticsFromStandardOutput) {
+TEST(ProgramTest, PreservesRunnerStandardOutput) {
   const std::array<std::string_view, 2> args{"--repeat", "1"};
   std::ostringstream out;
   std::ostringstream err;
@@ -135,7 +135,7 @@ TEST(ProgramTest, SuppressesRunnerDiagnosticsFromStandardOutput) {
   const auto output = out.str();
 
   EXPECT_EQ(exit_code, 0);
-  EXPECT_TRUE(console.str().empty());
+  EXPECT_EQ(console.str(), "server diagnostic\nserver diagnostic\n");
   EXPECT_EQ(
       static_cast<std::size_t>(std::count(output.begin(), output.end(), '\n')),
       2U);

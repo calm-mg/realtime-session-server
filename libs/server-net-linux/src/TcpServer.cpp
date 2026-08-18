@@ -93,9 +93,11 @@ void TcpServer::run() {
     openListener();
     workers_.start(config_.worker_count);
 
-    std::cout << "rss_server listening on " << config_.host << ':'
-              << boundPort() << " with " << config_.worker_count
-              << " workers\n";
+    if (config_.emit_startup_diagnostic) {
+      std::cout << "rss_server listening on " << config_.host << ':'
+                << boundPort() << " with " << config_.worker_count
+                << " workers\n";
+    }
 
     while (shutdown_phase_ != ShutdownPhase::Complete) {
       if (stop_requested_.load(std::memory_order_acquire)) {

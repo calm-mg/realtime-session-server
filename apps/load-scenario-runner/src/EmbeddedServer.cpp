@@ -6,9 +6,17 @@
 #include <utility>
 
 namespace rss::tools {
+namespace {
+
+rss::net::ServerConfig embeddedServerConfig(rss::net::ServerConfig config) {
+  config.emit_startup_diagnostic = false;
+  return config;
+}
+
+}  // namespace
 
 EmbeddedServer::EmbeddedServer(rss::net::ServerConfig config)
-    : server_(std::move(config)) {}
+    : server_(embeddedServerConfig(std::move(config))) {}
 
 EmbeddedServer::~EmbeddedServer() {
   try {

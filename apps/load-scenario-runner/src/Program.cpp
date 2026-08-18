@@ -1,9 +1,7 @@
 #include "Program.h"
 
 #include <exception>
-#include <iostream>
 #include <ostream>
-#include <sstream>
 #include <stdexcept>
 
 #include "EnvironmentInfo.h"
@@ -17,27 +15,6 @@ constexpr std::string_view kUsage =
     "[--scenario <broadcast|multi-room|slow-client>] "
     "[--clients N] [--rooms N] [--messages N] [--payload-bytes N] "
     "[--slow-clients N] [--repeat N] [--workers N]";
-
-class ScopedStandardOutputSilencer {
- public:
-  ScopedStandardOutputSilencer() : previous_(std::cout.rdbuf(sink_.rdbuf())) {}
-  ~ScopedStandardOutputSilencer() { std::cout.rdbuf(previous_); }
-
-  ScopedStandardOutputSilencer(const ScopedStandardOutputSilencer&) = delete;
-  ScopedStandardOutputSilencer& operator=(const ScopedStandardOutputSilencer&) =
-      delete;
-
- private:
-  std::ostringstream sink_;
-  std::streambuf* previous_;
-};
-
-ScenarioRunResult runQuietly(const internal::RunScenarioOnce& run_once,
-                             const ScenarioOptions& options,
-                             std::size_t run_id) {
-  ScopedStandardOutputSilencer silence_output;
-  return run_once(options, run_id);
-}
 
 }  // namespace
 
@@ -59,11 +36,11 @@ int runScenarioProgramWith(std::span<const std::string_view> args,
     out << formatEnvironment(collectEnvironmentInfo(
                options.worker_count, tuning.socket_receive_buffer_bytes))
         << '\n';
-    static_cast<void>(runQuietly(run_once, options, 0));
+    static_cast<void>(run_once(options, 0));
 
     bool all_successful = true;
     for (std::size_t run = 1; run <= options.repeats; ++run) {
-      const auto result = runQuietly(run_once, options, run);
+      const auto result = run_once(options, run);
       out << formatRunResult(run, options.scenario, options, result) << '\n';
       if (!isSuccessful(options.scenario, result, options.slow_clients)) {
         all_successful = false;

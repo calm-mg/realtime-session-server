@@ -24,6 +24,7 @@ struct ServerConfig {
   std::size_t max_pending_write_bytes{1024 * 1024};
   std::size_t max_sessions{10000};
   std::chrono::seconds graceful_shutdown_timeout{5};
+  bool emit_startup_diagnostic{true};
 
   void validate() const {
     if (inbound_queue_capacity == 0) {
