@@ -4,6 +4,8 @@
 
 - `rss_microbenchmarks`: 네트워크 없이 작은 코드 경로의 실행 시간을 측정
 - `rss_load_test_client`: 실제 TCP 연결과 `PING`/`PONG` 왕복 시간을 측정
+- `rss_load_scenario_runner`: 로컬 실제 서버의 방 broadcast, 다중 방, 느린
+  클라이언트 격리와 내부 과부하 통계를 반복 측정
 
 마이크로벤치마크 숫자는 서버의 동시 접속 처리량이 아닙니다. 반대로
 TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없습니다.
@@ -38,15 +40,15 @@ cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 다른 프로세스, CPU 절전 상태, 가상화 환경에 따라 결과가 달라지므로
 한 번의 숫자나 서로 다른 PC의 숫자를 그대로 비교하지 않습니다.
 
-## TCP 부하 테스트
+## TCP `PING` 부하 테스트
 
 `rss_load_test_client`는 여러 TCP 클라이언트를 만들고,
 각 클라이언트가 `PING`을 반복해서 보낸 뒤 `PONG`이 돌아오는 시간을
 측정합니다.
 
-이 도구는 연결과 간단한 요청/응답 성능을 확인하기 위한 것입니다.
-채팅 broadcast, 느린 클라이언트, queue 포화 상태는 아직 측정하지
-않습니다.
+이 도구는 연결과 간단한 요청/응답 성능을 확인하기 위한 것입니다. 채팅
+broadcast, 느린 클라이언트, queue 포화 상태는 이 도구가 아니라 아래의
+`rss_load_scenario_runner`로 측정합니다.
 
 ### 빌드
 
@@ -156,14 +158,92 @@ clients=100 messages_per_client=100 sent=10000 failed_clients=0 elapsed_sec=1.25
 - 현재 도구의 처리량은 단순히 완료한 요청 수를 전체 시간으로 나눈
   근사값입니다.
 
-## 현재 측정할 수 없는 항목
+## 실제 서버 부하 시나리오
 
-현재 부하 테스트 도구는 다음 상황을 만들거나 별도로 집계하지 않습니다.
+`rss_load_scenario_runner`는 Linux 전용 실행 파일입니다. loopback 임시
+포트에서 실제 서버를 시작하고 실제 TCP 연결로 시나리오를 수행하므로,
+실행 중인 원격 서버는 필요하지 않습니다. 실행마다 결과를 버리는 warm-up을
+1회 수행한 뒤 `--repeat` 횟수만큼 새 서버에서 측정합니다.
 
-- 한 방에 많은 사용자가 있을 때의 broadcast 비용
-- 여러 방이 동시에 활동할 때의 처리량
-- 응답을 읽지 않는 느린 클라이언트
-- 입력 또는 출력 queue가 가득 찬 횟수
-- 연결 종료와 재접속이 반복되는 상황
+Linux 개발 빌드 후 다음 세 시나리오를 실행할 수 있습니다.
 
-따라서 현재 출력만으로 위 항목의 성능이나 안정성을 판단할 수 없습니다.
+```bash
+cmake --preset linux-dev
+cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
+
+./build/linux-dev/rss_load_scenario_runner --scenario broadcast --clients 100 --messages 100 --repeat 5 --workers 4
+./build/linux-dev/rss_load_scenario_runner --scenario multi-room --clients 100 --rooms 10 --messages 100 --repeat 5 --workers 4
+./build/linux-dev/rss_load_scenario_runner --scenario slow-client --clients 20 --slow-clients 1 --messages 2000 --payload-bytes 4000 --repeat 5 --workers 4
+```
+
+명령행 형식과 기본값은 다음과 같습니다. 모든 옵션은 값이 필요합니다.
+
+```text
+rss_load_scenario_runner \
+  [--scenario <broadcast|multi-room|slow-client>] \
+  [--clients N] [--rooms N] [--messages N] [--payload-bytes N] \
+  [--slow-clients N] [--repeat N] [--workers N]
+```
+
+| 옵션 | 기본값 | 의미 |
+| --- | ---: | --- |
+| `--scenario` | `broadcast` | 측정할 시나리오 |
+| `--clients` | `10` | 연결할 전체 클라이언트 수 |
+| `--rooms` | `2` | 다중 방 시나리오의 방 수 |
+| `--messages` | `100` | 송신 클라이언트별 채팅 수 |
+| `--payload-bytes` | `256` | 채팅 payload 크기(byte) |
+| `--slow-clients` | `1` | 느린 클라이언트 수 |
+| `--repeat` | `5` | warm-up 뒤 측정 반복 수 |
+| `--workers` | `4` | 로컬 서버 worker 수 |
+
+수치 옵션은 1 이상이어야 합니다. `--payload-bytes`는 64 이상 4000 이하여야
+하며, `multi-room`의 방 수는 클라이언트 수를 넘을 수 없습니다.
+`slow-client`의 느린 클라이언트 수는 전체 클라이언트 수보다 작아야 합니다.
+
+### 출력과 종료 코드
+
+첫 줄은 비교 조건을 기록하는 `environment` 줄이고, 이어지는 각 `run` 줄은
+warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구분된 `key=value`
+형식이며 run 번호는 1부터 시작합니다.
+
+| `environment` 필드 | 의미 |
+| --- | --- |
+| `commit` | 빌드에 기록된 Git commit |
+| `os`, `kernel`, `cpu` | 실행 환경의 운영체제, kernel, CPU 식별 정보 |
+| `compiler`, `build_type` | 빌드에 기록된 compiler와 build type |
+| `workers` | `--workers`로 로컬 서버에 적용한 worker 수 |
+| `requested_slow_receive_buffer_bytes` | 느린 클라이언트에 요청하는 socket 수신 버퍼 크기; 운영체제가 실제 크기를 조정할 수 있음 |
+
+각 `run` 줄에는 다음 필드가 고정 순서로 출력됩니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `run`, `scenario`, `clients`, `rooms` | 측정 반복 번호와 적용된 시나리오·클라이언트·방 설정 |
+| `sent` | 전송한 채팅 요청 수 |
+| `expected`, `received` | 기대한 broadcast 수와 실제 수신한 broadcast 수 |
+| `missing`, `duplicates`, `unexpected` | 누락, 중복, 예상하지 않은 broadcast 수 |
+| `failed_clients` | 송신 또는 수신 작업이 실패한 클라이언트 수 |
+| `elapsed_sec` | 해당 측정 반복의 경과 시간(초) |
+| `throughput_broadcasts_per_sec` | `received / elapsed_sec`로 계산한 초당 수신 broadcast 수 |
+| `p50_ms`, `p95_ms`, `p99_ms` | 수신한 broadcast 지연 시간의 백분위 값(ms) |
+| `read_pauses`, `inbound_queue_full`, `outbound_budget_rejections` | 읽기 일시정지, 입력 queue 포화, 출력 예산 거절 횟수 |
+| `slow_client_disconnects`, `rejected_connections` | 느린 클라이언트 종료와 연결 거절 횟수 |
+| `max_inbound_queue_size`, `max_outbound_queue_size`, `max_session_pending_write_bytes` | 측정 중 관찰한 입력 queue, 출력 queue, 세션별 미전송 byte의 최대값 |
+
+종료 코드 `0`은 모든 측정 반복이 시나리오 성공 조건을 만족했음을 뜻합니다.
+`1`은 측정은 끝났지만 누락·중복·예상 밖 수신·클라이언트 실패가 있거나,
+`slow-client`에서 요청한 수만큼 느린 클라이언트가 종료되지 않았음을 뜻합니다.
+`2`는 잘못된 인자이며 사용법을 함께 출력합니다. `3`은 서버 시작이나 실행
+중 예외가 발생했음을 뜻합니다.
+
+### 비교 제약
+
+이 실행기는 절대적인 최대 성능을 인증하는 도구가 아니라 회귀 비교를 위한
+도구입니다. 서로 다른 commit을 비교할 때는 Linux 배포판과 kernel, CPU,
+compiler, build type, `--workers`, 모든 시나리오 인자를 같게 유지하고,
+동일한 종류의 실행 환경(물리 Linux, WSL2, 가상 머신, 컨테이너)을 사용해야
+합니다. `environment` 줄을 결과와 함께 보관하고, 실패 관련 필드가 0이 아닌
+반복은 정상 처리량으로 해석하지 않습니다.
+
+이 도구는 여러 머신의 분산 부하, 원격 서버의 내부 통계 조회, TLS, WAN 지연
+또는 패킷 손실을 측정하지 않습니다.
