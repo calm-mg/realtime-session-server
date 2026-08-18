@@ -3,7 +3,7 @@
 #include <QMainWindow>
 #include <memory>
 
-#include "application/ClientController.h"
+#include "rss/qt_client/application/ClientController.h"
 
 namespace Ui {
 class MainWindow;

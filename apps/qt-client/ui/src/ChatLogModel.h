@@ -3,7 +3,7 @@
 #include <QAbstractListModel>
 #include <QList>
 
-#include "application/ChatLogEntry.h"
+#include "rss/qt_client/application/ChatLogEntry.h"
 
 namespace rss::qt_client {
 

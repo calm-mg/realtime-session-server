@@ -1,4 +1,4 @@
-#include "ui/MainWindow.h"
+#include "rss/qt_client/ui/MainWindow.h"
 
 #include <QFile>
 #include <QIcon>
@@ -10,8 +10,8 @@
 #include <QTimer>
 #include <cstdint>
 
-#include "ui/ChatBubbleDelegate.h"
-#include "ui/ChatLogModel.h"
+#include "ChatBubbleDelegate.h"
+#include "ChatLogModel.h"
 #include "ui_MainWindow.h"
 
 void initializeClientResources() { Q_INIT_RESOURCE(client); }

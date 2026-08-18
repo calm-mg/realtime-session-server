@@ -3,7 +3,7 @@
 #include <string>
 #include <utility>
 
-#include "network/SessionTransport.h"
+#include "rss/qt_client/application/SessionTransport.h"
 
 class FakeSessionTransport final : public rss::qt_client::SessionTransport {
  public:

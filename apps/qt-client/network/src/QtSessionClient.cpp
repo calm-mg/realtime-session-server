@@ -1,4 +1,4 @@
-#include "network/QtSessionClient.h"
+#include "rss/qt_client/network/QtSessionClient.h"
 
 #include <QAbstractSocket>
 #include <cstddef>

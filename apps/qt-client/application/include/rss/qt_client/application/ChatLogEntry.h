@@ -4,7 +4,7 @@
 #include <QMetaType>
 #include <QString>
 
-#include "application/ClientState.h"
+#include "rss/qt_client/application/ClientState.h"
 
 namespace rss::qt_client {
 

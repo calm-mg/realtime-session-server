@@ -1,4 +1,4 @@
-#include "ui/ChatBubbleDelegate.h"
+#include "ChatBubbleDelegate.h"
 
 #include <QDateTime>
 #include <QFontMetrics>
@@ -6,8 +6,8 @@
 #include <QStyleOptionViewItem>
 #include <algorithm>
 
-#include "application/ClientState.h"
-#include "ui/ChatLogModel.h"
+#include "ChatLogModel.h"
+#include "rss/qt_client/application/ClientState.h"
 
 namespace rss::qt_client {
 

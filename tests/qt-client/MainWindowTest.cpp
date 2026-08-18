@@ -14,11 +14,11 @@
 #include <string_view>
 #include <vector>
 
+#include "ChatBubbleDelegate.h"
+#include "ChatLogModel.h"
 #include "FakeSessionTransport.h"
-#include "application/ClientController.h"
-#include "ui/ChatBubbleDelegate.h"
-#include "ui/ChatLogModel.h"
-#include "ui/MainWindow.h"
+#include "rss/qt_client/application/ClientController.h"
+#include "rss/qt_client/ui/MainWindow.h"
 
 namespace {
 

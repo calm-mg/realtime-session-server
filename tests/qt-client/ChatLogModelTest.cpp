@@ -1,8 +1,8 @@
 #include <QSignalSpy>
 #include <QtTest>
 
-#include "application/ChatLogEntry.h"
-#include "ui/ChatLogModel.h"
+#include "ChatLogModel.h"
+#include "rss/qt_client/application/ChatLogEntry.h"
 
 using rss::qt_client::ChatLogEntry;
 using rss::qt_client::ChatLogModel;

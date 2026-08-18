@@ -1,4 +1,4 @@
-#include "ui/ChatLogModel.h"
+#include "ChatLogModel.h"
 
 #include <utility>
 

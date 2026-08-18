@@ -3,9 +3,7 @@ qt_add_executable(rss_qt_client_controller_tests
 )
 
 target_link_libraries(rss_qt_client_controller_tests
-    PRIVATE
-        rss_qt_client_lib
-        Qt6::Test
+    PRIVATE rss_qt_client_application Qt6::Test
 )
 
 add_test(
@@ -19,8 +17,12 @@ qt_add_executable(rss_qt_chat_log_model_tests
 
 target_link_libraries(rss_qt_chat_log_model_tests
     PRIVATE
-        rss_qt_client_lib
+        rss_qt_client_ui
         Qt6::Test
+)
+
+target_include_directories(rss_qt_chat_log_model_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/apps/qt-client/ui/src
 )
 
 add_test(
@@ -33,10 +35,7 @@ qt_add_executable(rss_qt_session_client_tests
 )
 
 target_link_libraries(rss_qt_session_client_tests
-    PRIVATE
-        rss_qt_client_lib
-        Qt6::Network
-        Qt6::Test
+    PRIVATE rss_qt_client_network Qt6::Test
 )
 
 add_test(
@@ -50,9 +49,13 @@ qt_add_executable(rss_qt_main_window_tests
 
 target_link_libraries(rss_qt_main_window_tests
     PRIVATE
-        rss_qt_client_lib
+        rss_qt_client_application
+        rss_qt_client_ui
         Qt6::Test
-        Qt6::Widgets
+)
+
+target_include_directories(rss_qt_main_window_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/apps/qt-client/ui/src
 )
 
 if(MSVC)
