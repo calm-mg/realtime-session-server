@@ -11,6 +11,9 @@ class MainWindow;
 
 namespace rss::qt_client {
 
+class ChatBubbleDelegate;
+class ChatLogModel;
+
 class MainWindow final : public QMainWindow {
   Q_OBJECT
 
@@ -22,10 +25,12 @@ class MainWindow final : public QMainWindow {
 
  private:
   void applyState(ClientState state);
-  void appendLog(LogKind kind, const QString& text);
+  void appendLog(const ChatLogEntry& entry);
   void submitChat();
 
   std::unique_ptr<Ui::MainWindow> ui_;
+  std::unique_ptr<ChatLogModel> log_model_;
+  std::unique_ptr<ChatBubbleDelegate> log_delegate_;
   ClientController* controller_{};
 };
 

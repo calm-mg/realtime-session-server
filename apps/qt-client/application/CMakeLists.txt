@@ -1,5 +1,6 @@
 add_library(rss_qt_client_application STATIC
     src/ClientController.cpp
+    include/rss/qt_client/application/ChatLogEntry.h
     include/rss/qt_client/application/ClientController.h
     include/rss/qt_client/application/ClientState.h
     include/rss/qt_client/application/SessionTransport.h
