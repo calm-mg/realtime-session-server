@@ -166,10 +166,11 @@ std::size_t checkedProduct(std::size_t left, std::size_t right) {
 
 void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
                        std::size_t client_count,
-                       std::size_t messages_per_sender, Deadline deadline,
-                       ReceiveState& state) {
+                       std::size_t receiver_room_index, std::size_t room_count,
+                       std::size_t room_size, std::size_t messages_per_sender,
+                       Deadline deadline, ReceiveState& state) {
   try {
-    const auto expected = checkedProduct(client_count, messages_per_sender);
+    const auto expected = checkedProduct(room_size, messages_per_sender);
     state.latencies.reserve(expected);
     state.identities.reserve(expected);
 
@@ -187,6 +188,7 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
       try {
         const auto identity = parsePayload(messagePayload(broadcast));
         if (identity.run != run_id || identity.sender >= client_count ||
+            identity.sender % room_count != receiver_room_index ||
             identity.sequence >= messages_per_sender) {
           ++state.unexpected;
           continue;
@@ -256,6 +258,11 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
   if (options.clients == 0) {
     throw std::invalid_argument("scenario requires at least one client");
   }
+  if (options.scenario == ScenarioKind::MultiRoom &&
+      (options.rooms == 0 || options.rooms > options.clients)) {
+    throw std::invalid_argument(
+        "multi-room scenario has an invalid room count");
+  }
 
   rss::net::ServerConfig config;
   config.host = "127.0.0.1";
@@ -274,10 +281,20 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       client.login("scenario-client-" + std::to_string(index), kSetupTimeout);
     }
 
-    const auto room_id =
-        clients.front().createRoom("scenario-room", kSetupTimeout);
-    for (std::size_t index = 1; index < clients.size(); ++index) {
-      clients[index].joinRoom(room_id, kSetupTimeout);
+    const auto room_count = options.scenario == ScenarioKind::MultiRoom
+                                ? options.rooms
+                                : std::size_t{1};
+    std::vector<std::size_t> room_sizes(room_count);
+    std::vector<std::uint32_t> room_ids(room_count);
+    for (std::size_t index = 0; index < clients.size(); ++index) {
+      const auto room_index = index % room_count;
+      ++room_sizes[room_index];
+      if (index < room_count) {
+        room_ids[room_index] = clients[index].createRoom(
+            "scenario-room-" + std::to_string(room_index), kSetupTimeout);
+      } else {
+        clients[index].joinRoom(room_ids[room_index], kSetupTimeout);
+      }
     }
 
     std::vector<ReceiveState> receive_states(options.clients);
@@ -293,7 +310,9 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       for (std::size_t index = 0; index < options.clients; ++index) {
         tasks.emplace_back([&, index] {
           start_barrier.arrive_and_wait();
-          receiveBroadcasts(clients[index], run_id, options.clients,
+          const auto room_index = index % room_count;
+          receiveBroadcasts(clients[index], run_id, options.clients, room_index,
+                            room_count, room_sizes[room_index],
                             options.messages_per_sender, scenario_deadline,
                             receive_states[index]);
         });
@@ -328,8 +347,8 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     const auto finished_at = Clock::now();
 
     ScenarioRunResult result;
-    result.expected_broadcasts = expectedBroadcasts(
-        std::vector<std::size_t>{options.clients}, options.messages_per_sender);
+    result.expected_broadcasts =
+        expectedBroadcasts(room_sizes, options.messages_per_sender);
     result.elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         finished_at - started_at);
 

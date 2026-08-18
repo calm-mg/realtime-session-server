@@ -25,6 +25,22 @@ TEST(ScenarioRunnerTest, BroadcastDeliversEveryMessageToEveryClient) {
   EXPECT_EQ(result.latencies.size(), 12U);
 }
 
+TEST(ScenarioRunnerTest, MultiRoomKeepsBroadcastsInsideEachRoom) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::MultiRoom;
+  options.clients = 4;
+  options.rooms = 2;
+  options.messages_per_sender = 2;
+  options.payload_bytes = 128;
+
+  const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
+  EXPECT_EQ(result.sent, 8U);
+  EXPECT_EQ(result.expected_broadcasts, 16U);
+  EXPECT_EQ(result.received_broadcasts, 16U);
+  EXPECT_EQ(result.missing_broadcasts, 0U);
+  EXPECT_EQ(result.unexpected_broadcasts, 0U);
+}
+
 TEST(ScenarioRunnerTest, MessageIdentityRoundTripsAtRequestedPayloadSize) {
   const auto payload = rss::tools::makeScenarioPayload(2, 3, 4, 123456, 128);
   EXPECT_EQ(payload.size(), 128U);
