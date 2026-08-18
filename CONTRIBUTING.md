@@ -79,6 +79,27 @@ Linux 네트워크 테스트는 별도 실행 파일에 들어 있습니다.
   --gtest_color=yes
 ```
 
+## 실제 서버 부하 시나리오
+
+`rss_load_scenario_runner`는 실제 `TcpServer`와 POSIX TCP 클라이언트를 함께
+구동하는 Linux 전용 실행 파일입니다. 원격 서버의 `PING` 왕복 확인이 아니라
+로컬 broadcast, 다중 방, 느린 클라이언트 격리 회귀를 측정할 때 사용합니다.
+
+Linux 개발 preset에서 target을 빌드하고 작은 broadcast smoke를 실행합니다.
+
+```bash
+cmake --preset linux-dev
+cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
+./build/linux-dev/rss_load_scenario_runner \
+  --scenario broadcast --clients 2 --messages 2 \
+  --payload-bytes 128 --repeat 1 --workers 1
+```
+
+출력의 `missing`, `duplicates`, `unexpected`, `failed_clients`가 모두 `0`인지
+확인합니다. 성능 수치는 같은 CPU, Linux kernel, compiler, build type, worker
+수와 실행 인자에서 얻은 결과끼리만 비교합니다. 세 시나리오의 상세 인자와
+필드 의미는 `docs/benchmark.md`를 참고하세요.
+
 ## 마이크로벤치마크
 
 Google Benchmark 기반 마이크로벤치마크는 기본 빌드에서 꺼져 있습니다.
@@ -160,8 +181,8 @@ ctest --preset core-dev
 ```
 
 이 설정으로는 `rss_server`, `rss_console_client`,
-`rss_load_test_client`를 빌드하거나 Linux 네트워크 코드를 디버깅할 수
-없습니다.
+`rss_load_test_client`, `rss_load_scenario_runner`를 빌드하거나 Linux
+네트워크 코드를 디버깅할 수 없습니다.
 
 ## Qt 데스크톱 클라이언트 개발
 

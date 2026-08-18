@@ -1,6 +1,6 @@
 # 실제 서버 부하 시나리오 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> 구현 단계와 검증 명령은 체크박스(`- [ ]`) 단위로 기록한다.
 
 **Goal:** 실제 `TcpServer`와 TCP 클라이언트를 한 프로세스에서 구동해 broadcast, multi-room, slow-client 시나리오를 반복 측정하는 Linux 전용 실행기를 추가한다.
 
@@ -110,7 +110,8 @@ Expected: 모든 `ScenarioOptionsTest` PASS.
 ```cpp
 TEST(ScenarioReportTest, CalculatesExpectedBroadcastsAcrossRooms) {
   const std::array<std::size_t, 2> room_sizes{3, 2};
-  EXPECT_EQ(rss::tools::expectedBroadcasts(room_sizes, 4), 52U);
+  const std::array<std::uint64_t, 2> successful_sends{12, 8};
+  EXPECT_EQ(rss::tools::expectedBroadcasts(room_sizes, successful_sends), 52U);
 }
 
 TEST(ScenarioReportTest, FailsWhenAnyObservableErrorExists) {
@@ -155,6 +156,8 @@ struct OverloadReport {
 };
 
 struct ScenarioRunResult {
+  ScenarioOptions requested;
+  std::size_t effective_rooms{1};
   std::uint64_t sent{};
   std::uint64_t expected_broadcasts{};
   std::uint64_t received_broadcasts{};
@@ -168,11 +171,11 @@ struct ScenarioRunResult {
 };
 
 std::uint64_t expectedBroadcasts(std::span<const std::size_t> room_sizes,
-                                 std::size_t messages_per_sender);
+                                 std::span<const std::uint64_t>
+                                     successful_sends_by_room);
 bool isSuccessful(ScenarioKind kind, const ScenarioRunResult& result,
                   std::size_t required_slow_disconnects) noexcept;
 std::string formatRunResult(std::size_t run, ScenarioKind kind,
-                            const ScenarioOptions& options,
                             const ScenarioRunResult& result);
 ```
 
@@ -457,7 +460,10 @@ class ScenarioRunner {
 `runOnce()`는 서버와 모든 클라이언트를 준비한 뒤 `std::barrier`로 receiver와
 sender 시작을 맞춘다. 수신 작업은 `event=CHAT`만 집계하고 JOIN 알림은
 버린다. 각 클라이언트가 보유한 `unordered_set`으로 중복을 판정하며 thread
-join 이후 결과를 합산한다.
+join 이후 결과를 합산한다. 마지막 barrier 참여자가 도착한 completion에서
+측정 시작 시각과 deadline을 설정해 준비 scheduling 시간을 제외한다. 송신
+작업은 방별 성공 전송 수와 완료 상태를 게시하며, receiver는 최종 성공 수만
+기대한다.
 
 - [ ] **Step 5: broadcast 통합 테스트 통과 확인**
 
@@ -492,7 +498,7 @@ git commit -m "기능: 단일 방 broadcast 부하 시나리오 추가"
 
 **Interfaces:**
 - Extends: `ScenarioRunner::runOnce()`의 `ScenarioKind::MultiRoom` 분기
-- Consumes: `expectedBroadcasts(room_sizes, messages_per_sender)`
+- Consumes: `expectedBroadcasts(room_sizes, successful_sends_by_room)`
 
 - [ ] **Step 1: 다중 방 실패 테스트 작성**
 
@@ -561,7 +567,8 @@ git commit -m "기능: 다중 방 부하 시나리오 추가"
 - [ ] **Step 1: slow-client 격리 실패 테스트 작성**
 
 ```cpp
-TEST(ScenarioRunnerTest, SlowClientIsDisconnectedWithoutLosingFastClients) {
+TEST(ScenarioRunnerTest,
+     DefaultSlowClientLimitDisconnectsSlowClientWithoutFastErrors) {
   rss::tools::ScenarioOptions options;
   options.scenario = rss::tools::ScenarioKind::SlowClient;
   options.clients = 3;
@@ -570,12 +577,9 @@ TEST(ScenarioRunnerTest, SlowClientIsDisconnectedWithoutLosingFastClients) {
   options.payload_bytes = 4000;
   options.worker_count = 2;
 
-  rss::tools::ScenarioRunner runner{
-      {.max_pending_write_bytes = 32U * 1024U,
-       .socket_receive_buffer_bytes = 1024,
-       .scenario_timeout = 10s}};
-  const auto result = runner.runOnce(options, 1);
+  const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
   EXPECT_GE(result.overload.slow_client_disconnects, 1U);
+  EXPECT_LE(result.overload.max_session_pending_write_bytes, 32U * 1024U);
   EXPECT_EQ(result.missing_broadcasts, 0U);
   EXPECT_EQ(result.duplicate_broadcasts, 0U);
   EXPECT_EQ(result.failed_clients, 0U);
@@ -584,7 +588,7 @@ TEST(ScenarioRunnerTest, SlowClientIsDisconnectedWithoutLosingFastClients) {
 
 - [ ] **Step 2: 테스트가 slow-client 분기 부재로 실패하는지 확인**
 
-Run: `cmake --build --preset linux-dev --target rss_server_net_tests && ctest --preset linux-dev -R ScenarioRunnerTest.SlowClientIsDisconnectedWithoutLosingFastClients`
+Run: `cmake --build --preset linux-dev --target rss_server_net_tests && ctest --preset linux-dev -R ScenarioRunnerTest.DefaultSlowClientLimitDisconnectsSlowClientWithoutFastErrors`
 
 Expected: slow clients가 계속 수신하거나 종료 통계가 0이라 FAIL.
 
@@ -593,7 +597,9 @@ Expected: slow clients가 계속 수신하거나 종료 통계가 0이라 FAIL.
 ```cpp
 struct ScenarioTuning {
   std::size_t max_pending_write_bytes{1024U * 1024U};
+  std::size_t slow_client_max_pending_write_bytes{32U * 1024U};
   int socket_receive_buffer_bytes{1024};
+  std::size_t max_sessions{10000};
   std::chrono::milliseconds scenario_timeout{30s};
 };
 
@@ -608,17 +614,18 @@ class ScenarioRunner {
 slow-client 분기는 뒤쪽 `slow_clients`개에 작은 receive buffer를 요청하고
 준비 이후에는 `recv`를 호출하지 않는다. fast clients만 발신·수신 작업을
 수행한다. 서버 snapshot에서 slow 종료 수가 목표에 도달하거나 메시지 한도와
-deadline이 끝날 때까지 실행한다.
+deadline이 끝날 때까지 실행한다. 일반 시나리오의 pending write 기본값은
+1 MiB를 유지하고 slow-client에만 32 KiB 기본값을 적용한다.
 
 - [ ] **Step 4: slow-client 테스트 통과 확인**
 
-Run: `ctest --preset linux-dev -R ScenarioRunnerTest.SlowClientIsDisconnectedWithoutLosingFastClients --output-on-failure`
+Run: `ctest --preset linux-dev -R ScenarioRunnerTest.DefaultSlowClientLimitDisconnectsSlowClientWithoutFastErrors --output-on-failure`
 
 Expected: PASS이며 fast client 누락 0.
 
 - [ ] **Step 5: 반복 안정성 확인**
 
-Run: `ctest --preset linux-dev -R ScenarioRunnerTest.SlowClientIsDisconnectedWithoutLosingFastClients --repeat until-fail:10 --output-on-failure`
+Run: `ctest --preset linux-dev -R ScenarioRunnerTest.DefaultSlowClientLimitDisconnectsSlowClientWithoutFastErrors --repeat until-fail:10 --output-on-failure`
 
 Expected: 10회 모두 PASS.
 
@@ -737,11 +744,15 @@ git commit -m "기능: 반복 가능한 부하 시나리오 실행기 추가"
 **Files:**
 - Modify: `docs/development-plan.md`
 - Modify: `docs/benchmark.md`
+- Modify: `docs/design/2026-08-18-load-scenarios.md`
+- Modify: `docs/plans/2026-08-18-load-scenarios.md`
 - Modify: `README.md`
+- Modify: `CONTRIBUTING.md`
 
 **Interfaces:**
 - Documents: `rss_load_test_client`와 `rss_load_scenario_runner`의 구분
 - Documents: 세 시나리오 명령, 출력 필드, 종료 코드, 비교 제약
+- Documents: Linux 전용 실행기의 build target과 짧은 smoke 절차
 
 - [ ] **Step 1: 개발 계획 상태를 실제 이력과 맞춤**
 
@@ -775,7 +786,9 @@ Expected: 세 문서의 명령과 실제 옵션 이름이 일치하며 이전의
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add README.md docs/development-plan.md docs/benchmark.md
+git add README.md CONTRIBUTING.md docs/development-plan.md docs/benchmark.md \
+  docs/design/2026-08-18-load-scenarios.md \
+  docs/plans/2026-08-18-load-scenarios.md
 git commit -m "문서: 실제 서버 부하 시나리오 사용법 추가"
 ```
 

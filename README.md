@@ -197,6 +197,17 @@ ctest --preset qt-client-dev
 compiler, build type, worker 수와 실행 인자를 포함해 같은 환경에서만
 비교하세요.
 
+```bash
+cmake --preset linux-dev
+cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
+./build/linux-dev/rss_load_scenario_runner --scenario broadcast --clients 2 --messages 2 --payload-bytes 128 --repeat 1 --workers 1
+```
+
+각 `run` 줄은 effective 방 수와 `messages_per_sender`, `payload_bytes`,
+`slow_clients`, `repeats`를 고정 순서로 기록합니다. `expected`는 설정상 최대치가
+아니라 방별 실제 성공 전송 수에서 계산합니다. client setup 실패도 결과 줄과
+`failed_clients`를 남기며 종료 코드 `1`을 반환합니다.
+
 ## 서버가 요청을 처리하는 순서
 
 1. I/O 스레드가 `epoll`로 소켓 이벤트를 기다립니다.

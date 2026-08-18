@@ -99,12 +99,14 @@ clock으로 인코딩한 발신 시각을 빼서 지연 시간을 구한다. 공
 map은 사용하지 않는다. 모든 socket 대기는 유한한 timeout을 사용해 실패한
 실행이 무한정 멈추지 않게 한다.
 
-### `ScenarioResult`
+### `ScenarioRunResult`
 
 한 번의 측정 결과를 표현한다.
 
 ```cpp
-struct ScenarioResult {
+struct ScenarioRunResult {
+  ScenarioOptions requested;
+  std::size_t effective_rooms{1};
   std::uint64_t sent{};
   std::uint64_t expected_broadcasts{};
   std::uint64_t received_broadcasts{};
@@ -113,7 +115,7 @@ struct ScenarioResult {
   std::uint64_t unexpected_broadcasts{};
   std::uint64_t failed_clients{};
   std::vector<std::chrono::microseconds> latencies;
-  rss::net::OverloadSnapshot overload;
+  OverloadReport overload;
   std::chrono::microseconds elapsed{};
 };
 ```
@@ -121,6 +123,9 @@ struct ScenarioResult {
 `sent`는 서버에 전송을 완료한 `CHAT_REQ` 수다. `expected_broadcasts`는
 각 방에서 성공적으로 전송한 메시지 수와 그 방의 읽기 참여자 수를 곱한
 값이다. 송신자도 서버 broadcast 수신 대상이므로 읽기 참여자에 포함한다.
+`requested`에는 해당 반복을 만든 모든 요청 인자를 복사하고,
+`effective_rooms`는 `broadcast`와 `slow-client`에서 `1`, `multi-room`에서
+요청한 방 수를 기록한다. 따라서 각 `run` 줄만으로 입력을 재현할 수 있다.
 
 지연 시간은 발신 시각부터 각 수신자가 해당 식별자의 broadcast를 처음
 수신한 시각까지로 정의한다. 중복 수신은 지연 시간 표본에 포함하지 않는다.
@@ -133,12 +138,18 @@ struct ScenarioResult {
 수를 적용한다. 시나리오가 예외로 종료돼도 destructor에서 `stop()`과
 `join()`을 수행한다.
 
-`slow-client`에서는 `max_pending_write_bytes`를 32 KiB로 낮추고 slow
-client의 `SO_RCVBUF`를 1 KiB로 요청한다. fast client가 `payload_bytes`
-크기의 메시지를 `messages_per_sender` 한도까지 보내는 동안 slow client
+`ScenarioTuning`은 일반 `broadcast`와 `multi-room`에 적용하는
+`max_pending_write_bytes` 기본값 1 MiB와 `slow-client` 전용 기본값 32 KiB를
+별도로 보유한다. `slow-client`에서는 slow client의 `SO_RCVBUF`를 1 KiB로
+요청한다. fast client가 `payload_bytes` 크기의 메시지를
+`messages_per_sender` 한도까지 보내는 동안 slow client
 종료를 관찰한다. 한도 안에서 종료되지 않으면 성공으로 추정하지 않고 해당
 반복을 실패 처리한다. 운영체제가 실제 socket buffer 크기를 조정할 수 있으므로
 결과 환경 정보에는 실행기가 요청한 크기임을 명시해 출력한다.
+
+`ScenarioTuning::max_sessions`는 서버 기본값 10,000을 유지한다. 작은 값을
+사용하면 대량 client를 만들지 않고도 연결 거절과 setup 실패 결과 계약을
+검증할 수 있다.
 
 측정 반복마다 새 `EmbeddedServer`를 만든다. 따라서 방, 세션, 누적 통계가
 반복 사이에 섞이지 않는다. warm-up도 별도 서버에서 한 번 실행하고 결과는
@@ -151,7 +162,7 @@ client의 `SO_RCVBUF`를 1 KiB로 요청한다. fast client가 `payload_bytes`
 모든 클라이언트가 한 방에 참가한다. 각 클라이언트는 정해진 수의 채팅을
 보내며, 별도의 수신 작업이 모든 클라이언트에서 동시에 broadcast를 읽는다.
 
-예상 수신 수는 다음과 같다.
+모든 전송이 성공했을 때 예상 수신 수는 다음과 같다.
 
 ```text
 clients × messages_per_sender × clients
@@ -163,10 +174,10 @@ clients × messages_per_sender × clients
 방을 만들고 나머지가 참가한다. 모든 클라이언트가 채팅을 보내지만 broadcast는
 같은 방의 구성원에게만 도착해야 한다.
 
-예상 수신 수는 방별로 다음 값을 더한다.
+실제 예상 수신 수는 방별로 다음 값을 더한다.
 
 ```text
-sum(room_clients × messages_per_sender × room_clients)
+sum(successful_sends_in_room × readers_in_room)
 ```
 
 다른 방의 메시지를 받으면 예상하지 않은 broadcast로 보고 해당 반복을
@@ -222,8 +233,15 @@ apps/load-scenario-runner/
 피한다.
 
 모든 클라이언트가 로그인하고 방 준비를 마친 뒤 barrier를 통과해 송신을
-시작한다. 측정 시간은 barrier 해제 직전부터 기대한 broadcast를 모두 받거나
-timeout이 끝날 때까지다.
+시작한다. 마지막 참여자가 barrier에 도착했을 때 completion 단계에서 공유
+`started_at`과 `deadline`을 한 번만 설정하고, barrier의 happens-before 관계로
+모든 송수신 작업과 메인 경로에 전달한다. 따라서 thread 생성이나 barrier 도착
+전 scheduling 지연은 측정 시간과 timeout에서 제외된다.
+
+송신 작업은 성공한 전송 수와 완료 상태를 방별 공유 상태에 게시한다. 수신
+작업은 송신자가 모두 완료되기 전에는 계속 읽고, 완료 후에는 그 방의 실제
+성공 전송 수만 기다린다. 부분 전송 실패가 발생해도 전송되지 않은 메시지를
+누락으로 세거나 고정된 기대값을 기다리며 교착하지 않는다.
 
 ## 출력과 종료 코드
 
@@ -231,7 +249,7 @@ timeout이 끝날 때까지다.
 
 ```text
 environment commit=a965a8e os=Linux kernel=... cpu=... compiler=... build_type=Release workers=4
-run=1 scenario=broadcast clients=100 rooms=1 sent=10000 expected=1000000 received=1000000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=... throughput_broadcasts_per_sec=... p50_ms=... p95_ms=... p99_ms=... read_pauses=... inbound_queue_full=... outbound_budget_rejections=... slow_client_disconnects=... rejected_connections=... max_inbound_queue_size=... max_outbound_queue_size=... max_session_pending_write_bytes=...
+run=1 scenario=broadcast clients=100 rooms=1 messages_per_sender=100 payload_bytes=256 slow_clients=1 repeats=5 sent=10000 expected=1000000 received=1000000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=... throughput_broadcasts_per_sec=... p50_ms=... p95_ms=... p99_ms=... read_pauses=... inbound_queue_full=... outbound_budget_rejections=... slow_client_disconnects=... rejected_connections=... max_inbound_queue_size=... max_outbound_queue_size=... max_session_pending_write_bytes=...
 ```
 
 Git commit은 빌드 시 CMake가 전달한 값이 있으면 사용하고, 없으면 `unknown`을
@@ -241,6 +259,12 @@ Git commit은 빌드 시 CMake가 전달한 값이 있으면 사용하고, 없�
 모든 반복이 시나리오 성공 조건을 만족하면 종료 코드 `0`, 측정은 끝났지만
 누락·중복·클라이언트 실패 또는 slow-client 격리 실패가 있으면 `1`, 명령행
 오류는 `2`, 서버 시작 또는 내부 실행 오류는 `3`을 반환한다.
+
+서버 시작, 서버 설정 검증, 실행기 불변식 오류는 실행 자체의 오류이므로 예외를
+유지해 종료 코드 `3`으로 처리한다. 반면 client의 connect, login, 방 생성·참가,
+slow receive buffer 설정 실패는 측정 실패 결과를 반환해 `run` 줄을 출력하고
+종료 코드 `1`로 처리한다. 첫 setup 실패 뒤 시도하지 않은 client도 해당 반복에
+참여하지 못했으므로 `failed_clients`에 포함한다.
 
 ## 명령행
 
@@ -259,15 +283,18 @@ warm-up은 항상 측정과 같은 설정으로 1회 실행한다. 첫 버전에
 
 - 플랫폼 독립 지원 코드
   - 정상·오류 명령행 인자 파싱
-  - 방별 예상 broadcast 수 계산
+  - 방별 실제 성공 전송 수 기반 예상 broadcast 계산과 overflow 거부
   - 누락·중복 계산
   - p50/p95/p99와 처리량 계산
   - 고정된 `key=value` 출력 순서
 - Linux 네트워크 통합 테스트
   - 작은 `broadcast` 시나리오가 누락 없이 완료
   - 두 방의 메시지가 서로 섞이지 않음
-  - 작은 pending write 한도에서 slow client만 종료
-  - server 시작 실패와 timeout이 비정상 종료 코드로 변환
+  - production 기본 slow-client 한도에서 slow client만 종료
+  - 지연된 barrier 참여자의 준비 시간이 측정에서 제외됨
+  - 부분 전송 실패가 실제 성공 전송 수만 기대값에 포함함
+  - client setup 실패가 실패 결과와 과부하 snapshot을 남김
+  - server 시작 실패와 내부 실행 오류가 종료 코드 `3`으로 변환
 - 회귀 검증
   - 기존 `rss_load_test_client` 동작과 출력 유지
   - `linux-dev` build/test, `format-check`, 가능한 경우 `tidy-check`

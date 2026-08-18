@@ -199,6 +199,8 @@ rss_load_scenario_runner \
 수치 옵션은 1 이상이어야 합니다. `--payload-bytes`는 64 이상 4000 이하여야
 하며, `multi-room`의 방 수는 클라이언트 수를 넘을 수 없습니다.
 `slow-client`의 느린 클라이언트 수는 전체 클라이언트 수보다 작아야 합니다.
+일반 `broadcast`와 `multi-room`은 서버의 세션별 pending write 기본 한도
+1 MiB를 사용하고, `slow-client`는 분리 검증을 위해 32 KiB를 사용합니다.
 
 ### 출력과 종료 코드
 
@@ -218,12 +220,13 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 
 | 필드 | 의미 |
 | --- | --- |
-| `run`, `scenario`, `clients`, `rooms` | 측정 반복 번호와 적용된 시나리오·클라이언트·방 설정 |
-| `sent` | 전송한 채팅 요청 수 |
-| `expected`, `received` | 기대한 broadcast 수와 실제 수신한 broadcast 수 |
+| `run`, `scenario`, `clients`, `rooms` | 측정 반복 번호와 적용된 시나리오·클라이언트 수·effective 방 수; `broadcast`와 `slow-client`의 `rooms`는 `1` |
+| `messages_per_sender`, `payload_bytes`, `slow_clients`, `repeats` | 해당 결과를 재현하는 요청 입력 |
+| `sent` | 실제 전송에 성공한 채팅 요청 수 |
+| `expected`, `received` | 방별 실제 성공 전송 수에 reader 수를 곱한 기대 broadcast 수와 실제 수신 수 |
 | `missing`, `duplicates`, `unexpected` | 누락, 중복, 예상하지 않은 broadcast 수 |
-| `failed_clients` | 송신 또는 수신 작업이 실패한 클라이언트 수 |
-| `elapsed_sec` | 해당 측정 반복의 경과 시간(초) |
+| `failed_clients` | setup, 송신 또는 수신이 실패한 클라이언트 수; 첫 setup 실패 뒤 미시도 client도 포함 |
+| `elapsed_sec` | 마지막 barrier 참여자 도착부터 끝까지의 측정 경과 시간(초) |
 | `throughput_broadcasts_per_sec` | `received / elapsed_sec`로 계산한 초당 수신 broadcast 수 |
 | `p50_ms`, `p95_ms`, `p99_ms` | 수신한 broadcast 지연 시간의 백분위 값(ms) |
 | `read_pauses`, `inbound_queue_full`, `outbound_budget_rejections` | 읽기 일시정지, 입력 queue 포화, 출력 예산 거절 횟수 |
@@ -233,8 +236,10 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 종료 코드 `0`은 모든 측정 반복이 시나리오 성공 조건을 만족했음을 뜻합니다.
 `1`은 측정은 끝났지만 누락·중복·예상 밖 수신·클라이언트 실패가 있거나,
 `slow-client`에서 요청한 수만큼 느린 클라이언트가 종료되지 않았음을 뜻합니다.
-`2`는 잘못된 인자이며 사용법을 함께 출력합니다. `3`은 서버 시작이나 실행
-중 예외가 발생했음을 뜻합니다.
+client connect, login, 방 생성·참가 같은 setup 실패도 `run` 줄을 남기고
+종료 코드 `1`을 반환합니다. 첫 실패 뒤 미시도 client는 `failed_clients`에
+포함됩니다. `2`는 잘못된 인자이며 사용법을 함께 출력합니다. `3`은 서버
+시작·설정 검증이나 실행기 내부 오류가 발생했음을 뜻합니다.
 
 ### 비교 제약
 
