@@ -1,0 +1,12 @@
+add_library(rss_load_scenario_runtime
+    src/EmbeddedServer.cpp
+)
+target_include_directories(rss_load_scenario_runtime
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+target_link_libraries(rss_load_scenario_runtime
+    PRIVATE
+        rss_server_net
+)
+rss_enable_project_warnings(rss_load_scenario_runtime)
