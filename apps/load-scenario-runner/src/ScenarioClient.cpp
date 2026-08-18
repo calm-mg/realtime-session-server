@@ -83,7 +83,8 @@ std::ptrdiff_t receiveFromSocket(int fd, std::uint8_t* buffer,
 
 }  // namespace
 
-ScenarioClient::ScenarioClient() : receive_operation_(receiveFromSocket) {}
+ScenarioClient::ScenarioClient()
+    : receive_operation_(defaultReceiveOperation()) {}
 
 ScenarioClient::ScenarioClient(ReceiveOperation receive_operation)
     : receive_operation_(std::move(receive_operation)) {
@@ -97,7 +98,8 @@ ScenarioClient::~ScenarioClient() { close(); }
 ScenarioClient::ScenarioClient(ScenarioClient&& other) noexcept
     : fd_(std::exchange(other.fd_, -1)),
       codec_(std::move(other.codec_)),
-      receive_operation_(std::move(other.receive_operation_)) {
+      receive_operation_(defaultReceiveOperation()) {
+  receive_operation_.swap(other.receive_operation_);
   other.codec_ = {};
 }
 
@@ -106,10 +108,16 @@ ScenarioClient& ScenarioClient::operator=(ScenarioClient&& other) noexcept {
     close();
     fd_ = std::exchange(other.fd_, -1);
     codec_ = std::move(other.codec_);
-    receive_operation_ = std::move(other.receive_operation_);
+    receive_operation_ = defaultReceiveOperation();
+    receive_operation_.swap(other.receive_operation_);
     other.codec_ = {};
   }
   return *this;
+}
+
+ScenarioClient::ReceiveOperation
+ScenarioClient::defaultReceiveOperation() noexcept {
+  return receiveFromSocket;
 }
 
 void ScenarioClient::connect(std::string_view host, std::uint16_t port,

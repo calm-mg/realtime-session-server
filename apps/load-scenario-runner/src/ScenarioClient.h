@@ -35,6 +35,7 @@ class ScenarioClient {
   void close() noexcept;
 
  private:
+  static ReceiveOperation defaultReceiveOperation() noexcept;
   void sendPacket(rss::protocol::PacketType type, std::string_view payload,
                   std::chrono::milliseconds timeout);
   rss::protocol::Packet waitFor(rss::protocol::PacketType expected,

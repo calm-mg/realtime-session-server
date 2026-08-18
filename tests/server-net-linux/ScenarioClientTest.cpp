@@ -301,6 +301,40 @@ TEST(ScenarioClientTest, ReturnsTwoFramesFromOneWriteInOrder) {
   EXPECT_EQ(receive_calls.load(), 1U);
 }
 
+TEST(ScenarioClientTest, MoveConstructionLeavesSourceReconnectable) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient source;
+  rss::tools::ScenarioClient moved_to(std::move(source));
+  static_cast<void>(moved_to);
+
+  source.connect("127.0.0.1", peer.port(), 2s);
+  peer.acceptClient(2s);
+  const auto frame = rss::protocol::PacketCodec::encode(
+      rss::protocol::PacketType::Pong, "after-move-construction");
+  peer.sendSingleWrite(frame, 2s);
+
+  const auto packet = source.receivePacket(2s);
+  EXPECT_EQ(packet.type, rss::protocol::PacketType::Pong);
+  EXPECT_EQ(rss::protocol::payloadToString(packet), "after-move-construction");
+}
+
+TEST(ScenarioClientTest, MoveAssignmentLeavesSourceReconnectable) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient source;
+  rss::tools::ScenarioClient moved_to;
+  moved_to = std::move(source);
+
+  source.connect("127.0.0.1", peer.port(), 2s);
+  peer.acceptClient(2s);
+  const auto frame = rss::protocol::PacketCodec::encode(
+      rss::protocol::PacketType::Pong, "after-move-assignment");
+  peer.sendSingleWrite(frame, 2s);
+
+  const auto packet = source.receivePacket(2s);
+  EXPECT_EQ(packet.type, rss::protocol::PacketType::Pong);
+  EXPECT_EQ(rss::protocol::payloadToString(packet), "after-move-assignment");
+}
+
 TEST(ScenarioClientTest, IncludesServerErrorPayloadInException) {
   auto server = startTestServer();
   rss::tools::ScenarioClient client;
