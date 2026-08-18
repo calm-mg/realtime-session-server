@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <limits>
+#include <stdexcept>
 
 #include "ScenarioRunner.h"
 
@@ -64,6 +65,67 @@ TEST(ScenarioRunnerTest, SlowClientIsDisconnectedWithoutLosingFastClients) {
   EXPECT_EQ(result.unexpected_broadcasts, 0U);
   EXPECT_EQ(result.failed_clients, 0U);
   EXPECT_EQ(result.latencies.size(), 8000U);
+}
+
+TEST(ScenarioRunnerTest, SharedWindowKeepsFastClientsWithinPendingCapacity) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 10;
+  options.slow_clients = 1;
+  options.messages_per_sender = 100;
+  options.payload_bytes = 4000;
+  options.worker_count = 2;
+
+  rss::tools::ScenarioRunner runner{
+      {.max_pending_write_bytes = 32U * 1024U,
+       .socket_receive_buffer_bytes = 1024,
+       .scenario_timeout = std::chrono::seconds{10}}};
+  const auto result = runner.runOnce(options, 1);
+  EXPECT_GE(result.overload.slow_client_disconnects, 1U);
+  EXPECT_EQ(result.sent, 900U);
+  EXPECT_EQ(result.expected_broadcasts, 8100U);
+  EXPECT_EQ(result.received_broadcasts, 8100U);
+  EXPECT_EQ(result.missing_broadcasts, 0U);
+  EXPECT_EQ(result.duplicate_broadcasts, 0U);
+  EXPECT_EQ(result.unexpected_broadcasts, 0U);
+  EXPECT_EQ(result.failed_clients, 0U);
+  EXPECT_EQ(result.latencies.size(), 8100U);
+}
+
+TEST(ScenarioRunnerTest, RejectsZeroSlowClients) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 2;
+  options.slow_clients = 0;
+  options.messages_per_sender = 1;
+  options.payload_bytes = 128;
+
+  const rss::tools::ScenarioRunner runner{
+      {.scenario_timeout = std::chrono::milliseconds{1}}};
+  EXPECT_THROW(static_cast<void>(runner.runOnce(options, 1)),
+               std::invalid_argument);
+}
+
+TEST(ScenarioRunnerTest, RejectsSlowClientCountEqualToClientCount) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 2;
+  options.slow_clients = 2;
+
+  EXPECT_THROW(
+      static_cast<void>(rss::tools::ScenarioRunner{}.runOnce(options, 1)),
+      std::invalid_argument);
+}
+
+TEST(ScenarioRunnerTest, RejectsSlowClientCountAboveClientCount) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 2;
+  options.slow_clients = 3;
+
+  EXPECT_THROW(
+      static_cast<void>(rss::tools::ScenarioRunner{}.runOnce(options, 1)),
+      std::invalid_argument);
 }
 
 TEST(ScenarioRunnerTest, MessageIdentityRoundTripsAtRequestedPayloadSize) {
