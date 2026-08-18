@@ -1,13 +1,16 @@
 #include "ScenarioRunner.h"
 
+#include <algorithm>
 #include <barrier>
 #include <charconv>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -64,6 +67,16 @@ struct ReceiveState {
 struct SendState {
   std::uint64_t sent{};
   std::exception_ptr failure;
+};
+
+struct ReceiveProgress {
+  explicit ReceiveProgress(std::size_t receiver_count)
+      : received_by_client(receiver_count) {}
+
+  std::mutex mutex;
+  std::condition_variable changed;
+  std::vector<std::uint64_t> received_by_client;
+  bool receiver_failed{};
 };
 
 std::uint64_t nowMicroseconds() {
@@ -168,7 +181,8 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
                        std::size_t client_count,
                        std::size_t receiver_room_index, std::size_t room_count,
                        std::size_t room_size, std::size_t messages_per_sender,
-                       Deadline deadline, ReceiveState& state) {
+                       Deadline deadline, ReceiveState& state,
+                       ReceiveProgress* progress, std::size_t receiver_index) {
   try {
     const auto expected = checkedProduct(room_size, messages_per_sender);
     state.latencies.reserve(expected);
@@ -202,6 +216,13 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
         }
 
         ++state.received;
+        if (progress != nullptr) {
+          {
+            std::lock_guard lock(progress->mutex);
+            progress->received_by_client[receiver_index] = state.received;
+          }
+          progress->changed.notify_all();
+        }
         const auto received_us = nowMicroseconds();
         const auto latency_us = received_us >= identity.sent_us
                                     ? received_us - identity.sent_us
@@ -213,19 +234,54 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
     }
   } catch (...) {
     state.failure = std::current_exception();
+    if (progress != nullptr) {
+      {
+        std::lock_guard lock(progress->mutex);
+        progress->receiver_failed = true;
+      }
+      progress->changed.notify_all();
+    }
+  }
+}
+
+void waitForFastReceivers(ReceiveProgress& progress,
+                          std::uint64_t expected_per_receiver,
+                          Deadline deadline) {
+  std::unique_lock lock(progress.mutex);
+  const auto completed = progress.changed.wait_until(lock, deadline, [&] {
+    return progress.receiver_failed ||
+           std::all_of(progress.received_by_client.begin(),
+                       progress.received_by_client.end(),
+                       [expected_per_receiver](std::uint64_t received) {
+                         return received >= expected_per_receiver;
+                       });
+  });
+  if (!completed) {
+    throw std::runtime_error("fast receiver progress timed out");
+  }
+  if (progress.receiver_failed) {
+    throw std::runtime_error("fast receiver failed");
   }
 }
 
 void sendMessages(ScenarioClient& client, std::size_t run_id,
                   std::size_t sender, std::size_t messages_per_sender,
                   std::size_t payload_bytes, Deadline deadline,
-                  SendState& state) {
+                  SendState& state, ReceiveProgress* progress,
+                  std::size_t sender_count,
+                  std::size_t progress_window_per_sender) {
   try {
     for (std::size_t sequence = 0; sequence < messages_per_sender; ++sequence) {
       const auto payload = makePayload(run_id, sender, sequence,
                                        nowMicroseconds(), payload_bytes);
       client.sendChat(payload, remainingTimeout(deadline));
       ++state.sent;
+      if (progress != nullptr && sequence + 1 >= progress_window_per_sender) {
+        const auto completed_rounds = sequence - progress_window_per_sender + 2;
+        waitForFastReceivers(*progress,
+                             checkedProduct(completed_rounds, sender_count),
+                             deadline);
+      }
     }
   } catch (...) {
     state.failure = std::current_exception();
@@ -250,8 +306,8 @@ MessageIdentity parseScenarioPayload(std::string_view payload) {
   };
 }
 
-ScenarioRunner::ScenarioRunner(std::chrono::milliseconds scenario_timeout)
-    : scenario_timeout_(scenario_timeout) {}
+ScenarioRunner::ScenarioRunner(ScenarioTuning tuning)
+    : tuning_(std::move(tuning)) {}
 
 ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
                                           std::size_t run_id) const {
@@ -264,10 +320,15 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
         "multi-room scenario has an invalid room count");
   }
 
+  const auto fast_client_count = options.scenario == ScenarioKind::SlowClient
+                                     ? options.clients - options.slow_clients
+                                     : options.clients;
+
   rss::net::ServerConfig config;
   config.host = "127.0.0.1";
   config.port = 0;
   config.worker_count = options.worker_count;
+  config.max_pending_write_bytes = tuning_.max_pending_write_bytes;
 
   EmbeddedServer server(config);
   server.start(kSetupTimeout);
@@ -297,24 +358,44 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       }
     }
 
-    std::vector<ReceiveState> receive_states(options.clients);
-    std::vector<SendState> send_states(options.clients);
-    const auto participant_count = options.clients * 2 + 1;
+    if (options.scenario == ScenarioKind::SlowClient) {
+      for (std::size_t index = fast_client_count; index < clients.size();
+           ++index) {
+        clients[index].setReceiveBufferBytes(
+            tuning_.socket_receive_buffer_bytes);
+      }
+      room_sizes.front() = fast_client_count;
+    }
+
+    std::vector<ReceiveState> receive_states(fast_client_count);
+    std::vector<SendState> send_states(fast_client_count);
+    ReceiveProgress receive_progress(fast_client_count);
+    auto* progress = options.scenario == ScenarioKind::SlowClient
+                         ? &receive_progress
+                         : nullptr;
+    const auto pending_packet_capacity =
+        tuning_.max_pending_write_bytes / rss::protocol::kMaxPacketSize;
+    const auto progress_window_per_sender = std::max<std::size_t>(
+        1,
+        pending_packet_capacity > fast_client_count
+            ? (pending_packet_capacity - fast_client_count) / fast_client_count
+            : 1);
+    const auto participant_count = fast_client_count * 2 + 1;
     std::barrier start_barrier(static_cast<std::ptrdiff_t>(participant_count));
     std::vector<std::jthread> tasks;
-    tasks.reserve(options.clients * 2);
+    tasks.reserve(fast_client_count * 2);
     Deadline scenario_deadline;
     std::size_t launched{};
 
     try {
-      for (std::size_t index = 0; index < options.clients; ++index) {
+      for (std::size_t index = 0; index < fast_client_count; ++index) {
         tasks.emplace_back([&, index] {
           start_barrier.arrive_and_wait();
           const auto room_index = index % room_count;
-          receiveBroadcasts(clients[index], run_id, options.clients, room_index,
-                            room_count, room_sizes[room_index],
+          receiveBroadcasts(clients[index], run_id, fast_client_count,
+                            room_index, room_count, room_sizes[room_index],
                             options.messages_per_sender, scenario_deadline,
-                            receive_states[index]);
+                            receive_states[index], progress, index);
         });
         ++launched;
 
@@ -322,7 +403,8 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
           start_barrier.arrive_and_wait();
           sendMessages(clients[index], run_id, index,
                        options.messages_per_sender, options.payload_bytes,
-                       scenario_deadline, send_states[index]);
+                       scenario_deadline, send_states[index], progress,
+                       fast_client_count, progress_window_per_sender);
         });
         ++launched;
       }
@@ -338,7 +420,7 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     }
 
     const auto started_at = Clock::now();
-    scenario_deadline = started_at + scenario_timeout_;
+    scenario_deadline = started_at + tuning_.scenario_timeout;
     start_barrier.arrive_and_wait();
 
     for (auto& task : tasks) {
@@ -352,7 +434,7 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     result.elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
         finished_at - started_at);
 
-    for (std::size_t index = 0; index < options.clients; ++index) {
+    for (std::size_t index = 0; index < fast_client_count; ++index) {
       result.sent += send_states[index].sent;
       result.received_broadcasts += receive_states[index].received;
       result.duplicate_broadcasts += receive_states[index].duplicates;
@@ -370,7 +452,14 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
         result.received_broadcasts < result.expected_broadcasts
             ? result.expected_broadcasts - result.received_broadcasts
             : 0;
-    result.overload = makeOverloadReport(server.snapshot());
+    auto snapshot = server.snapshot();
+    while (options.scenario == ScenarioKind::SlowClient &&
+           snapshot.slow_client_disconnects < options.slow_clients &&
+           Clock::now() < scenario_deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
+      snapshot = server.snapshot();
+    }
+    result.overload = makeOverloadReport(snapshot);
     server.stop();
     return result;
   } catch (...) {

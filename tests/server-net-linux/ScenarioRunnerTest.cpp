@@ -41,6 +41,31 @@ TEST(ScenarioRunnerTest, MultiRoomKeepsBroadcastsInsideEachRoom) {
   EXPECT_EQ(result.unexpected_broadcasts, 0U);
 }
 
+TEST(ScenarioRunnerTest, SlowClientIsDisconnectedWithoutLosingFastClients) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 3;
+  options.slow_clients = 1;
+  options.messages_per_sender = 2000;
+  options.payload_bytes = 4000;
+  options.worker_count = 2;
+
+  rss::tools::ScenarioRunner runner{
+      {.max_pending_write_bytes = 32U * 1024U,
+       .socket_receive_buffer_bytes = 1024,
+       .scenario_timeout = std::chrono::seconds{10}}};
+  const auto result = runner.runOnce(options, 1);
+  EXPECT_GE(result.overload.slow_client_disconnects, 1U);
+  EXPECT_EQ(result.sent, 4000U);
+  EXPECT_EQ(result.expected_broadcasts, 8000U);
+  EXPECT_EQ(result.received_broadcasts, 8000U);
+  EXPECT_EQ(result.missing_broadcasts, 0U);
+  EXPECT_EQ(result.duplicate_broadcasts, 0U);
+  EXPECT_EQ(result.unexpected_broadcasts, 0U);
+  EXPECT_EQ(result.failed_clients, 0U);
+  EXPECT_EQ(result.latencies.size(), 8000U);
+}
+
 TEST(ScenarioRunnerTest, MessageIdentityRoundTripsAtRequestedPayloadSize) {
   const auto payload = rss::tools::makeScenarioPayload(2, 3, 4, 123456, 128);
   EXPECT_EQ(payload.size(), 128U);
@@ -59,7 +84,8 @@ TEST(ScenarioRunnerTest, DeadlineReturnsMissingBroadcasts) {
   options.payload_bytes = 128;
   options.worker_count = 2;
 
-  const rss::tools::ScenarioRunner runner{std::chrono::milliseconds{1}};
+  const rss::tools::ScenarioRunner runner{
+      {.scenario_timeout = std::chrono::milliseconds{1}}};
   const auto result = runner.runOnce(options, 1);
   EXPECT_GT(result.missing_broadcasts, 0U);
 }
@@ -74,7 +100,8 @@ TEST(ScenarioRunnerTestDeathTest, ReceiverCountOverflowIsCaptured) {
         options.payload_bytes = 128;
         options.worker_count = 2;
 
-        const rss::tools::ScenarioRunner runner{std::chrono::milliseconds{1}};
+        const rss::tools::ScenarioRunner runner{
+            {.scenario_timeout = std::chrono::milliseconds{1}}};
         const auto result = runner.runOnce(options, 1);
         std::_Exit(result.failed_clients == 2U ? EXIT_SUCCESS : EXIT_FAILURE);
       },
