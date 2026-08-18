@@ -1,7 +1,9 @@
 add_executable(rss_server_net_tests
     EpollEventLoopTest.cpp
     EmbeddedServerTest.cpp
+    EnvironmentInfoTest.cpp
     EventFdCompletionNotifierTest.cpp
+    ProgramTest.cpp
     ScenarioClientTest.cpp
     ScenarioRunnerTest.cpp
     TcpServerBackpressureTest.cpp
