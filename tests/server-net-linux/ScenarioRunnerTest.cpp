@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
+#include <limits>
 
 #include "ScenarioRunner.h"
 
@@ -44,4 +46,21 @@ TEST(ScenarioRunnerTest, DeadlineReturnsMissingBroadcasts) {
   const rss::tools::ScenarioRunner runner{std::chrono::milliseconds{1}};
   const auto result = runner.runOnce(options, 1);
   EXPECT_GT(result.missing_broadcasts, 0U);
+}
+
+TEST(ScenarioRunnerTestDeathTest, ReceiverCountOverflowIsCaptured) {
+  EXPECT_EXIT(
+      {
+        rss::tools::ScenarioOptions options;
+        options.scenario = rss::tools::ScenarioKind::Broadcast;
+        options.clients = 2;
+        options.messages_per_sender = std::numeric_limits<std::size_t>::max();
+        options.payload_bytes = 128;
+        options.worker_count = 2;
+
+        const rss::tools::ScenarioRunner runner{std::chrono::milliseconds{1}};
+        const auto result = runner.runOnce(options, 1);
+        std::_Exit(result.failed_clients == 2U ? EXIT_SUCCESS : EXIT_FAILURE);
+      },
+      ::testing::ExitedWithCode(EXIT_SUCCESS), "");
 }

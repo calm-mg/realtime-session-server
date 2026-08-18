@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -156,16 +157,23 @@ OverloadReport makeOverloadReport(const rss::net::OverloadSnapshot& snapshot) {
   };
 }
 
+std::size_t checkedProduct(std::size_t left, std::size_t right) {
+  if (right != 0 && left > std::numeric_limits<std::size_t>::max() / right) {
+    throw std::overflow_error("scenario receiver count overflow");
+  }
+  return left * right;
+}
+
 void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
                        std::size_t client_count,
                        std::size_t messages_per_sender, Deadline deadline,
                        ReceiveState& state) {
-  const auto expected = client_count * messages_per_sender;
-  state.latencies.reserve(expected);
-  state.identities.reserve(expected);
+  try {
+    const auto expected = checkedProduct(client_count, messages_per_sender);
+    state.latencies.reserve(expected);
+    state.identities.reserve(expected);
 
-  while (state.identities.size() < expected) {
-    try {
+    while (state.identities.size() < expected) {
       const auto packet = client.receivePacket(remainingTimeout(deadline));
       if (packet.type != rss::protocol::PacketType::RoomBroadcast) {
         continue;
@@ -200,10 +208,9 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
       } catch (const std::invalid_argument&) {
         ++state.unexpected;
       }
-    } catch (...) {
-      state.failure = std::current_exception();
-      return;
     }
+  } catch (...) {
+    state.failure = std::current_exception();
   }
 }
 
@@ -275,11 +282,10 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
 
     std::vector<ReceiveState> receive_states(options.clients);
     std::vector<SendState> send_states(options.clients);
-    std::vector<std::jthread> tasks;
-    tasks.reserve(options.clients * 2);
-
     const auto participant_count = options.clients * 2 + 1;
     std::barrier start_barrier(static_cast<std::ptrdiff_t>(participant_count));
+    std::vector<std::jthread> tasks;
+    tasks.reserve(options.clients * 2);
     Deadline scenario_deadline;
     std::size_t launched{};
 
@@ -305,6 +311,9 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       const auto missing_participants = participant_count - launched;
       for (std::size_t index = 0; index < missing_participants; ++index) {
         start_barrier.arrive_and_drop();
+      }
+      for (auto& task : tasks) {
+        task.join();
       }
       throw;
     }
