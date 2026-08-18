@@ -3,6 +3,7 @@ add_executable(rss_server_net_tests
     EmbeddedServerTest.cpp
     EventFdCompletionNotifierTest.cpp
     ScenarioClientTest.cpp
+    ScenarioRunnerTest.cpp
     TcpServerBackpressureTest.cpp
 )
 target_include_directories(rss_server_net_tests
@@ -11,6 +12,7 @@ target_include_directories(rss_server_net_tests
 )
 target_link_libraries(rss_server_net_tests
     PRIVATE
+        rss_load_test_support
         rss_load_scenario_runtime
         rss_server_net
         GTest::gtest_main

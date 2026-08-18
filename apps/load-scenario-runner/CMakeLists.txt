@@ -1,6 +1,7 @@
 add_library(rss_load_scenario_runtime
     src/EmbeddedServer.cpp
     src/ScenarioClient.cpp
+    src/ScenarioRunner.cpp
 )
 target_include_directories(rss_load_scenario_runtime
     PRIVATE
@@ -8,6 +9,7 @@ target_include_directories(rss_load_scenario_runtime
 )
 target_link_libraries(rss_load_scenario_runtime
     PRIVATE
+        rss_load_test_support
         rss_server_net
 )
 rss_enable_project_warnings(rss_load_scenario_runtime)
