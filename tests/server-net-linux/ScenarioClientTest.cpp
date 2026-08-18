@@ -1,10 +1,12 @@
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
@@ -15,7 +17,6 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -223,45 +224,72 @@ TEST(ScenarioClientTest, ReturnsRealServerJoinAndChatPacketsInOrder) {
 
 TEST(ScenarioClientTest, WaitsForRemainderOfSplitFrame) {
   RawLoopbackPeer peer;
-  rss::tools::ScenarioClient client;
-  client.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
-
   const auto frame = rss::protocol::PacketCodec::encode(
       rss::protocol::PacketType::Pong, "split-frame");
   const auto split = frame.size() / 2;
 
-  std::promise<void> receive_started_promise;
-  auto receive_started = receive_started_promise.get_future();
-  auto packet_future = std::async(std::launch::async, [&] {
-    receive_started_promise.set_value();
-    return client.receivePacket(2s);
-  });
-  ASSERT_EQ(receive_started.wait_for(2s), std::future_status::ready);
+  std::atomic<std::size_t> receive_calls{};
+  std::atomic<bool> first_chunk_signaled{};
+  std::promise<void> first_chunk_received_promise;
+  auto first_chunk_received = first_chunk_received_promise.get_future();
+  rss::tools::ScenarioClient client(
+      [&](int fd, std::uint8_t* buffer, std::size_t capacity) {
+        ++receive_calls;
+        const auto received = ::recv(fd, buffer, capacity, 0);
+        if (received > 0 && !first_chunk_signaled.exchange(true)) {
+          first_chunk_received_promise.set_value();
+        }
+        return received;
+      });
+  client.connect("127.0.0.1", peer.port(), 2s);
+  peer.acceptClient(2s);
 
   peer.sendSingleWrite(std::span(frame).first(split), 2s);
-  EXPECT_EQ(packet_future.wait_for(100ms), std::future_status::timeout);
+  auto packet_future =
+      std::async(std::launch::async, [&] { return client.receivePacket(2s); });
+  ASSERT_EQ(first_chunk_received.wait_for(2s), std::future_status::ready);
 
   peer.sendSingleWrite(std::span(frame).subspan(split), 2s);
   ASSERT_EQ(packet_future.wait_for(2s), std::future_status::ready);
   const auto packet = packet_future.get();
   EXPECT_EQ(packet.type, rss::protocol::PacketType::Pong);
   EXPECT_EQ(rss::protocol::payloadToString(packet), "split-frame");
+  EXPECT_GE(receive_calls.load(), 2U);
 }
 
 TEST(ScenarioClientTest, ReturnsTwoFramesFromOneWriteInOrder) {
   RawLoopbackPeer peer;
-  rss::tools::ScenarioClient client;
-  client.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
-
   auto batch = rss::protocol::PacketCodec::encode(
       rss::protocol::PacketType::Pong, "first");
   const auto second = rss::protocol::PacketCodec::encode(
       rss::protocol::PacketType::RoomBroadcast, "second");
   batch.insert(batch.end(), second.begin(), second.end());
+
+  std::atomic<std::size_t> receive_calls{};
+  rss::tools::ScenarioClient client(
+      [&](int fd, std::uint8_t* buffer, std::size_t capacity) {
+        const auto call = receive_calls.fetch_add(1) + 1;
+        if (call != 1) {
+          return ::recv(fd, buffer, capacity, 0);
+        }
+        if (capacity < batch.size()) {
+          throw std::runtime_error("receive buffer is smaller than batch");
+        }
+
+        const auto flags = ::fcntl(fd, F_GETFL, 0);
+        if (flags == -1 || ::fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == -1) {
+          throw std::runtime_error("failed to make test socket blocking");
+        }
+        const auto received = ::recv(fd, buffer, batch.size(), MSG_WAITALL);
+        if (::fcntl(fd, F_SETFL, flags) == -1) {
+          throw std::runtime_error("failed to restore test socket flags");
+        }
+        return received;
+      });
+  client.connect("127.0.0.1", peer.port(), 2s);
+  peer.acceptClient(2s);
+
   peer.sendSingleWrite(batch, 2s);
-  std::this_thread::sleep_for(20ms);
 
   const auto first_packet = client.receivePacket(2s);
   EXPECT_EQ(first_packet.type, rss::protocol::PacketType::Pong);
@@ -270,6 +298,7 @@ TEST(ScenarioClientTest, ReturnsTwoFramesFromOneWriteInOrder) {
   const auto second_packet = client.receivePacket(2s);
   EXPECT_EQ(second_packet.type, rss::protocol::PacketType::RoomBroadcast);
   EXPECT_EQ(rss::protocol::payloadToString(second_packet), "second");
+  EXPECT_EQ(receive_calls.load(), 1U);
 }
 
 TEST(ScenarioClientTest, IncludesServerErrorPayloadInException) {

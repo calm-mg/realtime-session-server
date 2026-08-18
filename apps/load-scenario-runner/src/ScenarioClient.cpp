@@ -76,12 +76,28 @@ std::chrono::milliseconds remainingTimeout(Deadline deadline) {
   return std::chrono::milliseconds(remainingMilliseconds(deadline));
 }
 
+std::ptrdiff_t receiveFromSocket(int fd, std::uint8_t* buffer,
+                                 std::size_t capacity) {
+  return ::recv(fd, buffer, capacity, 0);
+}
+
 }  // namespace
+
+ScenarioClient::ScenarioClient() : receive_operation_(receiveFromSocket) {}
+
+ScenarioClient::ScenarioClient(ReceiveOperation receive_operation)
+    : receive_operation_(std::move(receive_operation)) {
+  if (!receive_operation_) {
+    throw std::invalid_argument("receive operation must not be empty");
+  }
+}
 
 ScenarioClient::~ScenarioClient() { close(); }
 
 ScenarioClient::ScenarioClient(ScenarioClient&& other) noexcept
-    : fd_(std::exchange(other.fd_, -1)), codec_(std::move(other.codec_)) {
+    : fd_(std::exchange(other.fd_, -1)),
+      codec_(std::move(other.codec_)),
+      receive_operation_(std::move(other.receive_operation_)) {
   other.codec_ = {};
 }
 
@@ -90,6 +106,7 @@ ScenarioClient& ScenarioClient::operator=(ScenarioClient&& other) noexcept {
     close();
     fd_ = std::exchange(other.fd_, -1);
     codec_ = std::move(other.codec_);
+    receive_operation_ = std::move(other.receive_operation_);
     other.codec_ = {};
   }
   return *this;
@@ -228,7 +245,7 @@ rss::protocol::Packet ScenarioClient::receivePacket(
   std::array<std::uint8_t, rss::protocol::kMaxPacketSize> buffer{};
   while (true) {
     ensureBeforeDeadline(deadline, "receive");
-    const auto received = ::recv(fd_, buffer.data(), buffer.size(), 0);
+    const auto received = receive_operation_(fd_, buffer.data(), buffer.size());
     if (received > 0) {
       codec_.feed(buffer.data(), static_cast<std::size_t>(received));
       if (auto packet = codec_.peekPacket()) {

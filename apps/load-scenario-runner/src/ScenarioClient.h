@@ -1,7 +1,9 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 #include "rss/protocol/PacketCodec.h"
@@ -10,7 +12,11 @@ namespace rss::tools {
 
 class ScenarioClient {
  public:
-  ScenarioClient() = default;
+  using ReceiveOperation =
+      std::function<std::ptrdiff_t(int, std::uint8_t*, std::size_t)>;
+
+  ScenarioClient();
+  explicit ScenarioClient(ReceiveOperation receive_operation);
   ~ScenarioClient();
   ScenarioClient(ScenarioClient&& other) noexcept;
   ScenarioClient& operator=(ScenarioClient&& other) noexcept;
@@ -36,6 +42,7 @@ class ScenarioClient {
 
   int fd_{-1};
   rss::protocol::PacketCodec codec_;
+  ReceiveOperation receive_operation_;
 };
 
 }  // namespace rss::tools
