@@ -1,5 +1,6 @@
 add_library(rss_load_scenario_runtime
     src/EmbeddedServer.cpp
+    src/ScenarioClient.cpp
 )
 target_include_directories(rss_load_scenario_runtime
     PRIVATE
