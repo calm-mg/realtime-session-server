@@ -1,14 +1,22 @@
 add_library(rss_qt_client_lib STATIC
+    src/application/ChatLogEntry.h
     src/application/ClientController.cpp
     src/application/ClientController.h
     src/application/ClientState.h
     src/network/QtSessionClient.cpp
     src/network/QtSessionClient.h
     src/network/SessionTransport.h
+    src/ui/ChatBubbleDelegate.cpp
+    src/ui/ChatBubbleDelegate.h
+    src/ui/ChatLogModel.cpp
+    src/ui/ChatLogModel.h
     src/ui/MainWindow.cpp
     src/ui/MainWindow.h
     src/ui/MainWindow.ui
+    resources/client.qrc
 )
+
+set_target_properties(rss_qt_client_lib PROPERTIES AUTORCC ON)
 
 target_include_directories(rss_qt_client_lib
     PUBLIC
@@ -19,6 +27,7 @@ target_link_libraries(rss_qt_client_lib
     PUBLIC
         Qt6::Core
         Qt6::Network
+        Qt6::Svg
         Qt6::Widgets
         rss_protocol
 )

@@ -33,7 +33,7 @@ add_subdirectory(libs/server-core)
 add_subdirectory(libs/load-test-support)
 
 if(RSS_BUILD_QT_CLIENT)
-    find_package(Qt6 6.5 REQUIRED COMPONENTS Network Widgets)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Network Svg Widgets)
     if(RSS_BUILD_TESTS)
         find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
     endif()

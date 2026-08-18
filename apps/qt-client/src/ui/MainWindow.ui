@@ -3,81 +3,71 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>980</width>
-    <height>620</height>
-   </rect>
+   <rect><x>0</x><y>0</y><width>1100</width><height>700</height></rect>
   </property>
-  <property name="windowTitle">
-   <string>Realtime Session Client</string>
+  <property name="minimumSize">
+   <size><width>860</width><height>560</height></size>
   </property>
+  <property name="windowTitle"><string>Realtime Session Client</string></property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QHBoxLayout" name="centralLayout">
+    <property name="spacing"><number>0</number></property>
+    <property name="leftMargin"><number>24</number></property>
+    <property name="topMargin"><number>20</number></property>
+    <property name="rightMargin"><number>24</number></property>
+    <property name="bottomMargin"><number>20</number></property>
     <item>
      <widget class="QSplitter" name="mainSplitter">
-      <property name="orientation">
-       <enum>Qt::Orientation::Horizontal</enum>
-      </property>
-      <widget class="QWidget" name="controlPanel">
+      <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+      <property name="handleWidth"><number>18</number></property>
+      <property name="childrenCollapsible"><bool>false</bool></property>
+      <widget class="QScrollArea" name="controlScrollArea">
+       <property name="minimumSize"><size><width>278</width><height>0</height></size></property>
+       <property name="maximumSize"><size><width>340</width><height>16777215</height></size></property>
+       <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+       <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum></property>
+       <property name="widgetResizable"><bool>true</bool></property>
+       <widget class="QWidget" name="controlPanel">
        <layout class="QVBoxLayout" name="controlLayout">
+        <property name="sizeConstraint"><enum>QLayout::SizeConstraint::SetMinimumSize</enum></property>
+        <property name="spacing"><number>14</number></property>
+        <property name="leftMargin"><number>0</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+        <item>
+         <widget class="QWidget" name="brandPanel">
+          <layout class="QVBoxLayout" name="brandLayout">
+           <property name="spacing"><number>4</number></property>
+           <property name="leftMargin"><number>4</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>4</number></property>
+           <property name="bottomMargin"><number>8</number></property>
+           <item><widget class="QLabel" name="eyebrowLabel"><property name="text"><string>REALTIME SESSION</string></property></widget></item>
+           <item><widget class="QLabel" name="appTitleLabel"><property name="text"><string>Control center</string></property></widget></item>
+           <item><widget class="QLabel" name="appDescriptionLabel"><property name="text"><string>서버에 연결하고 세션을 시작하세요.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+          </layout>
+         </widget>
+        </item>
         <item>
          <widget class="QGroupBox" name="serverGroupBox">
-          <property name="title">
-           <string>서버</string>
-          </property>
+          <property name="title"><string>01  서버 연결</string></property>
           <layout class="QFormLayout" name="serverFormLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="hostLabel">
-             <property name="text">
-              <string>주소</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="hostEdit">
-             <property name="text">
-              <string>127.0.0.1</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="portLabel">
-             <property name="text">
-              <string>포트</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QSpinBox" name="portSpinBox">
-             <property name="minimum">
-              <number>1</number>
-             </property>
-             <property name="maximum">
-              <number>65535</number>
-             </property>
-             <property name="value">
-              <number>7777</number>
-             </property>
-            </widget>
-           </item>
+           <property name="horizontalSpacing"><number>10</number></property>
+           <property name="verticalSpacing"><number>10</number></property>
+           <property name="leftMargin"><number>16</number></property>
+           <property name="topMargin"><number>34</number></property>
+           <property name="rightMargin"><number>16</number></property>
+           <property name="bottomMargin"><number>16</number></property>
+           <item row="0" column="0"><widget class="QLabel" name="hostLabel"><property name="text"><string>주소</string></property></widget></item>
+           <item row="0" column="1"><widget class="QLineEdit" name="hostEdit"><property name="text"><string>127.0.0.1</string></property><property name="clearButtonEnabled"><bool>true</bool></property></widget></item>
+           <item row="1" column="0"><widget class="QLabel" name="portLabel"><property name="text"><string>포트</string></property></widget></item>
+           <item row="1" column="1"><widget class="QSpinBox" name="portSpinBox"><property name="minimum"><number>1</number></property><property name="maximum"><number>65535</number></property><property name="value"><number>7777</number></property></widget></item>
            <item row="2" column="0" colspan="2">
             <layout class="QHBoxLayout" name="connectionButtonLayout">
-             <item>
-              <widget class="QPushButton" name="connectButton">
-               <property name="text">
-                <string>연결</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="disconnectButton">
-               <property name="text">
-                <string>연결 해제</string>
-               </property>
-              </widget>
-             </item>
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QPushButton" name="connectButton"><property name="text"><string>연결</string></property><property name="role" stdset="0"><string>primary</string></property></widget></item>
+             <item><widget class="QPushButton" name="disconnectButton"><property name="text"><string>해제</string></property><property name="role" stdset="0"><string>secondary</string></property></widget></item>
             </layout>
            </item>
           </layout>
@@ -85,122 +75,99 @@
         </item>
         <item>
          <widget class="QGroupBox" name="userGroupBox">
-          <property name="title">
-           <string>사용자</string>
-          </property>
+          <property name="title"><string>02  사용자</string></property>
           <layout class="QFormLayout" name="userFormLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="usernameLabel">
-             <property name="text">
-              <string>이름</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="usernameEdit"/>
-           </item>
-           <item row="1" column="0" colspan="2">
-            <widget class="QPushButton" name="loginButton">
-             <property name="text">
-              <string>로그인</string>
-             </property>
-            </widget>
-           </item>
+           <property name="horizontalSpacing"><number>10</number></property><property name="verticalSpacing"><number>10</number></property>
+           <property name="leftMargin"><number>16</number></property><property name="topMargin"><number>34</number></property><property name="rightMargin"><number>16</number></property><property name="bottomMargin"><number>16</number></property>
+           <item row="0" column="0"><widget class="QLabel" name="usernameLabel"><property name="text"><string>이름</string></property></widget></item>
+           <item row="0" column="1"><widget class="QLineEdit" name="usernameEdit"><property name="placeholderText"><string>표시할 이름</string></property><property name="clearButtonEnabled"><bool>true</bool></property></widget></item>
+           <item row="1" column="0" colspan="2"><widget class="QPushButton" name="loginButton"><property name="text"><string>로그인</string></property><property name="role" stdset="0"><string>primary</string></property></widget></item>
           </layout>
          </widget>
         </item>
         <item>
          <widget class="QGroupBox" name="roomGroupBox">
-          <property name="title">
-           <string>방</string>
-          </property>
+          <property name="title"><string>03  방</string></property>
           <layout class="QFormLayout" name="roomFormLayout">
-           <item row="0" column="0">
-            <widget class="QLabel" name="roomLabel">
-             <property name="text">
-              <string>이름 / 번호</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="roomEdit"/>
-           </item>
+           <property name="horizontalSpacing"><number>10</number></property><property name="verticalSpacing"><number>10</number></property>
+           <property name="leftMargin"><number>16</number></property><property name="topMargin"><number>34</number></property><property name="rightMargin"><number>16</number></property><property name="bottomMargin"><number>16</number></property>
+           <item row="0" column="0"><widget class="QLabel" name="roomLabel"><property name="text"><string>방</string></property></widget></item>
+           <item row="0" column="1"><widget class="QLineEdit" name="roomEdit"><property name="placeholderText"><string>이름 또는 번호</string></property><property name="clearButtonEnabled"><bool>true</bool></property></widget></item>
            <item row="1" column="0" colspan="2">
-            <layout class="QHBoxLayout" name="roomButtonLayout">
-             <item>
-              <widget class="QPushButton" name="createRoomButton">
-               <property name="text">
-                <string>방 생성</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="joinRoomButton">
-               <property name="text">
-                <string>방 참가</string>
-               </property>
-              </widget>
-             </item>
+            <layout class="QHBoxLayout" name="roomButtonLayout"><property name="spacing"><number>8</number></property>
+             <item><widget class="QPushButton" name="createRoomButton"><property name="text"><string>생성</string></property><property name="role" stdset="0"><string>primary</string></property></widget></item>
+             <item><widget class="QPushButton" name="joinRoomButton"><property name="text"><string>참가</string></property><property name="role" stdset="0"><string>secondary</string></property></widget></item>
             </layout>
            </item>
-           <item row="2" column="0" colspan="2">
-            <widget class="QPushButton" name="leaveRoomButton">
-             <property name="text">
-              <string>방 나가기</string>
-             </property>
-            </widget>
-           </item>
+           <item row="2" column="0" colspan="2"><widget class="QPushButton" name="leaveRoomButton"><property name="text"><string>방 나가기</string></property><property name="role" stdset="0"><string>danger</string></property></widget></item>
           </layout>
          </widget>
         </item>
-        <item>
-         <spacer name="controlSpacer">
-          <property name="orientation">
-           <enum>Qt::Orientation::Vertical</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
+        <item><spacer name="controlSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>24</height></size></property></spacer></item>
        </layout>
+       </widget>
       </widget>
       <widget class="QWidget" name="conversationPanel">
        <layout class="QVBoxLayout" name="conversationLayout">
+        <property name="spacing"><number>0</number></property>
+        <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
         <item>
-         <widget class="QLabel" name="connectionStatusLabel">
-          <property name="text">
-           <string>연결 안 됨</string>
-          </property>
+         <widget class="QWidget" name="conversationHeader">
+          <layout class="QHBoxLayout" name="conversationHeaderLayout">
+           <property name="leftMargin"><number>22</number></property><property name="topMargin"><number>18</number></property><property name="rightMargin"><number>22</number></property><property name="bottomMargin"><number>18</number></property>
+           <item>
+            <layout class="QVBoxLayout" name="conversationTitleLayout"><property name="spacing"><number>3</number></property>
+             <item><widget class="QLabel" name="conversationTitleLabel"><property name="text"><string>Session activity</string></property></widget></item>
+             <item><widget class="QLabel" name="conversationSubtitleLabel"><property name="text"><string>시스템 이벤트와 채팅 메시지가 여기에 표시됩니다.</string></property></widget></item>
+            </layout>
+           </item>
+           <item><spacer name="headerSpacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+           <item><widget class="QLabel" name="connectionStatusLabel"><property name="text"><string>●  오프라인</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+          </layout>
+         </widget>
+        </item>
+        <item><widget class="QFrame" name="headerDivider"><property name="frameShape"><enum>QFrame::Shape::HLine</enum></property><property name="frameShadow"><enum>QFrame::Shadow::Plain</enum></property></widget></item>
+        <item>
+         <widget class="QStackedWidget" name="logStack">
+          <property name="currentIndex"><number>0</number></property>
+          <widget class="QWidget" name="emptyStatePage">
+           <layout class="QVBoxLayout" name="emptyStateLayout">
+            <property name="spacing"><number>8</number></property>
+            <property name="leftMargin"><number>28</number></property><property name="topMargin"><number>28</number></property><property name="rightMargin"><number>28</number></property><property name="bottomMargin"><number>28</number></property>
+            <item><spacer name="emptyTopSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+            <item><widget class="QLabel" name="emptyStateIconLabel"><property name="minimumSize"><size><width>48</width><height>48</height></size></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+            <item><widget class="QLabel" name="emptyStateLabel"><property name="text"><string>아직 대화가 없습니다</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property></widget></item>
+            <item><widget class="QLabel" name="emptyStateDescriptionLabel"><property name="text"><string>왼쪽 패널에서 서버에 연결하고 방에 참가해보세요.</string></property><property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+            <item><spacer name="emptyBottomSpacer"><property name="orientation"><enum>Qt::Orientation::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="logPage">
+           <layout class="QVBoxLayout" name="logPageLayout">
+            <property name="spacing"><number>0</number></property><property name="leftMargin"><number>12</number></property><property name="topMargin"><number>10</number></property><property name="rightMargin"><number>12</number></property><property name="bottomMargin"><number>10</number></property>
+            <item>
+             <widget class="QListView" name="logView">
+              <property name="accessibleName"><string>세션 대화 내역</string></property>
+              <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+              <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum></property>
+              <property name="selectionMode"><enum>QAbstractItemView::SelectionMode::NoSelection</enum></property>
+              <property name="verticalScrollMode"><enum>QAbstractItemView::ScrollMode::ScrollPerPixel</enum></property>
+              <property name="spacing"><number>3</number></property>
+              <property name="resizeMode"><enum>QListView::ResizeMode::Adjust</enum></property>
+              <property name="wordWrap"><bool>true</bool></property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </widget>
         </item>
         <item>
-         <widget class="QPlainTextEdit" name="logView">
-          <property name="readOnly">
-           <bool>true</bool>
-          </property>
+         <widget class="QWidget" name="composerPanel">
+          <layout class="QHBoxLayout" name="messageLayout">
+           <property name="spacing"><number>10</number></property><property name="leftMargin"><number>18</number></property><property name="topMargin"><number>16</number></property><property name="rightMargin"><number>18</number></property><property name="bottomMargin"><number>18</number></property>
+           <item><widget class="QLineEdit" name="messageEdit"><property name="placeholderText"><string>메시지를 입력하세요</string></property><property name="clearButtonEnabled"><bool>true</bool></property></widget></item>
+           <item><widget class="QPushButton" name="sendButton"><property name="minimumSize"><size><width>108</width><height>0</height></size></property><property name="text"><string>보내기</string></property><property name="role" stdset="0"><string>primary</string></property></widget></item>
+          </layout>
          </widget>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="messageLayout">
-          <item>
-           <widget class="QLineEdit" name="messageEdit">
-            <property name="placeholderText">
-             <string>메시지를 입력하세요</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="sendButton">
-            <property name="text">
-             <string>보내기</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
         </item>
        </layout>
       </widget>

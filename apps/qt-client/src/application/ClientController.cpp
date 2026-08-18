@@ -1,6 +1,8 @@
 #include "application/ClientController.h"
 
 #include <QByteArray>
+#include <QDateTime>
+#include <optional>
 
 namespace rss::qt_client {
 
@@ -13,6 +15,54 @@ QString payloadText(const protocol::Packet& packet) {
 
 bool isSuccessfulResponse(const QString& payload) {
   return payload == "OK" || payload.startsWith("OK|");
+}
+
+QString fieldValue(const QString& payload, const QString& key) {
+  const QString marker = QString("|%1=").arg(key);
+  const qsizetype marker_position = payload.indexOf(marker);
+  if (marker_position < 0) {
+    return {};
+  }
+  const qsizetype value_position = marker_position + marker.size();
+  const qsizetype separator_position = payload.indexOf('|', value_position);
+  return separator_position < 0
+             ? payload.mid(value_position)
+             : payload.mid(value_position, separator_position - value_position);
+}
+
+std::optional<qulonglong> sessionId(const QString& payload) {
+  bool ok = false;
+  const qulonglong value = fieldValue(payload, "session_id").toULongLong(&ok);
+  return ok ? std::optional<qulonglong>{value} : std::nullopt;
+}
+
+ChatLogEntry logEntry(LogKind kind, const QString& text) {
+  return {
+      .kind = kind,
+      .text = text,
+      .received_at = QDateTime::currentDateTime(),
+  };
+}
+
+ChatLogEntry chatEntry(const QString& payload,
+                       std::optional<qulonglong> own_session_id) {
+  const QString message_marker = "|message=";
+  const qsizetype message_position = payload.indexOf(message_marker);
+  const QString metadata =
+      message_position < 0 ? payload : payload.left(message_position);
+  const QString message =
+      message_position < 0
+          ? payload
+          : payload.mid(message_position + message_marker.size());
+  const auto sender_session_id = sessionId(metadata);
+  return {
+      .kind = LogKind::Chat,
+      .author = fieldValue(metadata, "name"),
+      .text = message,
+      .received_at = QDateTime::currentDateTime(),
+      .is_own = own_session_id.has_value() && sender_session_id.has_value() &&
+                *own_session_id == *sender_session_id,
+  };
 }
 
 }  // namespace
@@ -122,12 +172,14 @@ void ClientController::onConnected() {
     return;
   }
   setState(ClientState::Connected);
-  emit logEntryAdded(LogKind::System, "Connected to the server.");
+  emit logEntryAdded(logEntry(LogKind::System, "Connected to the server."));
 }
 
 void ClientController::onDisconnected() {
   setState(ClientState::Disconnected);
-  emit logEntryAdded(LogKind::System, "Disconnected from the server.");
+  session_id_.reset();
+  emit logEntryAdded(
+      logEntry(LogKind::System, "Disconnected from the server."));
 }
 
 void ClientController::onPacketReceived(const protocol::Packet& packet) {
@@ -137,6 +189,7 @@ void ClientController::onPacketReceived(const protocol::Packet& packet) {
   switch (packet.type) {
     case protocol::PacketType::LoginRes:
       if (ok && state_ == ClientState::Connected) {
+        session_id_ = sessionId(payload);
         setState(ClientState::LoggedIn);
       }
       break;
@@ -152,22 +205,23 @@ void ClientController::onPacketReceived(const protocol::Packet& packet) {
       }
       break;
     case protocol::PacketType::RoomBroadcast:
-      emit logEntryAdded(
-          payload.startsWith("event=CHAT|") ? LogKind::Chat : LogKind::System,
-          payload);
+      emit logEntryAdded(payload.startsWith("event=CHAT|")
+                             ? chatEntry(payload, session_id_)
+                             : logEntry(LogKind::System, payload));
       return;
     case protocol::PacketType::Error:
-      emit logEntryAdded(LogKind::Error, payload);
+      emit logEntryAdded(logEntry(LogKind::Error, payload));
       return;
     default:
       return;
   }
 
-  emit logEntryAdded(ok ? LogKind::System : LogKind::Error, payload);
+  emit logEntryAdded(logEntry(ok ? LogKind::System : LogKind::Error, payload));
 }
 
 void ClientController::onTransportError(const QString& message) {
-  emit logEntryAdded(LogKind::Error, message);
+  emit logEntryAdded(logEntry(LogKind::Error, message));
+  session_id_.reset();
   setState(ClientState::Disconnected);
 }
 
@@ -196,7 +250,8 @@ bool ClientController::sendTextPacket(protocol::PacketType type,
                                  static_cast<std::size_t>(utf8.size())))) {
     return true;
   }
-  emit logEntryAdded(LogKind::Error, "The request could not be sent.");
+  emit logEntryAdded(
+      logEntry(LogKind::Error, "The request could not be sent."));
   return false;
 }
 

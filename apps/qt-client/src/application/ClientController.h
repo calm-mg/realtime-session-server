@@ -3,7 +3,9 @@
 #include <QObject>
 #include <QString>
 #include <cstdint>
+#include <optional>
 
+#include "application/ChatLogEntry.h"
 #include "application/ClientState.h"
 #include "network/SessionTransport.h"
 
@@ -28,7 +30,7 @@ class ClientController final : public QObject {
 
  signals:
   void stateChanged(rss::qt_client::ClientState state);
-  void logEntryAdded(rss::qt_client::LogKind kind, QString text);
+  void logEntryAdded(rss::qt_client::ChatLogEntry entry);
   void validationFailed(QString message);
 
  private:
@@ -42,6 +44,7 @@ class ClientController final : public QObject {
 
   SessionTransport& transport_;
   ClientState state_{ClientState::Disconnected};
+  std::optional<qulonglong> session_id_;
 };
 
 }  // namespace rss::qt_client

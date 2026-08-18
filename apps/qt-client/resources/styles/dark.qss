@@ -1,0 +1,94 @@
+QMainWindow, QWidget#centralWidget {
+  background: #0b1120;
+  color: #e5e7eb;
+  font-family: "Inter", "Pretendard", "Apple SD Gothic Neo", "Segoe UI";
+  font-size: 13px;
+}
+
+QScrollArea#controlScrollArea, QScrollArea#controlScrollArea > QWidget > QWidget,
+QWidget#controlPanel { background: transparent; border: none; }
+QLabel#eyebrowLabel { color: #818cf8; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+QLabel#appTitleLabel { color: #f8fafc; font-size: 24px; font-weight: 700; }
+QLabel#appDescriptionLabel, QLabel#conversationSubtitleLabel { color: #7f8da3; font-size: 12px; }
+
+QGroupBox {
+  background: #121b2d;
+  border: 1px solid #21304a;
+  border-radius: 12px;
+  margin-top: 12px;
+  color: #dbe5f3;
+  font-weight: 600;
+}
+QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 5px; color: #aab8cd; }
+QGroupBox QLabel { color: #8fa0b7; font-weight: 500; }
+QGroupBox QLabel:disabled { color: #536078; }
+
+QLineEdit, QSpinBox {
+  min-height: 36px;
+  padding: 0 10px;
+  color: #e8eef8;
+  background: #0c1424;
+  border: 1px solid #2a3a55;
+  border-radius: 8px;
+  selection-background-color: #6366f1;
+}
+QLineEdit:focus, QSpinBox:focus { border: 1px solid #818cf8; background: #101a2d; }
+QLineEdit:disabled, QSpinBox:disabled { color: #536078; background: #101827; border-color: #1c2940; }
+QSpinBox::up-button, QSpinBox::down-button { width: 18px; border: none; background: transparent; }
+
+QPushButton {
+  min-height: 36px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: 1px solid #31415d;
+  background: #1a263b;
+  color: #dce5f3;
+  font-weight: 600;
+}
+QPushButton:hover { background: #22314a; border-color: #445879; }
+QPushButton:pressed { background: #172236; }
+QPushButton:focus { border: 2px solid #a5b4fc; }
+QPushButton[role="primary"] { background: #6366f1; border-color: #7477f5; color: white; }
+QPushButton[role="primary"]:hover { background: #7477f5; }
+QPushButton[role="primary"]:pressed { background: #5558db; }
+QPushButton[role="danger"] { background: transparent; border-color: #563040; color: #f29aa8; }
+QPushButton[role="danger"]:hover { background: #351d2a; border-color: #804052; }
+QPushButton:disabled { background: #151e2e; border-color: #202c42; color: #4d5a70; }
+
+QWidget#conversationPanel {
+  background: #111a2b;
+  border: 1px solid #22314a;
+  border-radius: 14px;
+}
+QWidget#conversationHeader { background: #141f32; border-top-left-radius: 14px; border-top-right-radius: 14px; }
+QLabel#conversationTitleLabel { color: #f3f6fb; font-size: 17px; font-weight: 700; }
+QFrame#headerDivider { color: #22314a; background: #22314a; max-height: 1px; border: 0; }
+
+QLabel#connectionStatusLabel {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 700;
+}
+QLabel#connectionStatusLabel[status="offline"] { background: #2a2430; color: #c6a7b1; border: 1px solid #493341; }
+QLabel#connectionStatusLabel[status="connecting"] { background: #332d1d; color: #f3c96b; border: 1px solid #5e4e25; }
+QLabel#connectionStatusLabel[status="online"] { background: #16342d; color: #66d9b1; border: 1px solid #245b4b; }
+
+QStackedWidget#logStack, QWidget#emptyStatePage, QWidget#logPage,
+QListView#logView {
+  background: #0f1828;
+  border: none;
+}
+QLabel#emptyStateLabel { color: #cbd5e1; font-size: 16px; font-weight: 700; }
+QLabel#emptyStateDescriptionLabel { color: #6f8098; font-size: 12px; }
+QListView#logView::item { background: transparent; border: none; }
+QWidget#composerPanel { background: #141f32; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
+QWidget#composerPanel QLineEdit { min-height: 42px; border-radius: 10px; }
+QWidget#composerPanel QPushButton { min-height: 42px; border-radius: 10px; }
+
+QScrollBar:vertical { background: #0f1828; width: 10px; margin: 4px 2px; }
+QScrollBar::handle:vertical { background: #33445f; border-radius: 4px; min-height: 32px; }
+QScrollBar::handle:vertical:hover { background: #465a7a; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QSplitter::handle { background: transparent; }

@@ -1,15 +1,27 @@
 #include <QtTest>
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "FakeSessionTransport.h"
+#include "application/ChatLogEntry.h"
 #include "application/ClientController.h"
 
 using rss::protocol::Packet;
 using rss::protocol::PacketType;
+using rss::qt_client::ChatLogEntry;
 using rss::qt_client::ClientController;
 using rss::qt_client::ClientState;
 using rss::qt_client::LogKind;
+
+namespace {
+
+Packet packet(PacketType type, std::string_view payload) {
+  return {type, std::vector<std::uint8_t>(payload.begin(), payload.end())};
+}
+
+}  // namespace
 
 class ClientControllerTest final : public QObject {
   Q_OBJECT
@@ -17,6 +29,7 @@ class ClientControllerTest final : public QObject {
  private slots:
   void initTestCase() {
     qRegisterMetaType<ClientState>();
+    qRegisterMetaType<ChatLogEntry>();
     qRegisterMetaType<LogKind>();
     qRegisterMetaType<Packet>();
   }
@@ -117,7 +130,7 @@ class ClientControllerTest final : public QObject {
 
     QCOMPARE(controller.state(), ClientState::LoggedIn);
     QCOMPARE(log_spy.count(), 1);
-    QCOMPARE(log_spy.at(0).at(0).value<LogKind>(), LogKind::Error);
+    QCOMPARE(log_spy.at(0).at(0).value<ChatLogEntry>().kind, LogKind::Error);
   }
 
   void rejectsNonNumericRoomId() {
@@ -147,18 +160,49 @@ class ClientControllerTest final : public QObject {
     QCOMPARE(validation_spy.count(), 1);
   }
 
-  void classifiesChatBroadcastAsChatLog() {
+  void parsesChatBroadcastAndMarksOwnSender() {
     FakeSessionTransport transport;
     ClientController controller(transport);
+    controller.connectToServer("127.0.0.1", 7777);
+    transport.completeConnection();
+    controller.login("alice");
+    transport.receive(
+        packet(PacketType::LoginRes, "OK|user_id=1|session_id=10|name=alice"));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
 
     transport.receive(
-        Packet{PacketType::RoomBroadcast,
-               {'e', 'v', 'e', 'n', 't', '=', 'C', 'H', 'A', 'T', '|',
-                'm', 'e', 's', 's', 'a', 'g', 'e', '=', 'h', 'i'}});
+        packet(PacketType::RoomBroadcast,
+               "event=CHAT|room_id=1|user_id=1|session_id=10|name=alice|"
+               "message=hello|there"));
 
     QCOMPARE(log_spy.count(), 1);
-    QCOMPARE(log_spy.at(0).at(0).value<LogKind>(), LogKind::Chat);
+    const auto entry = log_spy.at(0).at(0).value<ChatLogEntry>();
+    QCOMPARE(entry.kind, LogKind::Chat);
+    QCOMPARE(entry.author, QString("alice"));
+    QCOMPARE(entry.text, QString("hello|there"));
+    QVERIFY(entry.is_own);
+    QVERIFY(entry.received_at.isValid());
+  }
+
+  void ignoresMetadataLikeFieldsInsideChatBody() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    controller.connectToServer("127.0.0.1", 7777);
+    transport.completeConnection();
+    controller.login("alice");
+    transport.receive(
+        packet(PacketType::LoginRes, "OK|user_id=1|session_id=10|name=alice"));
+    QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
+
+    transport.receive(packet(
+        PacketType::RoomBroadcast,
+        "event=CHAT|room_id=1|message=hello|session_id=10|name=mallory"));
+
+    QCOMPARE(log_spy.count(), 1);
+    const auto entry = log_spy.at(0).at(0).value<ChatLogEntry>();
+    QCOMPARE(entry.author, QString());
+    QCOMPARE(entry.text, QString("hello|session_id=10|name=mallory"));
+    QVERIFY(!entry.is_own);
   }
 
  private:
