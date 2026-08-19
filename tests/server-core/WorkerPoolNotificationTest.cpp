@@ -373,7 +373,7 @@ TEST(WorkerPoolNotificationTest,
   rss::util::BoundedBlockingQueue<SessionEvent> empty_inbox(2);
   rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> empty_outbox(
       2);
-  BudgetBurstHandler empty_output({{}});
+  BudgetBurstHandler empty_output(std::vector<std::vector<std::uint8_t>>{{}});
   rss::net::WorkerPool empty_workers(
       empty_inbox, empty_outbox, empty_output,
       rss::net::WorkerPoolConfig{.inbound_low_watermark = 1,

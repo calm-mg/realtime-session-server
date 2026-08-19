@@ -1,4 +1,8 @@
-add_executable(rss_load_test_support_tests LatencyStatsTest.cpp)
+add_executable(rss_load_test_support_tests
+    LatencyStatsTest.cpp
+    ScenarioOptionsTest.cpp
+    ScenarioReportTest.cpp
+)
 target_link_libraries(rss_load_test_support_tests
     PRIVATE
         rss_load_test_support

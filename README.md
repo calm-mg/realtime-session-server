@@ -20,7 +20,7 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 - 설정 가능한 입력·출력 queue, 세션별 송신 대기 byte, 동시 세션 상한
 - 같은 세션의 패킷과 연결 종료 이벤트 순서 보장
 - 입력 이벤트별 출력 메시지 수와 총 byte 상한
-- 콘솔 클라이언트와 `PING` 부하 테스트 도구
+- 콘솔 클라이언트와 두 종류의 부하 측정 도구
 - Qt 6 Widgets 기반 크로스플랫폼 데스크톱 클라이언트
 - GoogleTest 기반 프로토콜, 서비스, 네트워크 구성 요소 테스트
 - Google Benchmark 기반 핵심 코드 경로 마이크로벤치마크
@@ -169,10 +169,19 @@ ctest --preset qt-client-dev
 재접속, 로그인·방 상태 자동 복구, 위치 전송, `PING`, TLS는 포함하지
 않습니다.
 
-## 간단한 부하 테스트
+## 부하 측정 도구
 
-다음 명령은 클라이언트 100개가 각각 `PING`을 100번 보내고 `PONG`
-응답 시간을 측정합니다.
+두 도구는 측정 대상이 다릅니다. 둘 다 Linux 전용입니다.
+
+- `rss_load_test_client`는 이미 실행 중인 원격 서버에 연결해 `PING`/`PONG`
+  왕복 지연 시간을 빠르게 확인합니다.
+- `rss_load_scenario_runner`는 loopback 임시 포트에서 실제 서버를 직접
+  실행하고, 재현 가능한 `broadcast`, `multi-room`, `slow-client` 시나리오와
+  서버 내부 과부하 통계를 함께 기록합니다.
+
+원격 서버의 연결과 요청/응답 상태만 확인하려면 다음 `PING` 부하 테스트를
+사용합니다. 클라이언트 100개가 각각 `PING`을 100번 보내고 `PONG` 응답
+시간을 측정합니다.
 
 ```bash
 ./build/rss_load_test_client 127.0.0.1 7777 100 100
@@ -181,6 +190,23 @@ ctest --preset qt-client-dev
 출력에는 전송 수, 실패한 클라이언트 수, 초당 처리량과
 `p50`/`p95`/`p99` 응답 시간이 포함됩니다. 자세한 측정 방법은
 [벤치마크 가이드](docs/benchmark.md)를 참고하세요.
+
+실제 서버의 방 broadcast, 다중 방, 느린 클라이언트 격리 측정은 Linux에서
+`rss_load_scenario_runner`를 사용합니다. 이 도구는 warm-up 1회를 버린 뒤
+같은 설정으로 반복 측정합니다. 서로 다른 commit의 결과는 CPU, 운영체제,
+compiler, build type, worker 수와 실행 인자를 포함해 같은 환경에서만
+비교하세요.
+
+```bash
+cmake --preset linux-dev
+cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
+./build/linux-dev/rss_load_scenario_runner --scenario broadcast --clients 2 --messages 2 --payload-bytes 128 --repeat 1 --workers 1
+```
+
+각 `run` 줄은 effective 방 수와 `messages_per_sender`, `payload_bytes`,
+`slow_clients`, `repeats`를 고정 순서로 기록합니다. `expected`는 설정상 최대치가
+아니라 방별 실제 성공 전송 수에서 계산합니다. client setup 실패도 결과 줄과
+`failed_clients`를 남기며 종료 코드 `1`을 반환합니다.
 
 ## 서버가 요청을 처리하는 순서
 
@@ -209,6 +235,7 @@ ctest --preset qt-client-dev
 apps/server/            Linux epoll 서버 실행 파일
 apps/console-client/    대화형 POSIX 콘솔 클라이언트
 apps/load-test-client/  PING 부하 테스트 클라이언트
+apps/load-scenario-runner/ Linux 실제 서버 부하 시나리오 실행기
 apps/qt-client/         Qt 6 Widgets 데스크톱 클라이언트
 libs/protocol/          패킷 종류와 인코딩 규칙
 libs/server-core/       플랫폼 독립 도메인, 서비스, session, worker
@@ -221,10 +248,11 @@ docs/                   구조, 프로토콜, 설계, 벤치마크 설명
 
 ## 현재 제약 사항
 
-- epoll 서버와 POSIX 콘솔·부하 테스트 클라이언트는 Linux에서만 빌드됩니다.
+- epoll 서버와 POSIX 콘솔·부하 측정 도구는 Linux에서만 빌드됩니다.
 - Qt 데스크톱 클라이언트는 Linux, macOS, Windows를 지원합니다.
 - 방과 사용자 상태는 하나의 `RoomService` mutex로 보호합니다.
-- 부하 테스트 도구는 현재 `PING`/`PONG` 시나리오만 지원합니다.
+- `rss_load_test_client`는 `PING`/`PONG`만 측정하며, 실제 서버 시나리오는
+  `rss_load_scenario_runner`가 측정합니다.
 - TLS, 인증 토큰, 데이터 영속 저장은 구현되어 있지 않습니다.
 
 ## 더 자세한 문서
