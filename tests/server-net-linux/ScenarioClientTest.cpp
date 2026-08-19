@@ -133,7 +133,7 @@ class RawLoopbackPeer {
     }
   }
 
-  static void waitFor(int fd, short events, Deadline deadline,
+  static void waitFor(int fd, std::int16_t events, Deadline deadline,
                       std::string_view operation) {
     while (true) {
       const auto now = std::chrono::steady_clock::now();

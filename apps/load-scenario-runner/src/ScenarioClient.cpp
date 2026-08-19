@@ -46,7 +46,7 @@ int remainingMilliseconds(Deadline deadline) {
       rounded.count(), static_cast<std::int64_t>(INT_MAX)));
 }
 
-bool waitForSocketReady(int fd, short events, Deadline deadline,
+bool waitForSocketReady(int fd, std::int16_t events, Deadline deadline,
                         std::string_view operation) {
   while (true) {
     pollfd descriptor{fd, events, 0};
@@ -66,7 +66,7 @@ bool waitForSocketReady(int fd, short events, Deadline deadline,
   }
 }
 
-void waitForSocket(int fd, short events, Deadline deadline,
+void waitForSocket(int fd, std::int16_t events, Deadline deadline,
                    std::string_view operation) {
   if (!waitForSocketReady(fd, events, deadline, operation)) {
     throw std::runtime_error(std::string(operation) + " timed out");
