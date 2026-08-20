@@ -254,11 +254,16 @@ docs/                   구조, 프로토콜, 설계, 벤치마크 설명
 - `rss_load_test_client`는 `PING`/`PONG`만 측정하며, 실제 서버 시나리오는
   `rss_load_scenario_runner`가 측정합니다.
 - TLS, 인증 토큰, 데이터 영속 저장은 구현되어 있지 않습니다.
+- 서버 실행 파일은 아직 `SIGINT`와 `SIGTERM`을 정상 종료 절차에 연결하지
+  않습니다.
 
 ## 더 자세한 문서
 
 - [서버 구조](docs/architecture.md)
 - [패킷 프로토콜](docs/protocol.md)
 - [벤치마크 실행과 해석](docs/benchmark.md)
+- [프로젝트 상태](docs/project-status.md)
+- [알려진 문제](docs/known-issues.md)
+- [로드맵](docs/roadmap.md)
 - [개발 계획](docs/development-plan.md)
 - [개발 및 코드 스타일](CONTRIBUTING.md)
