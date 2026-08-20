@@ -117,8 +117,18 @@ user is not logged in
 
 `PING`은 로그인하지 않아도 사용할 수 있습니다. 로그인이나 방 참가가
 필요한 명령을 순서에 맞지 않게 보내면 서버는 `ERROR` 패킷을
-반환합니다. 이미 참가한 방 번호로 `JOIN_ROOM_REQ`를 다시 보내면 서버는
-`user is already in room` 오류를 반환하며 기존 방 상태를 유지합니다.
+반환합니다.
+
+한 TCP 연결에서는 `LOGIN_REQ`가 한 번만 성공합니다. 로그인한 연결이 같은
+이름이나 다른 이름으로 다시 로그인하면 서버는 `user is already logged in`
+오류를 반환하며 user id, 이름과 방 참가 상태를 변경하지 않습니다.
+
+방에 참가한 사용자는 `LEAVE_ROOM_REQ`가 성공한 뒤에만 새 방을 만들거나 다른
+방에 참가할 수 있습니다. 방 안에서 `CREATE_ROOM_REQ` 또는 다른 방 번호의
+`JOIN_ROOM_REQ`를 보내면 `leave current room first` 오류를 반환합니다. 대상
+방이 존재하지 않더라도 현재 방 참가 여부를 먼저 검사합니다. 이미 참가한 방
+번호로 다시 참가하면 `user is already in room` 오류를 반환합니다. 거부된 방
+요청은 기존 방 상태를 변경하거나 참가·퇴장 broadcast를 만들지 않습니다.
 
 ## TCP에서 패킷을 읽는 방법
 
