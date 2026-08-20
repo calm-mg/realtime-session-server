@@ -80,6 +80,14 @@ RoomActionResult RoomService::joinRoom(std::uint64_t session_id,
     return result;
   }
 
+  const auto current_room = room_by_session_.find(session_id);
+  if (current_room != room_by_session_.end() &&
+      current_room->second == room_id) {
+    result.ok = false;
+    result.error = "user is already in room";
+    return result;
+  }
+
   leaveCurrentRoomLocked(session_id);
   room->join(result.actor);
   room_by_session_[session_id] = room_id;
