@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "rss/domain/Position.h"
@@ -10,13 +12,50 @@ namespace {
 
 using rss::service::RoomService;
 
+void expectRepeatedLoginInRoomRejected(std::string_view repeated_name) {
+  RoomService service;
+  const auto login = service.login(100, "alice");
+  ASSERT_TRUE(login.ok);
+  const auto room = service.createRoom(100, "arena");
+  ASSERT_TRUE(room.ok);
+
+  const auto repeated = service.login(100, std::string(repeated_name));
+
+  EXPECT_FALSE(repeated.ok);
+  EXPECT_EQ(repeated.error, "user is already logged in");
+  EXPECT_EQ(repeated.user.id, login.user.id);
+  EXPECT_EQ(repeated.user.name, "alice");
+
+  const auto chat = service.chat(100);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.room_id, room.room_id);
+  EXPECT_EQ(chat.actor.id, login.user.id);
+  EXPECT_EQ(chat.actor.name, "alice");
+
+  const auto leave = service.leaveRoom(100);
+  ASSERT_TRUE(leave.ok);
+  EXPECT_EQ(leave.room_id, room.room_id);
+  EXPECT_EQ(leave.actor.id, login.user.id);
+  EXPECT_EQ(leave.actor.name, "alice");
+}
+
 TEST(RoomServiceTest, AssignsUniqueUserIds) {
   RoomService service;
 
   const auto alice = service.login(100, "alice");
   const auto bob = service.login(200, "bob");
 
-  EXPECT_NE(alice.id, bob.id);
+  ASSERT_TRUE(alice.ok);
+  ASSERT_TRUE(bob.ok);
+  EXPECT_NE(alice.user.id, bob.user.id);
+}
+
+TEST(RoomServiceTest, RejectsRepeatedLoginWithSameNameWhileInRoom) {
+  expectRepeatedLoginInRoomRejected("alice");
+}
+
+TEST(RoomServiceTest, RejectsRepeatedLoginWithDifferentNameWhileInRoom) {
+  expectRepeatedLoginInRoomRejected("mallory");
 }
 
 TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {
@@ -94,6 +133,54 @@ TEST(RoomServiceTest, RejectsRejoiningSameRoomWithoutChangingMembers) {
   const auto remaining_member_chat = service.chat(100);
   ASSERT_TRUE(remaining_member_chat.ok);
   EXPECT_EQ(remaining_member_chat.recipients, std::vector<std::uint64_t>{100});
+}
+
+TEST(RoomServiceTest, RejectsRoomCreationWhileInRoomWithoutChangingState) {
+  RoomService service;
+  ASSERT_TRUE(service.login(100, "alice").ok);
+  ASSERT_TRUE(service.login(200, "bob").ok);
+
+  const auto original_room = service.createRoom(100, "arena");
+  ASSERT_TRUE(original_room.ok);
+  ASSERT_TRUE(service.joinRoom(200, original_room.room_id).ok);
+
+  const auto rejected = service.createRoom(100, "other");
+
+  EXPECT_FALSE(rejected.ok);
+  EXPECT_EQ(rejected.error, "leave current room first");
+  const auto chat = service.chat(100);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.room_id, original_room.room_id);
+  EXPECT_EQ(chat.recipients.size(), 2);
+
+  ASSERT_TRUE(service.leaveRoom(100).ok);
+  const auto next_room = service.createRoom(100, "other");
+  ASSERT_TRUE(next_room.ok);
+  EXPECT_EQ(next_room.room_id, original_room.room_id + 1);
+}
+
+TEST(RoomServiceTest, ChecksCurrentRoomBeforeTargetRoomExists) {
+  RoomService service;
+  ASSERT_TRUE(service.login(100, "alice").ok);
+  ASSERT_TRUE(service.login(200, "bob").ok);
+  const auto original_room = service.createRoom(100, "arena");
+  ASSERT_TRUE(original_room.ok);
+  const auto target_room = service.createRoom(200, "other");
+  ASSERT_TRUE(target_room.ok);
+
+  const auto rejected = service.joinRoom(100, 999);
+
+  EXPECT_FALSE(rejected.ok);
+  EXPECT_EQ(rejected.error, "leave current room first");
+  const auto chat = service.chat(100);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.room_id, original_room.room_id);
+
+  ASSERT_TRUE(service.leaveRoom(100).ok);
+  const auto joined = service.joinRoom(100, target_room.room_id);
+  ASSERT_TRUE(joined.ok);
+  EXPECT_EQ(joined.room_id, target_room.room_id);
+  EXPECT_EQ(joined.recipients.size(), 2);
 }
 
 }  // namespace

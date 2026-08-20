@@ -80,9 +80,13 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
 
   switch (packet.type) {
     case PacketType::LoginReq: {
-      const auto user = room_service_.login(session_id, payloadText(packet));
+      const auto result = room_service_.login(session_id, payloadText(packet));
+      if (!result.ok) {
+        static_cast<void>(sink.emit(error(session_id, result.error)));
+        return;
+      }
       std::ostringstream payload;
-      payload << "OK|" << userPrefix(user);
+      payload << "OK|" << userPrefix(result.user);
       static_cast<void>(
           sink.emit(make(session_id, PacketType::LoginRes, payload.str())));
       return;

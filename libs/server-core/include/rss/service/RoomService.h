@@ -13,6 +13,12 @@
 
 namespace rss::service {
 
+struct LoginResult {
+  bool ok{};
+  std::string error;
+  domain::User user;
+};
+
 struct RoomActionResult {
   bool ok{};
   std::string error;
@@ -23,7 +29,7 @@ struct RoomActionResult {
 
 class RoomService {
  public:
-  domain::User login(std::uint64_t session_id, std::string name);
+  LoginResult login(std::uint64_t session_id, std::string name);
   std::optional<domain::User> userOf(std::uint64_t session_id) const;
 
   RoomActionResult createRoom(std::uint64_t session_id, std::string room_name);
@@ -36,7 +42,6 @@ class RoomService {
 
  private:
   RoomActionResult requireUserLocked(std::uint64_t session_id) const;
-  void leaveCurrentRoomLocked(std::uint64_t session_id);
 
   mutable std::mutex mutex_;
   domain::Lobby lobby_;
