@@ -158,11 +158,19 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
   options.worker_count = 2;
 
   constexpr auto scenario_timeout = 25ms;
+  constexpr auto coordination_timeout = 5s;
   std::mutex receiver_mutex;
   std::condition_variable receiver_changed;
   std::size_t waiting_receivers{};
   bool release_receivers{};
   std::atomic_flag deadline_coordinator = ATOMIC_FLAG_INIT;
+  const auto releaseAllReceivers = [&] {
+    {
+      std::lock_guard lock(receiver_mutex);
+      release_receivers = true;
+    }
+    receiver_changed.notify_all();
+  };
 
   const rss::tools::ScenarioRunner runner{{
       .scenario_timeout = scenario_timeout,
@@ -171,7 +179,12 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
             std::unique_lock lock(receiver_mutex);
             ++waiting_receivers;
             receiver_changed.notify_all();
-            receiver_changed.wait(lock, [&] { return release_receivers; });
+            if (!receiver_changed.wait_for(lock, coordination_timeout,
+                                           [&] { return release_receivers; })) {
+              lock.unlock();
+              releaseAllReceivers();
+              throw std::runtime_error("receiver release timed out");
+            }
           },
       .before_send =
           [&](std::size_t, std::size_t sequence) {
@@ -181,15 +194,16 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
 
             {
               std::unique_lock lock(receiver_mutex);
-              receiver_changed.wait(
-                  lock, [&] { return waiting_receivers == options.clients; });
+              if (!receiver_changed.wait_for(lock, coordination_timeout, [&] {
+                    return waiting_receivers == options.clients;
+                  })) {
+                lock.unlock();
+                releaseAllReceivers();
+                throw std::runtime_error("receiver startup timed out");
+              }
             }
             std::this_thread::sleep_for(scenario_timeout);
-            {
-              std::lock_guard lock(receiver_mutex);
-              release_receivers = true;
-            }
-            receiver_changed.notify_all();
+            releaseAllReceivers();
           },
   }};
   const auto result = runner.runOnce(options, 1);
