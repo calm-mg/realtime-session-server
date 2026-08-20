@@ -165,20 +165,12 @@ class QtSessionClientTest final : public QObject {
   }
 
   void reconnectsAfterFatalSocketError() {
-    std::uint16_t unavailable_port{};
-    {
-      QTcpServer unavailable_server;
-      QVERIFY2(unavailable_server.listen(QHostAddress::LocalHost),
-               qPrintable(unavailable_server.errorString()));
-      unavailable_port = unavailable_server.serverPort();
-    }
-
     rss::qt_client::QtSessionClient client;
     rss::qt_client::ClientController controller(client);
     QSignalSpy error_spy(&client,
                          &rss::qt_client::SessionTransport::transportError);
 
-    controller.connectToServer("127.0.0.1", unavailable_port);
+    client.connectToHost("127.0.0.1", 0);
 
     QTRY_COMPARE_WITH_TIMEOUT(error_spy.count(), 1, 1000);
     QCOMPARE(error_spy.at(0).at(0).value<rss::qt_client::TransportErrorKind>(),
