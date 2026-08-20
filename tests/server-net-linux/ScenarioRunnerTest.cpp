@@ -164,6 +164,7 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
   std::size_t waiting_receivers{};
   bool release_receivers{};
   std::atomic_flag deadline_coordinator = ATOMIC_FLAG_INIT;
+  std::atomic_bool coordination_failed{};
   const auto releaseAllReceivers = [&] {
     {
       std::lock_guard lock(receiver_mutex);
@@ -181,6 +182,7 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
             receiver_changed.notify_all();
             if (!receiver_changed.wait_for(lock, coordination_timeout,
                                            [&] { return release_receivers; })) {
+              coordination_failed.store(true);
               lock.unlock();
               releaseAllReceivers();
               throw std::runtime_error("receiver release timed out");
@@ -197,6 +199,7 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
               if (!receiver_changed.wait_for(lock, coordination_timeout, [&] {
                     return waiting_receivers == options.clients;
                   })) {
+                coordination_failed.store(true);
                 lock.unlock();
                 releaseAllReceivers();
                 throw std::runtime_error("receiver startup timed out");
@@ -212,6 +215,7 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
   EXPECT_GT(result.expected_broadcasts, 0U);
   EXPECT_EQ(result.received_broadcasts, 0U);
   EXPECT_EQ(result.missing_broadcasts, result.expected_broadcasts);
+  EXPECT_FALSE(coordination_failed.load());
 }
 
 TEST(ScenarioRunnerTest, StartsElapsedTimeWhenFinalBarrierParticipantArrives) {
