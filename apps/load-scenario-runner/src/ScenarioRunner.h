@@ -26,6 +26,7 @@ struct ScenarioTuning {
   std::size_t max_sessions{10000};
   std::chrono::milliseconds scenario_timeout{std::chrono::seconds{30}};
   std::function<void()> before_measurement_start;
+  std::function<void()> before_receive;
   std::function<void(std::size_t, std::size_t)> before_send;
 };
 

@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
@@ -145,7 +147,9 @@ TEST(ScenarioRunnerTest, MessageIdentityRoundTripsAtRequestedPayloadSize) {
   EXPECT_EQ(identity.sent_us, 123456U);
 }
 
-TEST(ScenarioRunnerTest, DeadlineReturnsMissingBroadcasts) {
+TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
+  using namespace std::chrono_literals;
+
   rss::tools::ScenarioOptions options;
   options.scenario = rss::tools::ScenarioKind::Broadcast;
   options.clients = 2;
@@ -153,10 +157,65 @@ TEST(ScenarioRunnerTest, DeadlineReturnsMissingBroadcasts) {
   options.payload_bytes = 128;
   options.worker_count = 2;
 
-  const rss::tools::ScenarioRunner runner{
-      {.scenario_timeout = std::chrono::milliseconds{1}}};
+  constexpr auto scenario_timeout = 25ms;
+  constexpr auto coordination_timeout = 5s;
+  std::mutex receiver_mutex;
+  std::condition_variable receiver_changed;
+  std::size_t waiting_receivers{};
+  bool release_receivers{};
+  std::atomic_flag deadline_coordinator = ATOMIC_FLAG_INIT;
+  std::atomic_bool coordination_failed{};
+  const auto releaseAllReceivers = [&] {
+    {
+      std::lock_guard lock(receiver_mutex);
+      release_receivers = true;
+    }
+    receiver_changed.notify_all();
+  };
+
+  const rss::tools::ScenarioRunner runner{{
+      .scenario_timeout = scenario_timeout,
+      .before_receive =
+          [&] {
+            std::unique_lock lock(receiver_mutex);
+            ++waiting_receivers;
+            receiver_changed.notify_all();
+            if (!receiver_changed.wait_for(lock, coordination_timeout,
+                                           [&] { return release_receivers; })) {
+              coordination_failed.store(true);
+              lock.unlock();
+              releaseAllReceivers();
+              throw std::runtime_error("receiver release timed out");
+            }
+          },
+      .before_send =
+          [&](std::size_t, std::size_t sequence) {
+            if (sequence != 1 || deadline_coordinator.test_and_set()) {
+              return;
+            }
+
+            {
+              std::unique_lock lock(receiver_mutex);
+              if (!receiver_changed.wait_for(lock, coordination_timeout, [&] {
+                    return waiting_receivers == options.clients;
+                  })) {
+                coordination_failed.store(true);
+                lock.unlock();
+                releaseAllReceivers();
+                throw std::runtime_error("receiver startup timed out");
+              }
+            }
+            std::this_thread::sleep_for(scenario_timeout);
+            releaseAllReceivers();
+          },
+  }};
   const auto result = runner.runOnce(options, 1);
-  EXPECT_GT(result.missing_broadcasts, 0U);
+
+  EXPECT_GT(result.sent, 0U);
+  EXPECT_GT(result.expected_broadcasts, 0U);
+  EXPECT_EQ(result.received_broadcasts, 0U);
+  EXPECT_EQ(result.missing_broadcasts, result.expected_broadcasts);
+  EXPECT_FALSE(coordination_failed.load());
 }
 
 TEST(ScenarioRunnerTest, StartsElapsedTimeWhenFinalBarrierParticipantArrives) {

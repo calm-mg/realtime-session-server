@@ -245,12 +245,11 @@ std::vector<std::uint64_t> successfulSendsByRoom(RoomSendProgress& progress) {
   return progress.successful_sends_by_room;
 }
 
-bool runBeforeMeasurementStart(const std::function<void()>& before_start,
-                               std::exception_ptr& failure,
-                               ReceiveProgress* progress) {
+bool runTaskHook(const std::function<void()>& hook, std::exception_ptr& failure,
+                 ReceiveProgress* progress) {
   try {
-    if (before_start) {
-      before_start();
+    if (hook) {
+      hook();
     }
     return true;
   } catch (...) {
@@ -558,11 +557,15 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     try {
       for (std::size_t index = 0; index < fast_client_count; ++index) {
         tasks.emplace_back([&, index] {
-          const auto start_ready = runBeforeMeasurementStart(
-              tuning_.before_measurement_start, receive_states[index].failure,
-              progress);
+          const auto start_ready =
+              runTaskHook(tuning_.before_measurement_start,
+                          receive_states[index].failure, progress);
           start_barrier.arrive_and_wait();
           if (!start_ready) {
+            return;
+          }
+          if (!runTaskHook(tuning_.before_receive,
+                           receive_states[index].failure, progress)) {
             return;
           }
           const auto room_index = index % room_count;
@@ -576,8 +579,8 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
 
         tasks.emplace_back([&, index] {
           const auto start_ready =
-              runBeforeMeasurementStart(tuning_.before_measurement_start,
-                                        send_states[index].failure, progress);
+              runTaskHook(tuning_.before_measurement_start,
+                          send_states[index].failure, progress);
           start_barrier.arrive_and_wait();
           if (!start_ready) {
             recordSenderCompleted(send_progress, index % room_count);
