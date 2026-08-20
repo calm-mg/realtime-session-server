@@ -27,6 +27,7 @@ class QtSessionClientTest final : public QObject {
  private slots:
   void initTestCase() {
     qRegisterMetaType<rss::protocol::Packet>();
+    qRegisterMetaType<rss::qt_client::ClientState>();
     qRegisterMetaType<rss::qt_client::TransportErrorKind>();
   }
 
