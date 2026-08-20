@@ -38,10 +38,20 @@ target_link_libraries(rss_qt_session_client_tests
     PRIVATE rss_qt_client_network Qt6::Test
 )
 
-add_test(
-    NAME rss_qt_session_client_tests
-    COMMAND rss_qt_session_client_tests
-)
+foreach(test_case
+        emitsConnectedAndDisconnected
+        receivesPacketSplitAcrossWrites
+        receivesMultiplePacketsFromOneWrite
+        reconnectsOnceAfterFatalProtocolError
+        reconnectsAfterFatalSocketError
+        sendsEncodedPacketsInOrder
+        keepsConnectionUsableAfterOversizedOutgoingPayload
+        rejectsSendWhileDisconnected)
+    add_test(
+        NAME rss_qt_session_client_tests.${test_case}
+        COMMAND rss_qt_session_client_tests ${test_case}
+    )
+endforeach()
 
 qt_add_executable(rss_qt_main_window_tests
     MainWindowTest.cpp

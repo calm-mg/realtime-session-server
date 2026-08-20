@@ -9,6 +9,11 @@
 
 namespace rss::qt_client {
 
+enum class TransportErrorKind {
+  Recoverable,
+  Fatal,
+};
+
 class SessionTransport : public QObject {
   Q_OBJECT
 
@@ -25,9 +30,10 @@ class SessionTransport : public QObject {
   void connected();
   void disconnected();
   void packetReceived(rss::protocol::Packet packet);
-  void transportError(QString message);
+  void transportError(rss::qt_client::TransportErrorKind kind, QString message);
 };
 
 }  // namespace rss::qt_client
 
 Q_DECLARE_METATYPE(rss::protocol::Packet)
+Q_DECLARE_METATYPE(rss::qt_client::TransportErrorKind)

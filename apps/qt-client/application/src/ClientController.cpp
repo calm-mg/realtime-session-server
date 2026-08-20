@@ -154,17 +154,17 @@ void ClientController::leaveRoom() {
   sendTextPacket(protocol::PacketType::LeaveRoomReq, {});
 }
 
-void ClientController::sendChat(const QString& message) {
+bool ClientController::sendChat(const QString& message) {
   if (!requireState(ClientState::InRoom,
                     "Join a room before sending a message.")) {
-    return;
+    return false;
   }
   const QString value = message.trimmed();
   if (value.isEmpty()) {
     emit validationFailed("Enter a chat message.");
-    return;
+    return false;
   }
-  sendTextPacket(protocol::PacketType::ChatReq, value);
+  return sendTextPacket(protocol::PacketType::ChatReq, value);
 }
 
 void ClientController::onConnected() {
@@ -219,10 +219,13 @@ void ClientController::onPacketReceived(const protocol::Packet& packet) {
   emit logEntryAdded(logEntry(ok ? LogKind::System : LogKind::Error, payload));
 }
 
-void ClientController::onTransportError(const QString& message) {
+void ClientController::onTransportError(TransportErrorKind kind,
+                                        const QString& message) {
   emit logEntryAdded(logEntry(LogKind::Error, message));
-  session_id_.reset();
-  setState(ClientState::Disconnected);
+  if (kind == TransportErrorKind::Fatal) {
+    session_id_.reset();
+    setState(ClientState::Disconnected);
+  }
 }
 
 void ClientController::setState(ClientState state) {
