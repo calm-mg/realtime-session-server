@@ -1,6 +1,7 @@
 #include "rss/qt_client/network/QtSessionClient.h"
 
 #include <QAbstractSocket>
+#include <QSignalBlocker>
 #include <cstddef>
 #include <utility>
 
@@ -17,8 +18,11 @@ QtSessionClient::QtSessionClient(QObject* parent) : SessionTransport(parent) {
   connect(&socket_, &QTcpSocket::bytesWritten, this,
           [this](qint64) { flushPendingWrites(); });
   connect(&socket_, &QTcpSocket::errorOccurred, this,
-          [this](QAbstractSocket::SocketError) {
-            emit transportError(socket_.errorString());
+          [this](QAbstractSocket::SocketError error) {
+            if (error == QAbstractSocket::RemoteHostClosedError) {
+              return;
+            }
+            failConnection(socket_.errorString());
           });
 }
 
@@ -29,6 +33,7 @@ QtSessionClient::~QtSessionClient() {
 
 void QtSessionClient::connectToHost(const QString& host, std::uint16_t port) {
   resetBuffers();
+  fatal_error_reported_ = false;
   socket_.connectToHost(host, port);
 }
 
@@ -45,7 +50,8 @@ bool QtSessionClient::sendPacket(protocol::PacketType type,
     pending_bytes_.append(reinterpret_cast<const char*>(encoded.data()),
                           static_cast<qsizetype>(encoded.size()));
   } catch (const protocol::ProtocolError& error) {
-    emit transportError(QString::fromUtf8(error.what()));
+    emit transportError(TransportErrorKind::Recoverable,
+                        QString::fromUtf8(error.what()));
     return false;
   }
 
@@ -62,10 +68,8 @@ void QtSessionClient::readAvailableBytes() {
       emit packetReceived(std::move(packet));
     }
   } catch (const protocol::ProtocolError& error) {
-    emit transportError(
+    failConnection(
         QString("Protocol error: %1").arg(QString::fromUtf8(error.what())));
-    socket_.abort();
-    resetBuffers();
   }
 }
 
@@ -80,7 +84,7 @@ bool QtSessionClient::flushPendingWrites() {
   const qint64 accepted =
       socket_.write(pending_bytes_.constData() + pending_offset_, remaining);
   if (accepted < 0) {
-    emit transportError(socket_.errorString());
+    failConnection(socket_.errorString());
     return false;
   }
 
@@ -90,6 +94,19 @@ bool QtSessionClient::flushPendingWrites() {
     pending_offset_ = 0;
   }
   return true;
+}
+
+void QtSessionClient::failConnection(const QString& message) {
+  if (fatal_error_reported_) {
+    return;
+  }
+  fatal_error_reported_ = true;
+  {
+    const QSignalBlocker blocker(&socket_);
+    socket_.abort();
+  }
+  resetBuffers();
+  emit transportError(TransportErrorKind::Fatal, message);
 }
 
 void QtSessionClient::resetBuffers() {

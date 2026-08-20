@@ -24,7 +24,9 @@ class FakeSessionTransport final : public rss::qt_client::SessionTransport {
 
   void completeConnection() { emit connected(); }
   void completeDisconnection() { emit disconnected(); }
-  void fail(const QString& message) { emit transportError(message); }
+  void failFatally(const QString& message) {
+    emit transportError(rss::qt_client::TransportErrorKind::Fatal, message);
+  }
   void receive(rss::protocol::Packet packet) {
     emit packetReceived(std::move(packet));
   }
@@ -34,6 +36,7 @@ class FakeSessionTransport final : public rss::qt_client::SessionTransport {
   }
   [[nodiscard]] const std::string& lastPayload() const { return last_payload_; }
   [[nodiscard]] int sentCount() const { return sent_count_; }
+  void setSendSucceeds(bool succeeds) { send_succeeds_ = succeeds; }
 
  private:
   QString host_;

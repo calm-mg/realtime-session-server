@@ -161,10 +161,7 @@ void MainWindow::submitChat() {
   }
 
   const QString message = ui_->messageEdit->text();
-  const bool accepted = controller_->state() == ClientState::InRoom &&
-                        !message.trimmed().isEmpty();
-  controller_->sendChat(message);
-  if (accepted) {
+  if (controller_->sendChat(message)) {
     ui_->messageEdit->clear();
   }
 }

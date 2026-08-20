@@ -24,12 +24,14 @@ class QtSessionClient final : public SessionTransport {
  private:
   void readAvailableBytes();
   bool flushPendingWrites();
+  void failConnection(const QString& message);
   void resetBuffers();
 
   QTcpSocket socket_;
   protocol::PacketCodec codec_;
   QByteArray pending_bytes_;
   qsizetype pending_offset_{};
+  bool fatal_error_reported_{};
 };
 
 }  // namespace rss::qt_client

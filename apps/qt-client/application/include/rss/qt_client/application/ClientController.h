@@ -26,7 +26,7 @@ class ClientController final : public QObject {
   void createRoom(const QString& room_name);
   void joinRoom(const QString& room_id);
   void leaveRoom();
-  void sendChat(const QString& message);
+  bool sendChat(const QString& message);
 
  signals:
   void stateChanged(rss::qt_client::ClientState state);
@@ -37,7 +37,7 @@ class ClientController final : public QObject {
   void onConnected();
   void onDisconnected();
   void onPacketReceived(const protocol::Packet& packet);
-  void onTransportError(const QString& message);
+  void onTransportError(TransportErrorKind kind, const QString& message);
   void setState(ClientState state);
   bool requireState(ClientState expected, const QString& message);
   bool sendTextPacket(protocol::PacketType type, const QString& payload);

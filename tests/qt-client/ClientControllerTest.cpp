@@ -31,6 +31,7 @@ class ClientControllerTest final : public QObject {
     qRegisterMetaType<ChatLogEntry>();
     qRegisterMetaType<LogKind>();
     qRegisterMetaType<Packet>();
+    qRegisterMetaType<rss::qt_client::TransportErrorKind>();
   }
 
   void waitsForLoginResponseBeforeChangingState() {
@@ -69,7 +70,7 @@ class ClientControllerTest final : public QObject {
     controller.connectToServer("127.0.0.1", 7777);
     QCOMPARE(controller.state(), ClientState::Connecting);
 
-    transport.fail("Connection refused");
+    transport.failFatally("Connection refused");
 
     QCOMPARE(controller.state(), ClientState::Disconnected);
   }

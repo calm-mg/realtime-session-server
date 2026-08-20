@@ -281,6 +281,21 @@ class MainWindowTest final : public QObject {
 
     QCOMPARE(edit->text(), QString("   "));
   }
+
+  void keepsMessageWhenTransportRejectsSend() {
+    FakeSessionTransport transport;
+    rss::qt_client::ClientController controller(transport);
+    rss::qt_client::MainWindow window;
+    window.bind(controller);
+    enterRoom(controller, transport);
+    transport.setSendSucceeds(false);
+
+    auto* edit = window.findChild<QLineEdit*>("messageEdit");
+    edit->setText("hello");
+    window.findChild<QPushButton*>("sendButton")->click();
+
+    QCOMPARE(edit->text(), QString("hello"));
+  }
 };
 
 QTEST_MAIN(MainWindowTest)
