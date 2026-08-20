@@ -565,6 +565,11 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
           if (!start_ready) {
             return;
           }
+          if (!runBeforeMeasurementStart(tuning_.before_receive,
+                                         receive_states[index].failure,
+                                         progress)) {
+            return;
+          }
           const auto room_index = index % room_count;
           receiveBroadcasts(clients[index], run_id, fast_client_count,
                             room_index, room_count, room_sizes[room_index],
