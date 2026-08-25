@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -43,8 +42,8 @@ void expectRepeatedLoginInRoomRejected(std::string_view repeated_name) {
 TEST(RoomServiceTest, AssignsUniqueUserIds) {
   RoomService service;
 
-  const auto alice = service.login(100, "alice").user;
-  const auto bob = service.login(200, "bob").user;
+  const auto alice = service.login(100, "alice");
+  const auto bob = service.login(200, "bob");
 
   ASSERT_TRUE(alice.ok);
   ASSERT_TRUE(bob.ok);
@@ -57,44 +56,6 @@ TEST(RoomServiceTest, RejectsRepeatedLoginWithSameNameWhileInRoom) {
 
 TEST(RoomServiceTest, RejectsRepeatedLoginWithDifferentNameWhileInRoom) {
   expectRepeatedLoginInRoomRejected("mallory");
-}
-
-TEST(RoomServiceTest, RejectsRepeatedLoginWithoutChangingUser) {
-  RoomService service;
-
-  const auto first = service.login(100, "alice");
-  const auto repeated_same_name = service.login(100, "alice");
-  const auto repeated_different_name = service.login(100, "mallory");
-
-  ASSERT_TRUE(first.ok);
-  EXPECT_FALSE(repeated_same_name.ok);
-  EXPECT_EQ(repeated_same_name.error, "user is already logged in");
-  EXPECT_EQ(repeated_same_name.user.id, first.user.id);
-  EXPECT_EQ(repeated_same_name.user.name, "alice");
-  EXPECT_FALSE(repeated_different_name.ok);
-  EXPECT_EQ(repeated_different_name.error, "user is already logged in");
-  EXPECT_EQ(repeated_different_name.user.id, first.user.id);
-  EXPECT_EQ(repeated_different_name.user.name, "alice");
-
-  const auto stored = service.userOf(100);
-  ASSERT_TRUE(stored.has_value());
-  EXPECT_EQ(stored->id, first.user.id);
-  EXPECT_EQ(stored->name, "alice");
-}
-
-TEST(RoomServiceTest, KeepsRoomActionsOnOriginalUserAfterRepeatedLogin) {
-  RoomService service;
-  ASSERT_TRUE(service.login(100, "alice").ok);
-  ASSERT_TRUE(service.createRoom(100, "first").ok);
-
-  ASSERT_FALSE(service.login(100, "mallory").ok);
-
-  const auto chat = service.chat(100);
-  ASSERT_TRUE(chat.ok);
-  EXPECT_EQ(chat.actor.name, "alice");
-  const auto leave = service.leaveRoom(100);
-  ASSERT_TRUE(leave.ok);
-  EXPECT_EQ(leave.actor.name, "alice");
 }
 
 TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {

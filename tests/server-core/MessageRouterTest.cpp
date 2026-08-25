@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -46,16 +45,6 @@ SessionEvent event(std::uint64_t session_id, PacketType type,
                    std::string_view payload) {
   return SessionEvent{SessionEventKind::Packet, session_id,
                       decodeSinglePacket(type, payload)};
-}
-
-Packet decodeMessage(const OutboundMessage& message) {
-  PacketCodec codec;
-  codec.feed(message.bytes.data(), message.bytes.size());
-  auto packets = codec.drainPackets();
-  if (packets.size() != 1) {
-    throw std::runtime_error("expected exactly one outbound packet");
-  }
-  return std::move(packets.front());
 }
 
 class CollectingSink final : public OutboundMessageSink {
