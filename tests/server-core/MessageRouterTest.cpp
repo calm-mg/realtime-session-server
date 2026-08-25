@@ -122,6 +122,8 @@ TEST(MessageRouterTest, ReturnsOnlyErrorWhenCreatingRoomBeforeLeaving) {
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "first")).size(),
             1);
+  ASSERT_EQ(route(router, event(2, PacketType::LoginReq, "bob")).size(), 1);
+  ASSERT_EQ(route(router, event(2, PacketType::JoinRoomReq, "1")).size(), 2);
 
   const auto output =
       route(router, event(1, PacketType::CreateRoomReq, "second"));
@@ -131,6 +133,13 @@ TEST(MessageRouterTest, ReturnsOnlyErrorWhenCreatingRoomBeforeLeaving) {
   const auto packet = decodeMessage(output.front());
   EXPECT_EQ(packet.type, PacketType::Error);
   EXPECT_EQ(rss::protocol::payloadToString(packet), "leave current room first");
+
+  const auto chat = route(router, event(1, PacketType::ChatReq, "still here"));
+  ASSERT_EQ(chat.size(), 2);
+  std::vector<std::uint64_t> chat_recipients{chat[0].session_id,
+                                             chat[1].session_id};
+  std::sort(chat_recipients.begin(), chat_recipients.end());
+  EXPECT_EQ(chat_recipients, (std::vector<std::uint64_t>{1, 2}));
 }
 
 TEST(MessageRouterTest, ReturnsOnlyErrorWhenJoiningRoomBeforeLeaving) {
