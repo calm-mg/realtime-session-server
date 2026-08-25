@@ -7,18 +7,6 @@
 
 ## 운영 안정성
 
-### 프로세스 종료 신호와 정상 종료 미연결
-
-`TcpServer`에는 입력과 출력을 제한 시간 동안 drain하는 `stop()` 경로가
-있지만 서버 실행 파일은 `SIGINT`와 `SIGTERM`을 이 요청에 연결하지 않습니다.
-
-완료 조건:
-
-- signal handler에서는 async-signal-safe한 방식으로 종료 요청만 전달
-- I/O 스레드가 `stop()` 요청을 관측해 기존 drain 절차를 실행
-- `SIGINT`와 `SIGTERM`에서 제한 시간 안에 프로세스가 종료되는 통합 테스트
-- 운영 실행 및 종료 방법을 README에 문서화
-
 ### `ServerConfig` 검증 범위 부족
 
 queue와 전송 상한은 검증하지만 `max_events`, `backlog`, `idle_timeout` 등
