@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 
+#include "ShutdownSignalMonitor.h"
 #include "rss/net/TcpServer.h"
 
 namespace {
@@ -36,8 +37,11 @@ int main(int argc, char** argv) {
   }
 
   try {
+    const auto shutdown_signals = rss::server::blockShutdownSignals();
     rss::net::TcpServer server(config);
+    rss::server::ShutdownSignalMonitor signal_monitor(shutdown_signals, server);
     server.run();
+    signal_monitor.throwIfFailed();
   } catch (const std::exception& ex) {
     std::cerr << "server failed: " << ex.what() << '\n';
     return EXIT_FAILURE;
