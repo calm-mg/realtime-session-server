@@ -1,7 +1,5 @@
 # 운영 종료 신호와 정상 종료 연결 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Linux `rss_server`가 `SIGINT`와 `SIGTERM`을 전용 `sigwait()` 스레드에서 받아 기존 `TcpServer::stop()` drain 절차로 정상 종료되게 합니다.
 
 **Architecture:** 애플리케이션 계층에서 두 종료 신호를 worker 생성 전에 차단하고, `ShutdownSignalMonitor`가 전용 스레드에서 동기적으로 기다립니다. monitor는 신호를 받으면 `TcpServer::stop()`만 호출하며, 네트워크 라이브러리와 embedded server의 동작은 변경하지 않습니다. 실제 `rss_server` 자식 프로세스 통합 테스트가 두 신호의 exit status와 종료 상한을 검증합니다.
@@ -591,5 +589,5 @@ git log --oneline main..HEAD
 ```
 
 Expected: 계획된 서버 애플리케이션, Linux 테스트와 네 문서만 구현 변경에
-포함됩니다. 기존 미추적 `.codex/`는 커밋되지 않으며, 프로토콜·Qt·플랫폼
+포함됩니다. 기존 로컬 미추적 파일은 커밋되지 않으며, 프로토콜·Qt·플랫폼
 독립 라이브러리 파일에는 변경이 없습니다.
