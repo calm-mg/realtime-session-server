@@ -1,6 +1,7 @@
 #include <benchmark/benchmark.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -25,8 +26,13 @@ class CountingSink final : public rss::service::OutboundMessageSink {
 class MessageRouterFixture : public benchmark::Fixture {
  public:
   void SetUp(const benchmark::State& state) override {
-    service_.login(1, "user-1");
-    const auto created = service_.createRoom(1, "benchmark-room");
+    setup_error_.clear();
+    router_.reset();
+    service_ = std::make_unique<rss::service::RoomService>();
+    router_ = std::make_unique<rss::service::MessageRouter>(*service_);
+
+    service_->login(1, "user-1");
+    const auto created = service_->createRoom(1, "benchmark-room");
     if (!created.ok) {
       setup_error_ = "failed to create benchmark room";
       return;
@@ -34,8 +40,8 @@ class MessageRouterFixture : public benchmark::Fixture {
 
     for (std::int64_t i = 2; i <= state.range(0); ++i) {
       const auto session_id = static_cast<std::uint64_t>(i);
-      service_.login(session_id, "user-" + std::to_string(i));
-      if (!service_.joinRoom(session_id, created.room_id).ok) {
+      service_->login(session_id, "user-" + std::to_string(i));
+      if (!service_->joinRoom(session_id, created.room_id).ok) {
         setup_error_ = "failed to join benchmark room";
         return;
       }
@@ -53,8 +59,8 @@ class MessageRouterFixture : public benchmark::Fixture {
   }
 
  protected:
-  rss::service::RoomService service_;
-  rss::service::MessageRouter router_{service_};
+  std::unique_ptr<rss::service::RoomService> service_;
+  std::unique_ptr<rss::service::MessageRouter> router_;
   rss::service::SessionEvent chat_event_;
   std::string setup_error_;
 };
@@ -68,7 +74,7 @@ BENCHMARK_DEFINE_F(MessageRouterFixture, ChatFanout)
 
   for (auto _ : state) {
     CountingSink sink;
-    router_.handle(chat_event_, sink);
+    router_->handle(chat_event_, sink);
     benchmark::DoNotOptimize(sink.count());
   }
 
