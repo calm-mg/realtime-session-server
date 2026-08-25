@@ -32,6 +32,16 @@ Packet decodeSinglePacket(PacketType type, std::string_view payload) {
   return std::move(packets.front());
 }
 
+Packet decodeSingleMessage(const OutboundMessage& message) {
+  PacketCodec codec;
+  codec.feed(message.bytes.data(), message.bytes.size());
+  auto packets = codec.drainPackets();
+  if (packets.size() != 1) {
+    throw std::runtime_error("expected exactly one outbound packet");
+  }
+  return std::move(packets.front());
+}
+
 SessionEvent event(std::uint64_t session_id, PacketType type,
                    std::string_view payload) {
   return SessionEvent{SessionEventKind::Packet, session_id,
@@ -101,100 +111,126 @@ TEST(MessageRouterTest, RespondsToPing) {
   EXPECT_EQ(rss::protocol::payloadToString(packets.front()), "PONG");
 }
 
-TEST(MessageRouterTest, ReturnsErrorForRepeatedLogin) {
+TEST(MessageRouterTest, RejectsRepeatedLoginWithoutChangingUser) {
   RoomService service;
   MessageRouter router(service);
+
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
+  const auto original_user = service.userOf(1);
+  ASSERT_TRUE(original_user.has_value());
 
   const auto output = route(router, event(1, PacketType::LoginReq, "mallory"));
 
   ASSERT_EQ(output.size(), 1);
   EXPECT_EQ(output.front().session_id, 1);
-  const auto packet = decodeMessage(output.front());
+  const auto packet = decodeSingleMessage(output.front());
   EXPECT_EQ(packet.type, PacketType::Error);
   EXPECT_EQ(rss::protocol::payloadToString(packet),
             "user is already logged in");
+
+  const auto current_user = service.userOf(1);
+  ASSERT_TRUE(current_user.has_value());
+  EXPECT_EQ(current_user->id, original_user->id);
+  EXPECT_EQ(current_user->name, "alice");
 }
 
-TEST(MessageRouterTest, ReturnsOnlyErrorWhenCreatingRoomBeforeLeaving) {
+TEST(MessageRouterTest, RejectsJoiningAnotherRoomWithoutBroadcasting) {
   RoomService service;
   MessageRouter router(service);
+
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
-  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "first")).size(),
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
             1);
   ASSERT_EQ(route(router, event(2, PacketType::LoginReq, "bob")).size(), 1);
-  ASSERT_EQ(route(router, event(2, PacketType::JoinRoomReq, "1")).size(), 2);
-
-  const auto output =
-      route(router, event(1, PacketType::CreateRoomReq, "second"));
-
-  ASSERT_EQ(output.size(), 1);
-  EXPECT_EQ(output.front().session_id, 1);
-  const auto packet = decodeMessage(output.front());
-  EXPECT_EQ(packet.type, PacketType::Error);
-  EXPECT_EQ(rss::protocol::payloadToString(packet), "leave current room first");
-
-  const auto chat = route(router, event(1, PacketType::ChatReq, "still here"));
-  ASSERT_EQ(chat.size(), 2);
-  std::vector<std::uint64_t> chat_recipients{chat[0].session_id,
-                                             chat[1].session_id};
-  std::sort(chat_recipients.begin(), chat_recipients.end());
-  EXPECT_EQ(chat_recipients, (std::vector<std::uint64_t>{1, 2}));
-}
-
-TEST(MessageRouterTest, ReturnsOnlyErrorWhenJoiningRoomBeforeLeaving) {
-  RoomService service;
-  MessageRouter router(service);
-  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
-  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "first")).size(),
-            1);
-  ASSERT_EQ(route(router, event(4, PacketType::LoginReq, "dave")).size(), 1);
-  ASSERT_EQ(route(router, event(4, PacketType::JoinRoomReq, "1")).size(), 2);
-  ASSERT_EQ(route(router, event(2, PacketType::LoginReq, "bob")).size(), 1);
-  ASSERT_EQ(route(router, event(2, PacketType::CreateRoomReq, "second")).size(),
+  ASSERT_EQ(route(router, event(2, PacketType::CreateRoomReq, "other")).size(),
             1);
 
   const auto output = route(router, event(1, PacketType::JoinRoomReq, "2"));
 
   ASSERT_EQ(output.size(), 1);
   EXPECT_EQ(output.front().session_id, 1);
-  const auto packet = decodeMessage(output.front());
+  const auto packet = decodeSingleMessage(output.front());
   EXPECT_EQ(packet.type, PacketType::Error);
   EXPECT_EQ(rss::protocol::payloadToString(packet), "leave current room first");
 
-  const auto chat = route(router, event(1, PacketType::ChatReq, "still here"));
-  ASSERT_EQ(chat.size(), 2);
-  std::vector<std::uint64_t> chat_recipients{chat[0].session_id,
-                                             chat[1].session_id};
-  std::sort(chat_recipients.begin(), chat_recipients.end());
-  EXPECT_EQ(chat_recipients, (std::vector<std::uint64_t>{1, 4}));
+  const auto alice_chat = service.chat(1);
+  ASSERT_TRUE(alice_chat.ok);
+  EXPECT_EQ(alice_chat.room_id, 1);
+  EXPECT_EQ(alice_chat.recipients, std::vector<std::uint64_t>{1});
+
+  const auto bob_chat = service.chat(2);
+  ASSERT_TRUE(bob_chat.ok);
+  EXPECT_EQ(bob_chat.room_id, 2);
+  EXPECT_EQ(bob_chat.recipients, std::vector<std::uint64_t>{2});
 }
 
-TEST(MessageRouterTest, LeavesBeforeJoiningAnotherRoomInResponseOrder) {
+TEST(MessageRouterTest, RejectsRoomCreationWhileInRoomWithoutBroadcasting) {
   RoomService service;
   MessageRouter router(service);
+
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
-  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "first")).size(),
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
             1);
   ASSERT_EQ(route(router, event(2, PacketType::LoginReq, "bob")).size(), 1);
   ASSERT_EQ(route(router, event(2, PacketType::JoinRoomReq, "1")).size(), 2);
-  ASSERT_EQ(route(router, event(3, PacketType::LoginReq, "carol")).size(), 1);
-  ASSERT_EQ(route(router, event(3, PacketType::CreateRoomReq, "second")).size(),
+
+  const auto output =
+      route(router, event(1, PacketType::CreateRoomReq, "other"));
+
+  ASSERT_EQ(output.size(), 1);
+  EXPECT_EQ(output.front().session_id, 1);
+  const auto packet = decodeSingleMessage(output.front());
+  EXPECT_EQ(packet.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(packet), "leave current room first");
+
+  const auto chat = service.chat(1);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.room_id, 1);
+  EXPECT_EQ(chat.recipients.size(), 2);
+}
+
+TEST(MessageRouterTest, LeavesThenJoinsAnotherRoomWithOrderedMessages) {
+  RoomService service;
+  MessageRouter router(service);
+
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
             1);
+  ASSERT_EQ(route(router, event(2, PacketType::LoginReq, "observer")).size(),
+            1);
+  ASSERT_EQ(route(router, event(2, PacketType::JoinRoomReq, "1")).size(), 2);
+  ASSERT_EQ(route(router, event(3, PacketType::LoginReq, "owner")).size(), 1);
+  ASSERT_EQ(route(router, event(3, PacketType::CreateRoomReq, "other")).size(),
+            1);
+  ASSERT_EQ(route(router, event(1, PacketType::JoinRoomReq, "2")).size(), 1);
 
   const auto leave = route(router, event(1, PacketType::LeaveRoomReq, ""));
+
   ASSERT_EQ(leave.size(), 2);
   EXPECT_EQ(leave[0].session_id, 1);
-  EXPECT_EQ(decodeMessage(leave[0]).type, PacketType::LeaveRoomRes);
+  const auto leave_response = decodeSingleMessage(leave[0]);
+  EXPECT_EQ(leave_response.type, PacketType::LeaveRoomRes);
+  EXPECT_EQ(rss::protocol::payloadToString(leave_response),
+            "OK|event=LEAVE_ROOM|room_id=1|user_id=1|session_id=1|name=alice");
   EXPECT_EQ(leave[1].session_id, 2);
-  EXPECT_EQ(decodeMessage(leave[1]).type, PacketType::RoomBroadcast);
+  const auto leave_broadcast = decodeSingleMessage(leave[1]);
+  EXPECT_EQ(leave_broadcast.type, PacketType::RoomBroadcast);
+  EXPECT_EQ(rss::protocol::payloadToString(leave_broadcast),
+            "OK|event=LEAVE|room_id=1|user_id=1|session_id=1|name=alice");
 
   const auto join = route(router, event(1, PacketType::JoinRoomReq, "2"));
+
   ASSERT_EQ(join.size(), 2);
   EXPECT_EQ(join[0].session_id, 1);
-  EXPECT_EQ(decodeMessage(join[0]).type, PacketType::JoinRoomRes);
+  const auto join_response = decodeSingleMessage(join[0]);
+  EXPECT_EQ(join_response.type, PacketType::JoinRoomRes);
+  EXPECT_EQ(rss::protocol::payloadToString(join_response),
+            "OK|event=JOIN_ROOM|room_id=2|user_id=1|session_id=1|name=alice");
   EXPECT_EQ(join[1].session_id, 3);
-  EXPECT_EQ(decodeMessage(join[1]).type, PacketType::RoomBroadcast);
+  const auto join_broadcast = decodeSingleMessage(join[1]);
+  EXPECT_EQ(join_broadcast.type, PacketType::RoomBroadcast);
+  EXPECT_EQ(rss::protocol::payloadToString(join_broadcast),
+            "OK|event=JOIN|room_id=2|user_id=1|session_id=1|name=alice");
 }
 
 }  // namespace

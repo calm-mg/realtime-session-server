@@ -23,7 +23,7 @@ LoginResult RoomService::login(std::uint64_t session_id, std::string name) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto existing = users_by_session_.find(session_id);
   if (existing != users_by_session_.end()) {
-    return {false, "user is already logged in", existing->second};
+    return LoginResult{false, "user is already logged in", existing->second};
   }
 
   domain::User user;
@@ -31,7 +31,7 @@ LoginResult RoomService::login(std::uint64_t session_id, std::string name) {
   user.session_id = session_id;
   user.name = normalizeName(std::move(name), "user-" + std::to_string(user.id));
   users_by_session_[session_id] = user;
-  return {true, {}, user};
+  return LoginResult{true, {}, std::move(user)};
 }
 
 std::optional<domain::User> RoomService::userOf(
