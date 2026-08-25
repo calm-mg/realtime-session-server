@@ -6,8 +6,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <chrono>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -55,9 +55,8 @@ bool canConnect(std::uint16_t port) {
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   address.sin_port = htons(port);
-  const auto connected =
-      ::connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) ==
-      0;
+  const auto connected = ::connect(fd, reinterpret_cast<sockaddr*>(&address),
+                                   sizeof(address)) == 0;
   ::close(fd);
   return connected;
 }
@@ -154,10 +153,10 @@ TEST_P(ServerSignalTest, StopsThroughGracefulPath) {
   EXPECT_EQ(WEXITSTATUS(result.status), EXIT_SUCCESS);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    TerminationSignals, ServerSignalTest, testing::Values(SIGINT, SIGTERM),
-    [](const testing::TestParamInfo<int>& info) {
-      return info.param == SIGINT ? "Sigint" : "Sigterm";
-    });
+INSTANTIATE_TEST_SUITE_P(TerminationSignals, ServerSignalTest,
+                         testing::Values(SIGINT, SIGTERM),
+                         [](const testing::TestParamInfo<int>& info) {
+                           return info.param == SIGINT ? "Sigint" : "Sigterm";
+                         });
 
 }  // namespace
