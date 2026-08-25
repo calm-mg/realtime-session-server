@@ -170,8 +170,8 @@ I/O 스레드가 beginShutdown() 실행
   오인하지 않음
 - 정상 종료 과정에서 monitor 대기 스레드가 join되어 자식 프로세스가
   남지 않는지 확인
-- timeout과 비정상 종료 시 자식의 wait status와 표준 오류를 실패 메시지에
-  포함
+- timeout과 비정상 종료 시 자식의 wait status를 assertion에 포함하고, 자식이
+  상속한 표준 오류를 테스트 출력에서 확인 가능하게 유지
 
 signal mask와 process signal은 프로세스 전역 상태이므로 동일한 GoogleTest
 프로세스 안에서 직접 발생시키는 단위 테스트는 두지 않습니다. 별도
