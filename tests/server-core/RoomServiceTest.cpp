@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -13,10 +14,48 @@ using rss::service::RoomService;
 TEST(RoomServiceTest, AssignsUniqueUserIds) {
   RoomService service;
 
-  const auto alice = service.login(100, "alice");
-  const auto bob = service.login(200, "bob");
+  const auto alice = service.login(100, "alice").user;
+  const auto bob = service.login(200, "bob").user;
 
   EXPECT_NE(alice.id, bob.id);
+}
+
+TEST(RoomServiceTest, RejectsRepeatedLoginWithoutChangingUser) {
+  RoomService service;
+
+  const auto first = service.login(100, "alice");
+  const auto repeated_same_name = service.login(100, "alice");
+  const auto repeated_different_name = service.login(100, "mallory");
+
+  ASSERT_TRUE(first.ok);
+  EXPECT_FALSE(repeated_same_name.ok);
+  EXPECT_EQ(repeated_same_name.error, "user is already logged in");
+  EXPECT_EQ(repeated_same_name.user.id, first.user.id);
+  EXPECT_EQ(repeated_same_name.user.name, "alice");
+  EXPECT_FALSE(repeated_different_name.ok);
+  EXPECT_EQ(repeated_different_name.error, "user is already logged in");
+  EXPECT_EQ(repeated_different_name.user.id, first.user.id);
+  EXPECT_EQ(repeated_different_name.user.name, "alice");
+
+  const auto stored = service.userOf(100);
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_EQ(stored->id, first.user.id);
+  EXPECT_EQ(stored->name, "alice");
+}
+
+TEST(RoomServiceTest, KeepsRoomActionsOnOriginalUserAfterRepeatedLogin) {
+  RoomService service;
+  ASSERT_TRUE(service.login(100, "alice").ok);
+  ASSERT_TRUE(service.createRoom(100, "first").ok);
+
+  ASSERT_FALSE(service.login(100, "mallory").ok);
+
+  const auto chat = service.chat(100);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.actor.name, "alice");
+  const auto leave = service.leaveRoom(100);
+  ASSERT_TRUE(leave.ok);
+  EXPECT_EQ(leave.actor.name, "alice");
 }
 
 TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {
@@ -94,6 +133,74 @@ TEST(RoomServiceTest, RejectsRejoiningSameRoomWithoutChangingMembers) {
   const auto remaining_member_chat = service.chat(100);
   ASSERT_TRUE(remaining_member_chat.ok);
   EXPECT_EQ(remaining_member_chat.recipients, std::vector<std::uint64_t>{100});
+}
+
+TEST(RoomServiceTest, RejectsCreatingRoomUntilCurrentRoomIsLeft) {
+  RoomService service;
+  service.login(100, "alice");
+  service.login(200, "bob");
+
+  const auto first_room = service.createRoom(100, "first");
+  ASSERT_TRUE(first_room.ok);
+  const auto second_room = service.createRoom(200, "second");
+  ASSERT_TRUE(second_room.ok);
+
+  const auto rejected = service.createRoom(100, "forbidden");
+  EXPECT_FALSE(rejected.ok);
+  EXPECT_EQ(rejected.error, "leave current room first");
+
+  const auto chat = service.chat(100);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.room_id, first_room.room_id);
+  EXPECT_EQ(chat.recipients, std::vector<std::uint64_t>{100});
+
+  ASSERT_TRUE(service.leaveRoom(100).ok);
+  const auto created_after_leave = service.createRoom(100, "allowed");
+  ASSERT_TRUE(created_after_leave.ok);
+  EXPECT_EQ(created_after_leave.room_id, second_room.room_id + 1);
+}
+
+TEST(RoomServiceTest, RejectsJoiningAnotherRoomUntilCurrentRoomIsLeft) {
+  RoomService service;
+  service.login(100, "alice");
+  service.login(200, "bob");
+
+  const auto first_room = service.createRoom(100, "first");
+  ASSERT_TRUE(first_room.ok);
+  const auto second_room = service.createRoom(200, "second");
+  ASSERT_TRUE(second_room.ok);
+
+  const auto rejected = service.joinRoom(100, second_room.room_id);
+  EXPECT_FALSE(rejected.ok);
+  EXPECT_EQ(rejected.error, "leave current room first");
+
+  const auto chat = service.chat(100);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.room_id, first_room.room_id);
+  EXPECT_EQ(chat.recipients, std::vector<std::uint64_t>{100});
+
+  ASSERT_TRUE(service.leaveRoom(100).ok);
+  const auto joined_after_leave = service.joinRoom(100, second_room.room_id);
+  ASSERT_TRUE(joined_after_leave.ok);
+  EXPECT_EQ(joined_after_leave.recipients.size(), 2);
+  EXPECT_NE(std::find(joined_after_leave.recipients.begin(),
+                      joined_after_leave.recipients.end(), 100),
+            joined_after_leave.recipients.end());
+  EXPECT_NE(std::find(joined_after_leave.recipients.begin(),
+                      joined_after_leave.recipients.end(), 200),
+            joined_after_leave.recipients.end());
+}
+
+TEST(RoomServiceTest, RequiresLeavingBeforeLookingUpAnotherRoom) {
+  RoomService service;
+  service.login(100, "alice");
+  ASSERT_TRUE(service.createRoom(100, "first").ok);
+
+  const auto rejected = service.joinRoom(100, 999);
+
+  EXPECT_FALSE(rejected.ok);
+  EXPECT_EQ(rejected.error, "leave current room first");
+  EXPECT_TRUE(service.chat(100).ok);
 }
 
 }  // namespace

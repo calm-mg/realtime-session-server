@@ -19,13 +19,11 @@ std::string normalizeName(std::string name, std::string fallback) {
 
 }  // namespace
 
-domain::User RoomService::login(std::uint64_t session_id, std::string name) {
+LoginResult RoomService::login(std::uint64_t session_id, std::string name) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto existing = users_by_session_.find(session_id);
   if (existing != users_by_session_.end()) {
-    existing->second.name =
-        normalizeName(std::move(name), existing->second.name);
-    return existing->second;
+    return {false, "user is already logged in", existing->second};
   }
 
   domain::User user;
@@ -33,7 +31,7 @@ domain::User RoomService::login(std::uint64_t session_id, std::string name) {
   user.session_id = session_id;
   user.name = normalizeName(std::move(name), "user-" + std::to_string(user.id));
   users_by_session_[session_id] = user;
-  return user;
+  return {true, {}, user};
 }
 
 std::optional<domain::User> RoomService::userOf(
@@ -54,7 +52,12 @@ RoomActionResult RoomService::createRoom(std::uint64_t session_id,
     return result;
   }
 
-  leaveCurrentRoomLocked(session_id);
+  if (room_by_session_.contains(session_id)) {
+    result.ok = false;
+    result.error = "leave current room first";
+    return result;
+  }
+
   auto room =
       lobby_.createRoom(normalizeName(std::move(room_name), kDefaultRoomName));
   room->join(result.actor);
@@ -73,6 +76,14 @@ RoomActionResult RoomService::joinRoom(std::uint64_t session_id,
     return result;
   }
 
+  const auto current_room = room_by_session_.find(session_id);
+  if (current_room != room_by_session_.end()) {
+    result.ok = false;
+    result.error = current_room->second == room_id ? "user is already in room"
+                                                   : "leave current room first";
+    return result;
+  }
+
   auto room = lobby_.findRoom(room_id);
   if (!room) {
     result.ok = false;
@@ -80,15 +91,6 @@ RoomActionResult RoomService::joinRoom(std::uint64_t session_id,
     return result;
   }
 
-  const auto current_room = room_by_session_.find(session_id);
-  if (current_room != room_by_session_.end() &&
-      current_room->second == room_id) {
-    result.ok = false;
-    result.error = "user is already in room";
-    return result;
-  }
-
-  leaveCurrentRoomLocked(session_id);
   room->join(result.actor);
   room_by_session_[session_id] = room_id;
 
@@ -224,21 +226,6 @@ RoomActionResult RoomService::requireUserLocked(
   result.ok = true;
   result.actor = it->second;
   return result;
-}
-
-void RoomService::leaveCurrentRoomLocked(std::uint64_t session_id) {
-  const auto room_it = room_by_session_.find(session_id);
-  if (room_it == room_by_session_.end()) {
-    return;
-  }
-
-  const auto room_id = room_it->second;
-  auto room = lobby_.findRoom(room_id);
-  if (room) {
-    room->leave(session_id);
-    lobby_.eraseIfEmpty(room_id);
-  }
-  room_by_session_.erase(room_it);
 }
 
 }  // namespace rss::service
