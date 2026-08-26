@@ -126,22 +126,31 @@ notifier, 종료 이벤트를 계속 처리합니다.
 세션 메시지는 계속 처리합니다. 최대 세션 수에 도달한 경우에는 새로
 accept된 연결만 즉시 닫고 기존 세션은 유지합니다.
 
-## 설정 기본값
+## 설정 기본값과 유효 범위
 
-| 설정 | 기본값 | 의미 |
-| --- | ---: | --- |
-| `inbound_queue_capacity` | 4096 | 입력 이벤트 최대 개수 |
-| `inbound_high_watermark` | 3072 | 읽기·accept 일시정지 기준 |
-| `inbound_low_watermark` | 2048 | 읽기·accept 재개 기준 |
-| `outbound_queue_capacity` | 4096 | 출력 메시지 최대 개수 |
-| `max_outbound_messages_per_event` | 10000 | 입력 이벤트 하나의 출력 메시지 상한 |
-| `max_outbound_bytes_per_event` | 40 MiB | 입력 이벤트 하나의 출력 총 바이트 상한 |
-| `max_pending_write_bytes` | 1 MiB | 세션 하나의 미전송 바이트 상한 |
-| `max_sessions` | 10000 | 동시에 보유하는 세션 상한 |
-| `graceful_shutdown_timeout` | 5초 | 정상 종료 시 drain 최대 대기 시간 |
+| 설정 | 기본값 | 유효 범위 | 의미 |
+| --- | ---: | --- | --- |
+| `host` | `0.0.0.0` | 비어 있지 않은 문자열 | IPv4 listener bind 주소 |
+| `port` | 7777 | 0..65535 | listener port. 0은 운영체제가 선택하는 ephemeral port |
+| `worker_count` | 4 | 1 이상 | worker 스레드 수 |
+| `backlog` | 512 | 1 이상 | listener 연결 대기열 크기 |
+| `max_events` | 256 | 1 이상 | 한 번의 `epoll_wait()`에서 받을 최대 이벤트 수 |
+| `idle_timeout` | 60초 | 0초 초과 | 유휴 세션 종료 기준 |
+| `inbound_queue_capacity` | 4096 | 1 이상 | 입력 이벤트 최대 개수 |
+| `inbound_high_watermark` | 3072 | low 초과, capacity 이하 | 읽기·accept 일시정지 기준 |
+| `inbound_low_watermark` | 2048 | 0 초과, high 미만 | 읽기·accept 재개 기준 |
+| `outbound_queue_capacity` | 4096 | 1 이상 | 출력 메시지 최대 개수 |
+| `max_outbound_messages_per_event` | 10000 | 1 이상 | 입력 이벤트 하나의 출력 메시지 상한 |
+| `max_outbound_bytes_per_event` | 40 MiB | 1 byte 이상 | 입력 이벤트 하나의 출력 총 바이트 상한 |
+| `max_pending_write_bytes` | 1 MiB | 1 byte 이상 | 세션 하나의 미전송 바이트 상한 |
+| `max_sessions` | 10000 | 1 이상 | 동시에 보유하는 세션 상한 |
+| `graceful_shutdown_timeout` | 5초 | 0초 초과 | 정상 종료 시 drain 최대 대기 시간 |
+| `emit_startup_diagnostic` | `true` | `true` 또는 `false` | 시작 진단 메시지 출력 여부 |
 
-`ServerConfig::validate()`는 0 값, watermark 순서 위반, capacity 초과와
-유효하지 않은 종료 시간을 서버 시작 전에 거절합니다.
+`ServerConfig::validate()`는 빈 host, 0 이하의 worker·listener·event loop
+설정, queue와 출력 상한의 0 값, watermark 순서 위반, capacity 초과와
+유효하지 않은 timeout을 서버 시작 전에 거절합니다. IPv4 문자열 형식은
+Linux 네트워크 계층이 listener를 열 때 검사합니다.
 
 ## 과부하 통계
 
