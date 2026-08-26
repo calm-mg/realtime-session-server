@@ -1,4 +1,7 @@
-add_executable(rss_server src/main.cpp)
+add_executable(rss_server
+    src/main.cpp
+    src/ShutdownSignalMonitor.cpp
+)
 set_target_properties(rss_server PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )

@@ -6,7 +6,13 @@ add_executable(rss_server_net_tests
     ProgramTest.cpp
     ScenarioClientTest.cpp
     ScenarioRunnerTest.cpp
+    ServerSignalTest.cpp
     TcpServerBackpressureTest.cpp
+)
+add_dependencies(rss_server_net_tests rss_server)
+target_compile_definitions(rss_server_net_tests
+    PRIVATE
+        RSS_SERVER_EXECUTABLE_PATH="$<TARGET_FILE:rss_server>"
 )
 target_include_directories(rss_server_net_tests
     PRIVATE
