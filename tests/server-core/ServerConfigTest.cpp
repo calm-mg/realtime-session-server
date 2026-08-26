@@ -34,7 +34,27 @@ TEST(ServerConfigTest, AcceptsHighWatermarkEqualToInboundCapacity) {
   EXPECT_NO_THROW(config.validate());
 }
 
+TEST(ServerConfigTest, AcceptsMinimumOperationalValuesAndEphemeralPort) {
+  ServerConfig config;
+  config.host = "127.0.0.1";
+  config.port = 0;
+  config.worker_count = 1;
+  config.backlog = 1;
+  config.max_events = 1;
+  config.idle_timeout = std::chrono::seconds{1};
+
+  EXPECT_NO_THROW(config.validate());
+}
+
 enum class InvalidConfigCase {
+  EmptyHost,
+  ZeroWorkerCount,
+  ZeroBacklog,
+  NegativeBacklog,
+  ZeroMaxEvents,
+  NegativeMaxEvents,
+  ZeroIdleTimeout,
+  NegativeIdleTimeout,
   ZeroInboundCapacity,
   ZeroLowWatermark,
   EqualWatermarks,
@@ -52,6 +72,22 @@ enum class InvalidConfigCase {
 const char* invalidConfigCaseName(
     const testing::TestParamInfo<InvalidConfigCase>& info) {
   switch (info.param) {
+    case InvalidConfigCase::EmptyHost:
+      return "EmptyHost";
+    case InvalidConfigCase::ZeroWorkerCount:
+      return "ZeroWorkerCount";
+    case InvalidConfigCase::ZeroBacklog:
+      return "ZeroBacklog";
+    case InvalidConfigCase::NegativeBacklog:
+      return "NegativeBacklog";
+    case InvalidConfigCase::ZeroMaxEvents:
+      return "ZeroMaxEvents";
+    case InvalidConfigCase::NegativeMaxEvents:
+      return "NegativeMaxEvents";
+    case InvalidConfigCase::ZeroIdleTimeout:
+      return "ZeroIdleTimeout";
+    case InvalidConfigCase::NegativeIdleTimeout:
+      return "NegativeIdleTimeout";
     case InvalidConfigCase::ZeroInboundCapacity:
       return "ZeroInboundCapacity";
     case InvalidConfigCase::ZeroLowWatermark:
@@ -83,10 +119,34 @@ const char* invalidConfigCaseName(
 class InvalidServerConfigTest
     : public testing::TestWithParam<InvalidConfigCase> {};
 
-TEST_P(InvalidServerConfigTest, RejectsInvalidBackpressureValue) {
+TEST_P(InvalidServerConfigTest, RejectsInvalidValue) {
   ServerConfig config;
 
   switch (GetParam()) {
+    case InvalidConfigCase::EmptyHost:
+      config.host.clear();
+      break;
+    case InvalidConfigCase::ZeroWorkerCount:
+      config.worker_count = 0;
+      break;
+    case InvalidConfigCase::ZeroBacklog:
+      config.backlog = 0;
+      break;
+    case InvalidConfigCase::NegativeBacklog:
+      config.backlog = -1;
+      break;
+    case InvalidConfigCase::ZeroMaxEvents:
+      config.max_events = 0;
+      break;
+    case InvalidConfigCase::NegativeMaxEvents:
+      config.max_events = -1;
+      break;
+    case InvalidConfigCase::ZeroIdleTimeout:
+      config.idle_timeout = std::chrono::seconds{0};
+      break;
+    case InvalidConfigCase::NegativeIdleTimeout:
+      config.idle_timeout = std::chrono::seconds{-1};
+      break;
     case InvalidConfigCase::ZeroInboundCapacity:
       config.inbound_queue_capacity = 0;
       break;
@@ -129,19 +189,24 @@ TEST_P(InvalidServerConfigTest, RejectsInvalidBackpressureValue) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    InvalidBackpressureValues, InvalidServerConfigTest,
-    testing::Values(InvalidConfigCase::ZeroInboundCapacity,
-                    InvalidConfigCase::ZeroLowWatermark,
-                    InvalidConfigCase::EqualWatermarks,
-                    InvalidConfigCase::ReversedWatermarks,
-                    InvalidConfigCase::HighWatermarkAboveCapacity,
-                    InvalidConfigCase::ZeroOutboundCapacity,
-                    InvalidConfigCase::ZeroOutboundMessagesPerEvent,
-                    InvalidConfigCase::ZeroOutboundBytesPerEvent,
-                    InvalidConfigCase::ZeroPendingWriteBytes,
-                    InvalidConfigCase::ZeroMaxSessions,
-                    InvalidConfigCase::ZeroShutdownTimeout,
-                    InvalidConfigCase::NegativeShutdownTimeout),
+    InvalidValues, InvalidServerConfigTest,
+    testing::Values(
+        InvalidConfigCase::EmptyHost, InvalidConfigCase::ZeroWorkerCount,
+        InvalidConfigCase::ZeroBacklog, InvalidConfigCase::NegativeBacklog,
+        InvalidConfigCase::ZeroMaxEvents, InvalidConfigCase::NegativeMaxEvents,
+        InvalidConfigCase::ZeroIdleTimeout,
+        InvalidConfigCase::NegativeIdleTimeout,
+        InvalidConfigCase::ZeroInboundCapacity,
+        InvalidConfigCase::ZeroLowWatermark, InvalidConfigCase::EqualWatermarks,
+        InvalidConfigCase::ReversedWatermarks,
+        InvalidConfigCase::HighWatermarkAboveCapacity,
+        InvalidConfigCase::ZeroOutboundCapacity,
+        InvalidConfigCase::ZeroOutboundMessagesPerEvent,
+        InvalidConfigCase::ZeroOutboundBytesPerEvent,
+        InvalidConfigCase::ZeroPendingWriteBytes,
+        InvalidConfigCase::ZeroMaxSessions,
+        InvalidConfigCase::ZeroShutdownTimeout,
+        InvalidConfigCase::NegativeShutdownTimeout),
     invalidConfigCaseName);
 
 }  // namespace

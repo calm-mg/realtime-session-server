@@ -7,17 +7,6 @@
 
 ## 운영 안정성
 
-### `ServerConfig` 검증 범위 부족
-
-queue와 전송 상한은 검증하지만 `max_events`, `backlog`, `idle_timeout` 등
-이벤트 루프와 listener 동작에 직접 영향을 주는 값은 검증하지 않습니다.
-
-완료 조건:
-
-- 모든 설정값의 유효 범위를 `ServerConfig::validate()`에서 검사
-- 0, 음수와 경계값에 대한 parameterized test 추가
-- 설정 기본값과 유효 범위를 서버 구조 문서에 반영
-
 ### worker handler 예외 정책 부재
 
 `SessionEventHandler::handle()`에서 빠져나온 예외는 worker 스레드 진입점을

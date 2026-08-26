@@ -27,6 +27,21 @@ struct ServerConfig {
   bool emit_startup_diagnostic{true};
 
   void validate() const {
+    if (host.empty()) {
+      throw std::invalid_argument("host must not be empty");
+    }
+    if (worker_count == 0) {
+      throw std::invalid_argument("worker count must be positive");
+    }
+    if (backlog <= 0) {
+      throw std::invalid_argument("backlog must be positive");
+    }
+    if (max_events <= 0) {
+      throw std::invalid_argument("maximum events must be positive");
+    }
+    if (idle_timeout <= std::chrono::seconds::zero()) {
+      throw std::invalid_argument("idle timeout must be positive");
+    }
     if (inbound_queue_capacity == 0) {
       throw std::invalid_argument("inbound queue capacity must be positive");
     }
