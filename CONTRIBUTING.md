@@ -15,6 +15,7 @@ Linux 또는 Windows WSL2의 Ubuntu 환경을 사용하세요.
 - Clang 18의 `clang-format`, `clang-tidy`, `clangd`
 - GDB
 - PostgreSQL 16 이상, `libpq` 개발 header와 `psql`
+- 통합 테스트 DB 자동 구성을 위한 Docker Engine과 Docker Compose plugin
 
 Ubuntu 24.04에서는 다음 명령으로 설치할 수 있습니다.
 
@@ -54,15 +55,22 @@ CMake는 clangd가 읽을 수 있는 `build/linux-dev/compile_commands.json`도
 ctest --preset linux-dev
 ```
 
-Linux 전체 테스트의 PostgreSQL 통합 항목을 실행하려면 테스트 DB에 migration을
-적용하고 URL을 전달합니다. 저장소에 실제 비밀번호를 기록하지 마세요.
+Linux 전체 테스트의 PostgreSQL 통합 항목을 실행하려면 Compose로 격리된
+테스트 DB와 migration을 준비하고 URL을 전달합니다. 저장소에 실제 비밀번호를
+기록하지 마세요.
 
 ```bash
-export RSS_TEST_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:5432/rss_test'
-psql "$RSS_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f libs/server-persistence-postgres/migrations/001_users.sql
+RSS_POSTGRES_DB=rss_test RSS_POSTGRES_PORT=55432 \
+  docker compose -p rss-test up -d
+export RSS_TEST_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:55432/rss_test'
 ctest --preset linux-dev
+docker compose -p rss-test down -v
 ```
+
+`docker compose -p rss-test ps -a`에서 `postgres`가 `healthy`, `migrate`가
+종료 코드 `0`인지 확인합니다. Docker를 사용하지 않으면 테스트 database에
+`libs/server-persistence-postgres/migrations/001_users.sql`을 `psql`로 직접
+적용합니다.
 
 환경 변수가 없으면 실제 DB가 필요한 repository와 server process 테스트만
 명시적으로 건너뜁니다. PostgreSQL adapter compile, 잘못된 연결 처리와 코어

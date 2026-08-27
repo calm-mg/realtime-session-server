@@ -216,6 +216,45 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build/sanitizers --output-on-failure --timeout 60
 
+  compose-smoke-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Start PostgreSQL
+        run: docker compose up -d postgres
+
+      - name: Apply migrations
+        run: docker compose run --rm migrate
+
+      - name: Reapply migrations
+        run: docker compose run --rm migrate
+
+      - name: Verify migrated schema
+        run: |
+          docker compose exec -T postgres psql \
+            --username=rss \
+            --dbname=rss \
+            --set=ON_ERROR_STOP=1 <<'SQL'
+          DO $verify$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM schema_migrations WHERE version = 1
+            ) THEN
+              RAISE EXCEPTION 'migration version 1 is missing';
+            END IF;
+            IF to_regclass('public.users') IS NULL THEN
+              RAISE EXCEPTION 'users table is missing';
+            END IF;
+          END
+          $verify$;
+          SQL
+
+      - name: Clean up Compose resources
+        if: always()
+        run: docker compose down -v
+
   code-quality:
     runs-on: ubuntu-24.04
     steps:
@@ -234,6 +273,9 @@ jobs:
           -DCMAKE_BUILD_TYPE=Debug
           -DRSS_BUILD_NETWORK_TARGETS=ON
           -DRSS_BUILD_BENCHMARKS=ON
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config
 
       - name: Check formatting
         run: cmake --build build/quality --target format-check

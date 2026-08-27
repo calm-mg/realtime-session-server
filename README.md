@@ -36,6 +36,7 @@ Windows에서는 WSL2의 Ubuntu를 사용할 수 있습니다.
 - Ninja 또는 Make
 - POSIX Threads
 - PostgreSQL 16 이상과 `libpq`
+- 로컬 DB 자동 구성을 위한 Docker Engine과 Docker Compose plugin
 
 Qt 데스크톱 클라이언트만 빌드할 때는 Linux, macOS, Windows에서 Qt 6.5
 이상의 Widgets, Network, Test 구성 요소가 추가로 필요합니다.
@@ -72,13 +73,32 @@ ctest --test-dir build --output-on-failure
 
 ### 3. 서버 실행
 
-먼저 서버가 사용할 데이터베이스를 만들고 migration을 적용합니다. 아래 URL은
-로컬 개발 예시이며 실제 비밀번호는 환경이나 secret manager에서 전달합니다.
+Docker Compose를 사용하면 PostgreSQL 16 실행과 migration 적용을 한 번에
+처리할 수 있습니다.
+
+```bash
+docker compose up -d
+docker compose ps -a
+```
+
+`postgres`가 `healthy`, `migrate`가 종료 코드 `0`인 것을 확인합니다. migration
+로그가 필요하면 `docker compose logs migrate`를 실행합니다. 기본 로컬 설정은
+사용자 `rss`, 비밀번호 `local-password`, database `rss`, host port `5432`를
+사용합니다. 포트가 이미 사용 중이면 다음과 같이 바꿀 수 있습니다.
+
+```bash
+RSS_POSTGRES_PORT=55432 docker compose up -d
+```
+
+이 경우 아래 `RSS_DATABASE_URL`의 port도 `55432`로 맞춥니다. 사용자, 비밀번호,
+database는 각각 `RSS_POSTGRES_USER`, `RSS_POSTGRES_PASSWORD`,
+`RSS_POSTGRES_DB`로 변경할 수 있습니다. 기본값은 로컬 개발 전용이며 운영
+자격증명은 환경이나 secret manager에서 전달해야 합니다.
+
+DB와 migration이 준비되면 서버를 실행합니다.
 
 ```bash
 export RSS_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:5432/rss'
-psql "$RSS_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f libs/server-persistence-postgres/migrations/001_users.sql
 ./build/rss_server 0.0.0.0 7777 4
 ```
 
@@ -86,6 +106,29 @@ psql "$RSS_DATABASE_URL" -v ON_ERROR_STOP=1 \
 `2`), 대기 queue 용량은 `RSS_DB_QUEUE_CAPACITY`(기본 `1024`)로 조정합니다.
 값은 모두 서버 시작 전에 검증되며 DB 연결에 실패하면 listener를 열지
 않습니다.
+
+DB를 정지하되 데이터를 보존하려면 다음 명령을 사용합니다.
+
+```bash
+docker compose down
+```
+
+다시 `docker compose up -d`를 실행하면 named volume의 기존 사용자 UUID를
+그대로 사용하고 migration을 재적용합니다. 로컬 DB 데이터까지 완전히
+삭제하려는 경우에만 다음 명령을 사용합니다.
+
+```bash
+docker compose down -v
+```
+
+`down -v`로 삭제한 named volume의 데이터는 복구되지 않습니다. Docker를
+사용하지 않는 환경에서는 PostgreSQL 16 database를 직접 준비한 뒤 기존처럼
+`psql`로 migration을 적용할 수 있습니다.
+
+```bash
+psql "$RSS_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f libs/server-persistence-postgres/migrations/001_users.sql
+```
 
 인자는 순서대로 다음 의미입니다.
 
