@@ -19,6 +19,7 @@ TEST(ServerConfigTest, UsesBackpressureDefaults) {
   EXPECT_EQ(config.outbound_queue_capacity, 4096U);
   EXPECT_EQ(config.max_outbound_messages_per_event, 10000U);
   EXPECT_EQ(config.max_outbound_bytes_per_event, 40U * 1024U * 1024U);
+  EXPECT_EQ(config.max_parked_events_per_session, 32U);
   EXPECT_EQ(config.max_pending_write_bytes, 1024U * 1024U);
   EXPECT_EQ(config.max_sessions, 10000U);
   EXPECT_EQ(config.graceful_shutdown_timeout, std::chrono::seconds{5});
@@ -63,6 +64,7 @@ enum class InvalidConfigCase {
   ZeroOutboundCapacity,
   ZeroOutboundMessagesPerEvent,
   ZeroOutboundBytesPerEvent,
+  ZeroParkedEventsPerSession,
   ZeroPendingWriteBytes,
   ZeroMaxSessions,
   ZeroShutdownTimeout,
@@ -104,6 +106,8 @@ const char* invalidConfigCaseName(
       return "ZeroOutboundMessagesPerEvent";
     case InvalidConfigCase::ZeroOutboundBytesPerEvent:
       return "ZeroOutboundBytesPerEvent";
+    case InvalidConfigCase::ZeroParkedEventsPerSession:
+      return "ZeroParkedEventsPerSession";
     case InvalidConfigCase::ZeroPendingWriteBytes:
       return "ZeroPendingWriteBytes";
     case InvalidConfigCase::ZeroMaxSessions:
@@ -171,6 +175,9 @@ TEST_P(InvalidServerConfigTest, RejectsInvalidValue) {
     case InvalidConfigCase::ZeroOutboundBytesPerEvent:
       config.max_outbound_bytes_per_event = 0;
       break;
+    case InvalidConfigCase::ZeroParkedEventsPerSession:
+      config.max_parked_events_per_session = 0;
+      break;
     case InvalidConfigCase::ZeroPendingWriteBytes:
       config.max_pending_write_bytes = 0;
       break;
@@ -203,6 +210,7 @@ INSTANTIATE_TEST_SUITE_P(
         InvalidConfigCase::ZeroOutboundCapacity,
         InvalidConfigCase::ZeroOutboundMessagesPerEvent,
         InvalidConfigCase::ZeroOutboundBytesPerEvent,
+        InvalidConfigCase::ZeroParkedEventsPerSession,
         InvalidConfigCase::ZeroPendingWriteBytes,
         InvalidConfigCase::ZeroMaxSessions,
         InvalidConfigCase::ZeroShutdownTimeout,

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <memory>
+#include <stdexcept>
+#include <vector>
+
 #include "rss/service/Command.h"
 
 namespace rss::service {
@@ -11,11 +15,30 @@ class OutboundMessageSink {
   [[nodiscard]] virtual bool emit(OutboundMessage message) = 0;
 };
 
+class DeferredSessionCompletion {
+ public:
+  virtual ~DeferredSessionCompletion() = default;
+
+  [[nodiscard]] virtual bool succeed(std::vector<OutboundMessage> messages) = 0;
+  [[nodiscard]] virtual bool fail() = 0;
+};
+
+class SessionEventContext : public OutboundMessageSink {
+ public:
+  [[nodiscard]] virtual std::shared_ptr<DeferredSessionCompletion> defer() = 0;
+};
+
 class SessionEventHandler {
  public:
   virtual ~SessionEventHandler() = default;
 
-  virtual void handle(const SessionEvent& event, OutboundMessageSink& sink) = 0;
+  virtual void handle(const SessionEvent&, OutboundMessageSink&) {
+    throw std::logic_error("session event handler is not implemented");
+  }
+
+  virtual void handle(const SessionEvent& event, SessionEventContext& context) {
+    handle(event, static_cast<OutboundMessageSink&>(context));
+  }
 };
 
 }  // namespace rss::service

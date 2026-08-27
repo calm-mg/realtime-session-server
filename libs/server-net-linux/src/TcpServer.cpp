@@ -72,6 +72,8 @@ TcpServer::TcpServer(ServerConfig config, service::SessionEventHandler* handler)
                        config_.max_outbound_messages_per_event,
                    .max_outbound_bytes_per_event =
                        config_.max_outbound_bytes_per_event,
+                   .max_parked_events_per_session =
+                       config_.max_parked_events_per_session,
                },
                &outbound_wakeup_, &input_capacity_wakeup_, &overload_stats_) {
   config_.validate();

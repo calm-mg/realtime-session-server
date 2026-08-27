@@ -21,6 +21,7 @@ struct ServerConfig {
   std::size_t outbound_queue_capacity{4096};
   std::size_t max_outbound_messages_per_event{10000};
   std::size_t max_outbound_bytes_per_event{40U * 1024U * 1024U};
+  std::size_t max_parked_events_per_session{32};
   std::size_t max_pending_write_bytes{1024 * 1024};
   std::size_t max_sessions{10000};
   std::chrono::seconds graceful_shutdown_timeout{5};
@@ -60,6 +61,10 @@ struct ServerConfig {
     if (max_outbound_bytes_per_event == 0) {
       throw std::invalid_argument(
           "maximum outbound bytes per event must be positive");
+    }
+    if (max_parked_events_per_session == 0) {
+      throw std::invalid_argument(
+          "maximum parked events per session must be positive");
     }
     if (max_pending_write_bytes == 0) {
       throw std::invalid_argument(
