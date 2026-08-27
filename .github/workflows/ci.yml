@@ -235,6 +235,9 @@ jobs:
           -DRSS_BUILD_NETWORK_TARGETS=ON
           -DRSS_BUILD_BENCHMARKS=ON
 
+      - name: Validate Docker Compose configuration
+        run: docker compose config
+
       - name: Check formatting
         run: cmake --build build/quality --target format-check
 

@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${RSS_POSTGRES_USER:-rss}
+      POSTGRES_PASSWORD: ${RSS_POSTGRES_PASSWORD:-local-password}
+      POSTGRES_DB: ${RSS_POSTGRES_DB:-rss}
+    ports:
+      - "127.0.0.1:${RSS_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  migrate:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${RSS_POSTGRES_PASSWORD:-local-password}
+    command:
+      - psql
+      - --host=postgres
+      - --username=${RSS_POSTGRES_USER:-rss}
+      - --dbname=${RSS_POSTGRES_DB:-rss}
+      - --set=ON_ERROR_STOP=1
+      - --file=/migrations/001_users.sql
+    volumes:
+      - ./libs/server-persistence-postgres/migrations:/migrations:ro
+    restart: "no"
+
+volumes:
+  postgres-data:
