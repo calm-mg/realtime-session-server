@@ -7,7 +7,8 @@
       "binaryDir": "${sourceDir}/build/core-dev",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "RSS_BUILD_NETWORK_TARGETS": "OFF"
+        "RSS_BUILD_NETWORK_TARGETS": "OFF",
+        "RSS_BUILD_POSTGRES": "OFF"
       }
     },
     {
@@ -16,7 +17,8 @@
       "binaryDir": "${sourceDir}/build/linux-dev",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "RSS_BUILD_NETWORK_TARGETS": "ON"
+        "RSS_BUILD_NETWORK_TARGETS": "ON",
+        "RSS_BUILD_POSTGRES": "ON"
       }
     },
     {
@@ -34,7 +36,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "RSS_BUILD_NETWORK_TARGETS": "OFF",
-        "RSS_BUILD_BENCHMARKS": "ON"
+        "RSS_BUILD_BENCHMARKS": "ON",
+        "RSS_BUILD_POSTGRES": "OFF"
       }
     },
     {
@@ -44,7 +47,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "RSS_BUILD_NETWORK_TARGETS": "OFF",
-        "RSS_BUILD_QT_CLIENT": "ON"
+        "RSS_BUILD_QT_CLIENT": "ON",
+        "RSS_BUILD_POSTGRES": "OFF"
       }
     }
   ],

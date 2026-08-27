@@ -16,6 +16,13 @@ option(RSS_BUILD_NETWORK_TARGETS "Build Linux epoll server and clients" ON)
 option(RSS_BUILD_BENCHMARKS "Build microbenchmarks" OFF)
 option(RSS_BUILD_QT_CLIENT "Build the cross-platform Qt desktop client" OFF)
 
+set(RSS_BUILD_POSTGRES_DEFAULT OFF)
+if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(RSS_BUILD_POSTGRES_DEFAULT ON)
+endif()
+option(RSS_BUILD_POSTGRES "Build PostgreSQL persistence adapter"
+       ${RSS_BUILD_POSTGRES_DEFAULT})
+
 function(rss_enable_project_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4)
@@ -31,6 +38,11 @@ find_package(Threads REQUIRED)
 add_subdirectory(libs/protocol)
 add_subdirectory(libs/server-core)
 add_subdirectory(libs/load-test-support)
+
+if(RSS_BUILD_POSTGRES)
+    find_package(PostgreSQL REQUIRED)
+    add_subdirectory(libs/server-persistence-postgres)
+endif()
 
 if(RSS_BUILD_QT_CLIENT)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Network Svg Widgets)
