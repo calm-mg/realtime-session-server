@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -53,6 +54,38 @@ std::vector<OutboundMessage> route(MessageRouter& router,
   rss::test::FakeSessionEventContext context;
   router.handle(input, context);
   return context.releaseMessages();
+}
+
+class UnavailableUserRepository final
+    : public rss::persistence::UserRepository {
+ public:
+  void findOrCreateByNormalizedName(
+      rss::persistence::FindOrCreateUser,
+      rss::persistence::UserCallback callback) override {
+    callback(
+        {std::nullopt, rss::persistence::PersistenceError{
+                           rss::persistence::PersistenceErrorKind::Unavailable,
+                           "sensitive database detail"}});
+  }
+};
+
+TEST(MessageRouterTest, RepositoryFailureDoesNotPreventAnotherSessionPing) {
+  UnavailableUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  const auto login = route(router, event(1, PacketType::LoginReq, "alice"));
+  ASSERT_EQ(login.size(), 1U);
+  const auto login_error = decodeSingleMessage(login.front());
+  EXPECT_EQ(login_error.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(login_error),
+            "user persistence unavailable");
+
+  const auto ping = route(router, event(2, PacketType::Ping, ""));
+  ASSERT_EQ(ping.size(), 1U);
+  const auto pong = decodeSingleMessage(ping.front());
+  EXPECT_EQ(pong.type, PacketType::Pong);
+  EXPECT_EQ(rss::protocol::payloadToString(pong), "PONG");
 }
 
 TEST(MessageRouterTest, ReconnectWithSameNameRestoresPermanentUserId) {
@@ -145,6 +178,31 @@ TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
                         Packet{PacketType::PositionUpdate, position_payload},
                     });
   EXPECT_EQ(position.size(), 2);
+}
+
+TEST(MessageRouterTest, EnforcesChatMessageLimitBeforeBroadcasting) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
+            1);
+
+  const auto maximum = route(
+      router, event(1, PacketType::ChatReq,
+                    std::string(rss::protocol::kMaxChatMessageBytes, 'x')));
+  ASSERT_EQ(maximum.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(maximum.front()).type,
+            PacketType::RoomBroadcast);
+
+  const auto oversized = route(
+      router, event(1, PacketType::ChatReq,
+                    std::string(rss::protocol::kMaxChatMessageBytes + 1, 'x')));
+  ASSERT_EQ(oversized.size(), 1U);
+  const auto error = decodeSingleMessage(oversized.front());
+  EXPECT_EQ(error.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(error), "chat message too large");
 }
 
 TEST(MessageRouterTest, RespondsToPing) {

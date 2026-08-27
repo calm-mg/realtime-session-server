@@ -74,6 +74,11 @@ class ServerProcess {
       throw std::runtime_error("fork failed");
     }
     if (pid_ == 0) {
+      const auto* database_url = std::getenv("RSS_TEST_DATABASE_URL");
+      if (database_url == nullptr ||
+          ::setenv("RSS_DATABASE_URL", database_url, 1) != 0) {
+        ::_exit(126);
+      }
       const auto port_text = std::to_string(port_);
       ::execl(RSS_SERVER_EXECUTABLE_PATH, RSS_SERVER_EXECUTABLE_PATH,
               "127.0.0.1", port_text.c_str(), "1", nullptr);
@@ -143,6 +148,9 @@ class ServerProcess {
 class ServerSignalTest : public testing::TestWithParam<int> {};
 
 TEST_P(ServerSignalTest, StopsThroughGracefulPath) {
+  if (std::getenv("RSS_TEST_DATABASE_URL") == nullptr) {
+    GTEST_SKIP() << "RSS_TEST_DATABASE_URL is not configured";
+  }
   ServerProcess server(reserveLoopbackPort());
   ASSERT_TRUE(server.waitUntilListening(2s));
   ASSERT_TRUE(server.sendSignal(GetParam()));

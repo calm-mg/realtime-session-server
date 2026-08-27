@@ -4,6 +4,7 @@ add_executable(rss_server_net_tests
     EnvironmentInfoTest.cpp
     EventFdCompletionNotifierTest.cpp
     ProgramTest.cpp
+    PostgresServerLoginTest.cpp
     ScenarioClientTest.cpp
     ScenarioRunnerTest.cpp
     ServerSignalTest.cpp

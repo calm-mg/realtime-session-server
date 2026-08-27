@@ -76,7 +76,7 @@ struct ScenarioOptions {
 `clients`, `messages_per_sender`, `repeats`, `worker_count`는 1 이상이어야
 한다. `multi-room`의 `rooms`는 1 이상이고 `clients` 이하여야 한다.
 `slow-client`의 `slow_clients`는 1 이상이고 `clients`보다 작아야 한다.
-`payload_bytes`는 식별자와 구분자를 포함해 64 이상 4000 이하여야 한다.
+`payload_bytes`는 식별자와 구분자를 포함해 64 이상 3939 이하여야 한다.
 잘못된 인자는 측정을 시작하지 않고 오류 설명과 사용법을 출력한 뒤 종료
 코드 `2`를 반환한다.
 

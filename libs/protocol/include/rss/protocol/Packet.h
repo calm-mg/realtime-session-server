@@ -9,6 +9,10 @@ namespace rss::protocol {
 
 constexpr std::uint16_t kPacketHeaderSize = 4;
 constexpr std::uint16_t kMaxPacketSize = 4096;
+// Leaves room for the largest CHAT broadcast envelope: a uint32 room id,
+// canonical UUID, uint64 session id, and 32-byte display name.
+constexpr std::uint16_t kMaxChatMessageBytes =
+    kMaxPacketSize - kPacketHeaderSize - 153;
 
 #pragma pack(push, 1)
 struct PacketHeader {

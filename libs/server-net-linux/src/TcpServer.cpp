@@ -374,9 +374,12 @@ bool TcpServer::enqueueDecodedPackets(Session& session,
     if (remaining_work != nullptr && *remaining_work == 0) {
       return false;
     }
-    const auto push_result = inbox_.tryPush(
-        service::SessionEvent{service::SessionEventKind::Packet, session.id(),
-                              std::move(*packet), session.nextEventSequence()});
+    const auto push_result =
+        inbox_.tryPush(service::SessionEvent{service::SessionEventKind::Packet,
+                                             session.id(),
+                                             std::move(*packet),
+                                             session.nextEventSequence(),
+                                             {}});
     if (!push_result.succeeded) {
       overload_stats_.recordInboundQueueFull();
       static_cast<void>(
@@ -602,7 +605,8 @@ bool TcpServer::enqueueDisconnected(Session& session) {
       service::SessionEvent{service::SessionEventKind::Disconnected,
                             session.id(),
                             {},
-                            session.nextEventSequence()});
+                            session.nextEventSequence(),
+                            {}});
   if (!push_result.succeeded) {
     overload_stats_.recordInboundQueueFull();
     static_cast<void>(

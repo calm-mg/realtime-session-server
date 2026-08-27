@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <string>
 
+#include "rss/protocol/Packet.h"
+
 namespace rss::tools {
 namespace {
 
@@ -63,8 +65,9 @@ ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args) {
     }
   }
 
-  if (options.payload_bytes < 64 || options.payload_bytes > 4000) {
-    throw std::invalid_argument("payload bytes must be between 64 and 4000");
+  if (options.payload_bytes < 64 ||
+      options.payload_bytes > protocol::kMaxChatMessageBytes) {
+    throw std::invalid_argument("payload bytes must be between 64 and 3939");
   }
   if (options.scenario == ScenarioKind::MultiRoom &&
       options.rooms > options.clients) {

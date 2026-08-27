@@ -11,6 +11,7 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 - non-blocking TCP 연결
 - Linux `epoll` 기반 이벤트 처리
 - 로그인과 접속 종료 처리
+- PostgreSQL에 저장하는 영구 사용자 ID와 재접속 복구
 - 방 생성, 참가, 나가기
 - 같은 방에 있는 사용자에게 채팅과 위치 정보 전송
 - `PING`/`PONG` 연결 확인
@@ -34,6 +35,7 @@ Windows에서는 WSL2의 Ubuntu를 사용할 수 있습니다.
 - CMake 3.20 이상
 - Ninja 또는 Make
 - POSIX Threads
+- PostgreSQL 16 이상과 `libpq`
 
 Qt 데스크톱 클라이언트만 빌드할 때는 Linux, macOS, Windows에서 Qt 6.5
 이상의 Widgets, Network, Test 구성 요소가 추가로 필요합니다.
@@ -42,7 +44,8 @@ Ubuntu에서는 다음 패키지로 시작할 수 있습니다.
 
 ```bash
 sudo apt-get update
-sudo apt-get install --yes build-essential cmake ninja-build
+sudo apt-get install --yes \
+  build-essential cmake libpq-dev ninja-build postgresql-client
 ```
 
 ## 빠른 시작
@@ -69,9 +72,20 @@ ctest --test-dir build --output-on-failure
 
 ### 3. 서버 실행
 
+먼저 서버가 사용할 데이터베이스를 만들고 migration을 적용합니다. 아래 URL은
+로컬 개발 예시이며 실제 비밀번호는 환경이나 secret manager에서 전달합니다.
+
 ```bash
+export RSS_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:5432/rss'
+psql "$RSS_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f libs/server-persistence-postgres/migrations/001_users.sql
 ./build/rss_server 0.0.0.0 7777 4
 ```
+
+`RSS_DATABASE_URL`은 필수입니다. DB 작업 스레드 수는 `RSS_DB_WORKERS`(기본
+`2`), 대기 queue 용량은 `RSS_DB_QUEUE_CAPACITY`(기본 `1024`)로 조정합니다.
+값은 모두 서버 시작 전에 검증되며 DB 연결에 실패하면 listener를 열지
+않습니다.
 
 인자는 순서대로 다음 의미입니다.
 
@@ -136,6 +150,12 @@ kill -TERM <server-pid>
 | `/quit` | 클라이언트 종료 |
 
 `/`로 시작하지 않는 일반 문장도 채팅 메시지로 전송됩니다.
+
+로그인 이름은 앞뒤 ASCII 공백을 제거하고 ASCII 대소문자를 구분하지 않는
+조회 키로 사용합니다. 같은 이름으로 재접속하면 PostgreSQL에 저장된 같은
+UUID를 받습니다. 현재 이름 로그인은 인증이 아니므로 이름을 아는 다른
+클라이언트도 같은 사용자로 식별될 수 있습니다. 방, 참가 상태와 채팅
+메시지는 아직 메모리에만 있으며 서버 재시작 시 복구되지 않습니다.
 
 ## Qt 데스크톱 클라이언트
 
@@ -256,6 +276,7 @@ apps/load-scenario-runner/ Linux 실제 서버 부하 시나리오 실행기
 apps/qt-client/         Qt 6 Widgets 데스크톱 클라이언트
 libs/protocol/          패킷 종류와 인코딩 규칙
 libs/server-core/       플랫폼 독립 도메인, 서비스, session, worker
+libs/server-persistence-postgres/ PostgreSQL 사용자 저장소와 migration
 libs/server-net-linux/  Linux epoll, eventfd, TCP 서버 구현
 libs/load-test-support/ 부하 테스트 통계 지원 코드
 tests/                  라이브러리별 GoogleTest 자동 테스트

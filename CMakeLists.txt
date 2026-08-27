@@ -23,6 +23,12 @@ endif()
 option(RSS_BUILD_POSTGRES "Build PostgreSQL persistence adapter"
        ${RSS_BUILD_POSTGRES_DEFAULT})
 
+if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   NOT RSS_BUILD_POSTGRES)
+    message(FATAL_ERROR
+        "Linux rss_server requires RSS_BUILD_POSTGRES=ON")
+endif()
+
 function(rss_enable_project_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4)

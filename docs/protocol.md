@@ -140,6 +140,11 @@ user is not logged in
 번호로 다시 참가하면 `user is already in room` 오류를 반환합니다. 거부된 방
 요청은 기존 방 상태를 변경하거나 참가·퇴장 broadcast를 만들지 않습니다.
 
+`CHAT_REQ` 본문은 최대 3939바이트입니다. 이 상한은 최대 길이의 방 번호,
+영구 UUID, 세션 번호와 32바이트 표시 이름이 `ROOM_BROADCAST`에 추가되어도
+전체 패킷이 4096바이트를 넘지 않도록 정한 값입니다. 초과하면 서버는
+`chat message too large` 오류를 반환합니다.
+
 ## TCP에서 패킷을 읽는 방법
 
 TCP의 한 번의 `recv`와 한 패킷은 일치하지 않습니다.

@@ -21,9 +21,13 @@
 - GoogleTest, Google Benchmark, ASan/UBSan과 플랫폼별 CI 기반
 - Qt 6 Widgets 클라이언트의 application, network, UI 모듈 분리
 - Qt 클라이언트의 연결, 로그인, 방 작업과 채팅 UI
+- PostgreSQL 영구 사용자 UUID와 같은 이름 재접속 복구
+- bounded DB executor와 deferred handler completion 기반
 
 ## 최근 완료
 
+- 2026-08-27: PostgreSQL 사용자 저장소와 영구 UUID 로그인을 운영 서버에
+  연결하고 DB 작업 중 worker 비차단 및 실패 세션 격리 적용
 - 2026-08-27: worker handler 예외를 실패 세션에 격리하고 연결 종료와
   `handler_exceptions` 통계로 관측
 - 2026-08-26: `ServerConfig` 전체 값의 유효 범위 검증과 설정 문서 보강
@@ -36,9 +40,9 @@
 
 ## 현재 단계
 
-기본 기능과 과부하 제어 기반, 세션 상태 계약, handler 예외 격리와 운영 종료
-경로를 갖췄습니다. 다음 단계에서는 기능을 더 늘리기 전에 관측 정책을
-보강합니다.
+기본 기능과 과부하 제어, 영구 사용자 ID, handler 예외 격리와 운영 종료
+경로를 갖췄습니다. 다음 단계에서는 여러 방 참가 모델과 채팅 기록 영속화에
+앞서 운영 관측 정책과 데이터 계약을 보강합니다.
 
 ### 우선순위 1: 운영 관측성
 
@@ -52,7 +56,8 @@
 
 ### 우선순위 3: 영속성과 측정 기반 확장
 
-- 영속화할 사용자·방 상태와 재시작 복구 경계 정의
+- PostgreSQL 영구 방과 사용자-방 다대다 membership 설계
+- 방별 채팅 기록, 읽음 cursor와 ScyllaDB/Cassandra adapter 설계
 - 완료된 부하 시나리오로 commit별 회귀 기준값 축적
 - 반복 연결, 혼합 workload와 원격 환경 측정 범위 검토
 - `RoomService` 단일 mutex 경합 측정

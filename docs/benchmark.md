@@ -173,7 +173,7 @@ cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
 
 ./build/linux-dev/rss_load_scenario_runner --scenario broadcast --clients 100 --messages 100 --repeat 5 --workers 4
 ./build/linux-dev/rss_load_scenario_runner --scenario multi-room --clients 100 --rooms 10 --messages 100 --repeat 5 --workers 4
-./build/linux-dev/rss_load_scenario_runner --scenario slow-client --clients 20 --slow-clients 1 --messages 2000 --payload-bytes 4000 --repeat 5 --workers 4
+./build/linux-dev/rss_load_scenario_runner --scenario slow-client --clients 20 --slow-clients 1 --messages 2000 --payload-bytes 3939 --repeat 5 --workers 4
 ```
 
 명령행 형식과 기본값은 다음과 같습니다. 모든 옵션은 값이 필요합니다.
@@ -196,7 +196,7 @@ rss_load_scenario_runner \
 | `--repeat` | `5` | warm-up 뒤 측정 반복 수 |
 | `--workers` | `4` | 로컬 서버 worker 수 |
 
-수치 옵션은 1 이상이어야 합니다. `--payload-bytes`는 64 이상 4000 이하여야
+수치 옵션은 1 이상이어야 합니다. `--payload-bytes`는 64 이상 3939 이하여야
 하며, `multi-room`의 방 수는 클라이언트 수를 넘을 수 없습니다.
 `slow-client`의 느린 클라이언트 수는 전체 클라이언트 수보다 작아야 합니다.
 일반 `broadcast`와 `multi-room`은 서버의 세션별 pending write 기본 한도

@@ -14,6 +14,7 @@ Linux 또는 Windows WSL2의 Ubuntu 환경을 사용하세요.
 - Ninja
 - Clang 18의 `clang-format`, `clang-tidy`, `clangd`
 - GDB
+- PostgreSQL 16 이상, `libpq` 개발 header와 `psql`
 
 Ubuntu 24.04에서는 다음 명령으로 설치할 수 있습니다.
 
@@ -27,6 +28,8 @@ sudo apt-get install --yes \
   clang-tidy-18 \
   cmake \
   gdb \
+  libpq-dev \
+  postgresql-client \
   ninja-build
 ```
 
@@ -50,6 +53,20 @@ CMake는 clangd가 읽을 수 있는 `build/linux-dev/compile_commands.json`도
 ```bash
 ctest --preset linux-dev
 ```
+
+Linux 전체 테스트의 PostgreSQL 통합 항목을 실행하려면 테스트 DB에 migration을
+적용하고 URL을 전달합니다. 저장소에 실제 비밀번호를 기록하지 마세요.
+
+```bash
+export RSS_TEST_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:5432/rss_test'
+psql "$RSS_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f libs/server-persistence-postgres/migrations/001_users.sql
+ctest --preset linux-dev
+```
+
+환경 변수가 없으면 실제 DB가 필요한 repository와 server process 테스트만
+명시적으로 건너뜁니다. PostgreSQL adapter compile, 잘못된 연결 처리와 코어
+테스트는 계속 실행됩니다.
 
 등록된 테스트 이름을 먼저 보고 싶다면 다음 명령을 실행합니다.
 

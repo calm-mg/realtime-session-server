@@ -228,6 +228,11 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       return;
     }
     case PacketType::ChatReq: {
+      if (packet.payload.size() > protocol::kMaxChatMessageBytes) {
+        static_cast<void>(
+            sink.emit(error(session_id, "chat message too large")));
+        return;
+      }
       const auto result = room_service_.chat(session_id);
       if (!result.ok) {
         static_cast<void>(sink.emit(error(session_id, result.error)));
