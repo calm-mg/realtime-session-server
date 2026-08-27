@@ -19,16 +19,13 @@ class ActiveWorkerGuard {
   std::atomic<std::size_t>& active_workers_;
 };
 
-class QueueOutboundMessageSink final : public service::OutboundMessageSink {
+class StagedOutboundMessageSink final : public service::OutboundMessageSink {
  public:
-  QueueOutboundMessageSink(
-      util::BoundedBlockingQueue<service::OutboundMessage>& outbox,
-      const WorkerPoolConfig& config, std::atomic<bool>& force_stop_requested,
-      CompletionNotifier* notifier, OverloadStats* overload_stats)
-      : outbox_(outbox),
-        config_(config),
+  StagedOutboundMessageSink(const WorkerPoolConfig& config,
+                            std::atomic<bool>& force_stop_requested,
+                            OverloadStats* overload_stats)
+      : config_(config),
         force_stop_requested_(force_stop_requested),
-        notifier_(notifier),
         overload_stats_(overload_stats) {}
 
   bool emit(service::OutboundMessage message) override {
@@ -45,28 +42,21 @@ class QueueOutboundMessageSink final : public service::OutboundMessageSink {
       return false;
     }
 
-    const auto push_result = outbox_.push(std::move(message));
-    if (!push_result.succeeded) {
-      return false;
-    }
-
+    messages_.push_back(std::move(message));
     ++emitted_messages_;
     emitted_bytes_ += byte_count;
-    if (overload_stats_ != nullptr) {
-      overload_stats_->observeOutboundQueueSize(push_result.size);
-    }
-    if (notifier_ != nullptr) {
-      notifier_->notify();
-    }
     return true;
   }
 
+  std::vector<service::OutboundMessage> release() {
+    return std::move(messages_);
+  }
+
  private:
-  util::BoundedBlockingQueue<service::OutboundMessage>& outbox_;
   const WorkerPoolConfig& config_;
   std::atomic<bool>& force_stop_requested_;
-  CompletionNotifier* notifier_;
   OverloadStats* overload_stats_;
+  std::vector<service::OutboundMessage> messages_;
   std::size_t emitted_messages_{};
   std::size_t emitted_bytes_{};
 };
@@ -161,13 +151,28 @@ void WorkerPool::run() {
       return;
     }
 
-    try {
-      QueueOutboundMessageSink sink(outbox_, config_, force_stop_requested_,
-                                    outbound_notifier_, overload_stats_);
-      handler_.handle(event, sink);
-    } catch (...) {
-      completeSessionTurn(event);
-      throw;
+    if (!shouldSkipFailedSession(event)) {
+      StagedOutboundMessageSink sink(config_, force_stop_requested_,
+                                     overload_stats_);
+      bool handler_succeeded = false;
+      try {
+        handler_.handle(event, sink);
+        handler_succeeded = true;
+      } catch (...) {
+        if (overload_stats_ != nullptr) {
+          overload_stats_->recordHandlerException();
+        }
+        if (markSessionFailed(event.session_id)) {
+          requestSessionDisconnect(event.session_id);
+        }
+      }
+      if (handler_succeeded) {
+        for (auto& message : sink.release()) {
+          if (!publishOutbound(std::move(message))) {
+            break;
+          }
+        }
+      }
     }
     completeSessionTurn(event);
 
@@ -175,6 +180,44 @@ void WorkerPool::run() {
       return;
     }
   }
+}
+
+bool WorkerPool::shouldSkipFailedSession(const service::SessionEvent& event) {
+  if (event.kind == service::SessionEventKind::Disconnected) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(sequence_mutex_);
+  const auto it = sequence_by_session_.find(event.session_id);
+  return it != sequence_by_session_.end() && it->second.failed;
+}
+
+bool WorkerPool::markSessionFailed(std::uint64_t session_id) {
+  std::lock_guard<std::mutex> lock(sequence_mutex_);
+  const auto it = sequence_by_session_.find(session_id);
+  if (it == sequence_by_session_.end() || it->second.failed) {
+    return false;
+  }
+  it->second.failed = true;
+  return true;
+}
+
+bool WorkerPool::publishOutbound(service::OutboundMessage message) {
+  const auto push_result = outbox_.push(std::move(message));
+  if (!push_result.succeeded) {
+    return false;
+  }
+  if (overload_stats_ != nullptr) {
+    overload_stats_->observeOutboundQueueSize(push_result.size);
+  }
+  if (outbound_notifier_ != nullptr) {
+    outbound_notifier_->notify();
+  }
+  return true;
+}
+
+void WorkerPool::requestSessionDisconnect(std::uint64_t session_id) {
+  static_cast<void>(publishOutbound(service::OutboundMessage{
+      session_id, {}, service::OutboundMessageKind::DisconnectSession}));
 }
 
 bool WorkerPool::waitForSessionTurn(const service::SessionEvent& event) {

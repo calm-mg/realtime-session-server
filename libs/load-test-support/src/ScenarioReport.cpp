@@ -82,6 +82,7 @@ std::string formatRunResult(std::size_t run, ScenarioKind kind,
          << " inbound_queue_full=" << result.overload.inbound_queue_full
          << " outbound_budget_rejections="
          << result.overload.outbound_budget_rejections
+         << " handler_exceptions=" << result.overload.handler_exceptions
          << " slow_client_disconnects="
          << result.overload.slow_client_disconnects
          << " rejected_connections=" << result.overload.rejected_connections

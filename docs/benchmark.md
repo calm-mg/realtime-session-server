@@ -230,6 +230,7 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 | `throughput_broadcasts_per_sec` | `received / elapsed_sec`로 계산한 초당 수신 broadcast 수 |
 | `p50_ms`, `p95_ms`, `p99_ms` | 수신한 broadcast 지연 시간의 백분위 값(ms) |
 | `read_pauses`, `inbound_queue_full`, `outbound_budget_rejections` | 읽기 일시정지, 입력 queue 포화, 출력 예산 거절 횟수 |
+| `handler_exceptions` | worker handler에서 빠져나와 해당 세션을 종료한 예외 횟수 |
 | `slow_client_disconnects`, `rejected_connections` | 느린 클라이언트 종료와 연결 거절 횟수 |
 | `max_inbound_queue_size`, `max_outbound_queue_size`, `max_session_pending_write_bytes` | 측정 중 관찰한 입력 queue, 출력 queue, 세션별 미전송 byte의 최대값 |
 

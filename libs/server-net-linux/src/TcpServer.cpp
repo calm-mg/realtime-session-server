@@ -498,6 +498,11 @@ void TcpServer::drainOutbound() {
       continue;
     }
 
+    if (message->kind == service::OutboundMessageKind::DisconnectSession) {
+      disconnect(fd_it->second);
+      continue;
+    }
+
     auto session_it = sessions_by_fd_.find(fd_it->second);
     if (session_it == sessions_by_fd_.end()) {
       continue;

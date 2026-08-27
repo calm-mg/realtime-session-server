@@ -152,12 +152,28 @@ accept된 연결만 즉시 닫고 기존 세션은 유지합니다.
 유효하지 않은 timeout을 서버 시작 전에 거절합니다. IPv4 문자열 형식은
 Linux 네트워크 계층이 listener를 열 때 검사합니다.
 
+## handler 예외 격리
+
+`SessionEventHandler::handle()`에서 예외가 빠져나오면 worker는 서버 전체를
+종료하지 않고 해당 세션을 실패 상태로 격리합니다. 이미 입력 queue에 들어온
+후속 패킷은 handler에 전달하지 않되 세션 순서 번호는 계속 진행합니다.
+이벤트 하나에서 만든 출력은 handler가 정상 반환할 때까지 worker에 보관하므로
+예외 전에 만든 부분 응답이나 broadcast도 게시되지 않습니다. worker는 출력
+queue에 `DisconnectSession` 제어 명령을 넣고, I/O 스레드가 소켓을 닫습니다.
+worker는 소켓을 직접 조작하지 않습니다.
+
+실패한 세션의 `Disconnected` 이벤트는 격리 중에도 handler에 전달합니다.
+따라서 기본 `MessageRouter`는 `RoomService`의 사용자와 방 참가 상태를 기존
+연결 종료 경로로 정리할 수 있습니다. handler 예외 횟수는
+`handler_exceptions` 통계에 누적합니다.
+
 ## 과부하 통계
 
 `TcpServer::overloadSnapshot()`은 읽기 일시정지·재개, 입력 queue 포화,
-출력 예산 거절, 느린 클라이언트 종료, 연결 거절 횟수와 관측한 최대
-queue·세션 pending write 크기를 제공합니다. 현재 입력·출력 queue 크기,
-출력 queue에서 공간을 기다리는 worker 수와 세션 수도 함께 제공합니다.
+출력 예산 거절, handler 예외, 느린 클라이언트 종료, 연결 거절 횟수와
+관측한 최대 queue·세션 pending write 크기를 제공합니다. 현재 입력·출력
+queue 크기, 출력 queue에서 공간을 기다리는 worker 수와 세션 수도 함께
+제공합니다.
 
 snapshot의 각 항목은 동시 갱신 중에도 독립적으로 읽을 수 있지만, 여러
 필드가 하나의 동일한 시점을 나타내도록 묶이지는 않습니다. 따라서 단일

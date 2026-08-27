@@ -11,6 +11,7 @@ struct OverloadSnapshot {
   std::uint64_t read_resumes{};
   std::uint64_t inbound_queue_full{};
   std::uint64_t outbound_budget_rejections{};
+  std::uint64_t handler_exceptions{};
   std::uint64_t slow_client_disconnects{};
   std::uint64_t rejected_connections{};
   std::size_t max_inbound_queue_size{};
@@ -39,6 +40,10 @@ class OverloadStats {
 
   void recordOutboundBudgetRejection() noexcept {
     outbound_budget_rejections_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void recordHandlerException() noexcept {
+    handler_exceptions_.fetch_add(1, std::memory_order_relaxed);
   }
 
   void recordSlowClientDisconnect() noexcept {
@@ -72,6 +77,8 @@ class OverloadStats {
             inbound_queue_full_.load(std::memory_order_relaxed),
         .outbound_budget_rejections =
             outbound_budget_rejections_.load(std::memory_order_relaxed),
+        .handler_exceptions =
+            handler_exceptions_.load(std::memory_order_relaxed),
         .slow_client_disconnects =
             slow_client_disconnects_.load(std::memory_order_relaxed),
         .rejected_connections =
@@ -104,6 +111,7 @@ class OverloadStats {
   std::atomic<std::uint64_t> read_resumes_{0};
   std::atomic<std::uint64_t> inbound_queue_full_{0};
   std::atomic<std::uint64_t> outbound_budget_rejections_{0};
+  std::atomic<std::uint64_t> handler_exceptions_{0};
   std::atomic<std::uint64_t> slow_client_disconnects_{0};
   std::atomic<std::uint64_t> rejected_connections_{0};
   std::atomic<std::size_t> max_inbound_queue_size_{0};
