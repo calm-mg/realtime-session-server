@@ -17,6 +17,7 @@
 #include "rss/net/ServerConfig.h"
 #include "rss/net/Session.h"
 #include "rss/net/WorkerPool.h"
+#include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/service/MessageRouter.h"
 #include "rss/service/RoomService.h"
 #include "rss/util/BoundedBlockingQueue.h"
@@ -77,6 +78,7 @@ class TcpServer {
   EventFdCompletionNotifier input_capacity_wakeup_;
   util::BoundedBlockingQueue<service::SessionEvent> inbox_;
   util::BoundedBlockingQueue<service::OutboundMessage> outbox_;
+  persistence::InMemoryUserRepository in_memory_users_;
   service::RoomService room_service_;
   service::MessageRouter router_;
   service::SessionEventHandler& handler_;

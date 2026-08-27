@@ -62,31 +62,41 @@ struct PacketHeader {
 ### 로그인 성공
 
 ```text
-OK|user_id=1|session_id=10|name=alice
+OK|user_id=00000000-0000-0000-0000-000000000001|session_id=10|name=alice
 ```
+
+`user_id`는 소문자 canonical UUID 문자열이며 연결마다 바뀌는 `session_id`와
+구분합니다. `LOGIN_REQ` 이름은 ASCII 앞뒤 공백을 제거하고 ASCII 대문자를
+소문자로 바꾼 1~32바이트 조회 키로 사용합니다. 같은 저장소에 같은 조회 키로
+재접속하면 같은 `user_id`를 반환합니다. 표시 이름의 비 ASCII UTF-8 바이트는
+변경하지 않습니다.
+
+현재 이름 기반 로그인은 개발용 식별 절차이며 사용자 인증이 아닙니다. 이름을
+아는 다른 클라이언트도 같은 사용자로 식별될 수 있으므로 실제 서비스에서는
+별도의 인증 수단을 추가해야 합니다.
 
 ### 방 생성 성공
 
 ```text
-OK|event=CREATE_ROOM|room_id=1|user_id=1|session_id=10|name=alice
+OK|event=CREATE_ROOM|room_id=1|user_id=00000000-0000-0000-0000-000000000001|session_id=10|name=alice
 ```
 
 ### 방 참가 성공
 
 ```text
-OK|event=JOIN_ROOM|room_id=1|user_id=2|session_id=11|name=bob
+OK|event=JOIN_ROOM|room_id=1|user_id=00000000-0000-0000-0000-000000000002|session_id=11|name=bob
 ```
 
 ### 채팅 broadcast
 
 ```text
-event=CHAT|room_id=1|user_id=1|session_id=10|name=alice|message=hello
+event=CHAT|room_id=1|user_id=00000000-0000-0000-0000-000000000001|session_id=10|name=alice|message=hello
 ```
 
 ### 위치 broadcast
 
 ```text
-event=POSITION|room_id=1|user_id=1|session_id=10|name=alice|x=10.5|y=22
+event=POSITION|room_id=1|user_id=00000000-0000-0000-0000-000000000001|session_id=10|name=alice|x=10.5|y=22
 ```
 
 ### 오류

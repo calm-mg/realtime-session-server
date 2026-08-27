@@ -307,7 +307,7 @@ class ConnectionFlood {
 class BlockingPongHandler final : public rss::service::SessionEventHandler {
  public:
   void handle(const SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     std::function<void(std::string_view)> packet_observer;
     std::string payload;
     std::size_t response_byte_count = 0;
@@ -420,7 +420,7 @@ class SlowClientIsolationHandler final
   static constexpr std::size_t kLargeResponseBytes = 8U * 1024U * 1024U;
 
   void handle(const SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     if (event.kind == SessionEventKind::Disconnected) {
       return;
     }
@@ -476,7 +476,7 @@ class DeadlineGateHandler final : public rss::service::SessionEventHandler {
   ~DeadlineGateHandler() override { release(); }
 
   void handle(const SessionEvent&,
-              rss::service::OutboundMessageSink&) override {
+              rss::service::SessionEventContext&) override {
     const auto entered = entered_.fetch_add(1) + 1;
     changed_.notify_all();
     if (entered != 1) {

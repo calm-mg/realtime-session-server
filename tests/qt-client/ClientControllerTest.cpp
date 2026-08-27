@@ -166,14 +166,16 @@ class ClientControllerTest final : public QObject {
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
     controller.login("alice");
-    transport.receive(
-        packet(PacketType::LoginRes, "OK|user_id=1|session_id=10|name=alice"));
+    transport.receive(packet(PacketType::LoginRes,
+                             "OK|user_id=00000000-0000-0000-0000-000000000001|"
+                             "session_id=10|name=alice"));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
 
-    transport.receive(
-        packet(PacketType::RoomBroadcast,
-               "event=CHAT|room_id=1|user_id=1|session_id=10|name=alice|"
-               "message=hello|there"));
+    transport.receive(packet(PacketType::RoomBroadcast,
+                             "event=CHAT|room_id=1|"
+                             "user_id=00000000-0000-0000-0000-000000000001|"
+                             "session_id=10|name=alice|"
+                             "message=hello|there"));
 
     QCOMPARE(log_spy.count(), 1);
     const auto entry = log_spy.at(0).at(0).value<ChatLogEntry>();
@@ -190,8 +192,9 @@ class ClientControllerTest final : public QObject {
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
     controller.login("alice");
-    transport.receive(
-        packet(PacketType::LoginRes, "OK|user_id=1|session_id=10|name=alice"));
+    transport.receive(packet(PacketType::LoginRes,
+                             "OK|user_id=00000000-0000-0000-0000-000000000001|"
+                             "session_id=10|name=alice"));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
 
     transport.receive(packet(

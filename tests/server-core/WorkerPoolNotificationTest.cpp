@@ -13,6 +13,7 @@
 #include "rss/net/CompletionNotifier.h"
 #include "rss/net/OverloadStats.h"
 #include "rss/net/WorkerPool.h"
+#include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/service/MessageRouter.h"
 #include "rss/service/RoomService.h"
 #include "rss/service/SessionEventHandler.h"
@@ -33,7 +34,7 @@ class RecordingSessionEventHandler final
     : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     handled_session_id.store(event.session_id);
     static_cast<void>(sink.emit({event.session_id, {0x01U}}));
   }
@@ -220,10 +221,10 @@ class FailingDeferredHandler final : public rss::service::SessionEventHandler {
 class DelayedLoginHandler final : public rss::service::SessionEventHandler {
  public:
   explicit DelayedLoginHandler(rss::service::RoomService& room_service)
-      : router_(room_service) {}
+      : router_(room_service, users_) {}
 
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& context) override {
     if (event.kind == rss::service::SessionEventKind::Packet) {
       std::unique_lock<std::mutex> lock(mutex_);
       login_entered_ = true;
@@ -236,7 +237,7 @@ class DelayedLoginHandler final : public rss::service::SessionEventHandler {
       }
       changed_.notify_all();
     }
-    router_.handle(event, sink);
+    router_.handle(event, context);
   }
 
   bool waitForLogin() {
@@ -259,6 +260,7 @@ class DelayedLoginHandler final : public rss::service::SessionEventHandler {
   }
 
  private:
+  rss::persistence::InMemoryUserRepository users_;
   rss::service::MessageRouter router_;
   std::mutex mutex_;
   std::condition_variable changed_;
@@ -273,7 +275,7 @@ class BudgetBurstHandler final : public rss::service::SessionEventHandler {
       : outputs_(std::move(outputs)) {}
 
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     for (auto& bytes : outputs_) {
       if (!sink.emit({event.session_id, bytes})) {
         break;
@@ -292,7 +294,7 @@ class BudgetBurstHandler final : public rss::service::SessionEventHandler {
 class BlockingNoOutputHandler final : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent&,
-              rss::service::OutboundMessageSink&) override {
+              rss::service::SessionEventContext&) override {
     const auto entered = entered_.fetch_add(1) + 1;
     changed_.notify_all();
     if (entered != 1) {
@@ -329,7 +331,7 @@ class ThrowingSessionEventHandler final
     : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     if (event.session_id == 1) {
       if (event.kind == rss::service::SessionEventKind::Disconnected) {
         disconnected_calls_.fetch_add(1);

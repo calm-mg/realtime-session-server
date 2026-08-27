@@ -10,6 +10,7 @@
 #include "rss/domain/Lobby.h"
 #include "rss/domain/Position.h"
 #include "rss/domain/User.h"
+#include "rss/persistence/UserRecord.h"
 
 namespace rss::service {
 
@@ -29,7 +30,8 @@ struct RoomActionResult {
 
 class RoomService {
  public:
-  LoginResult login(std::uint64_t session_id, std::string name);
+  LoginResult attachUser(std::uint64_t session_id,
+                         const persistence::UserRecord& record);
   std::optional<domain::User> userOf(std::uint64_t session_id) const;
 
   RoomActionResult createRoom(std::uint64_t session_id, std::string room_name);
@@ -45,7 +47,6 @@ class RoomService {
 
   mutable std::mutex mutex_;
   domain::Lobby lobby_;
-  std::uint64_t next_user_id_{1};
   std::unordered_map<std::uint64_t, domain::User> users_by_session_;
   std::unordered_map<std::uint64_t, std::uint32_t> room_by_session_;
 };

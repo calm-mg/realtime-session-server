@@ -65,7 +65,8 @@ class QtSessionClientTest final : public QObject {
     QVERIFY(peer != nullptr);
 
     const auto bytes = rss::protocol::PacketCodec::encode(
-        rss::protocol::PacketType::LoginRes, "OK|user_id=1");
+        rss::protocol::PacketType::LoginRes,
+        "OK|user_id=00000000-0000-0000-0000-000000000001");
     QCOMPARE(peer->write(reinterpret_cast<const char*>(bytes.data()), 2), 2);
     peer->flush();
     QTest::qWait(10);
@@ -79,7 +80,7 @@ class QtSessionClientTest final : public QObject {
 
     const auto packet = packet_spy.at(0).at(0).value<rss::protocol::Packet>();
     QCOMPARE(rss::protocol::payloadToString(packet),
-             std::string("OK|user_id=1"));
+             std::string("OK|user_id=00000000-0000-0000-0000-000000000001"));
   }
 
   void receivesMultiplePacketsFromOneWrite() {

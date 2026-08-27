@@ -59,7 +59,7 @@ TcpServer::TcpServer(ServerConfig config, service::SessionEventHandler* handler)
     : config_(std::move(config)),
       inbox_(config_.inbound_queue_capacity),
       outbox_(config_.outbound_queue_capacity),
-      router_(room_service_),
+      router_(room_service_, in_memory_users_),
       handler_(handler == nullptr
                    ? static_cast<service::SessionEventHandler&>(router_)
                    : *handler),

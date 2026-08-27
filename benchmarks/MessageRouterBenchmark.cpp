@@ -2,14 +2,16 @@
 
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/service/MessageRouter.h"
 
 namespace {
 
-class CountingSink final : public rss::service::OutboundMessageSink {
+class CountingSink final : public rss::service::SessionEventContext {
  public:
   bool emit(rss::service::OutboundMessage message) override {
     benchmark::DoNotOptimize(message);
@@ -18,6 +20,10 @@ class CountingSink final : public rss::service::OutboundMessageSink {
   }
 
   [[nodiscard]] std::size_t count() const { return count_; }
+
+  std::shared_ptr<rss::service::DeferredSessionCompletion> defer() override {
+    throw std::logic_error("chat benchmark must not defer");
+  }
 
  private:
   std::size_t count_{};
@@ -29,9 +35,9 @@ class MessageRouterFixture : public benchmark::Fixture {
     setup_error_.clear();
     router_.reset();
     service_ = std::make_unique<rss::service::RoomService>();
-    router_ = std::make_unique<rss::service::MessageRouter>(*service_);
+    router_ = std::make_unique<rss::service::MessageRouter>(*service_, users_);
 
-    service_->login(1, "user-1");
+    service_->attachUser(1, userRecord(1));
     const auto created = service_->createRoom(1, "benchmark-room");
     if (!created.ok) {
       setup_error_ = "failed to create benchmark room";
@@ -40,7 +46,7 @@ class MessageRouterFixture : public benchmark::Fixture {
 
     for (std::int64_t i = 2; i <= state.range(0); ++i) {
       const auto session_id = static_cast<std::uint64_t>(i);
-      service_->login(session_id, "user-" + std::to_string(i));
+      service_->attachUser(session_id, userRecord(session_id));
       if (!service_->joinRoom(session_id, created.room_id).ok) {
         setup_error_ = "failed to join benchmark room";
         return;
@@ -55,10 +61,24 @@ class MessageRouterFixture : public benchmark::Fixture {
             rss::protocol::PacketType::ChatReq,
             std::vector<std::uint8_t>(message.begin(), message.end()),
         },
+        0,
+        {},
     };
   }
 
  protected:
+  static rss::persistence::UserRecord userRecord(std::uint64_t id) {
+    const auto original_id = id;
+    rss::domain::UserId::Bytes bytes{};
+    for (std::size_t index = 0; index < sizeof(id); ++index) {
+      bytes[bytes.size() - 1 - index] = static_cast<std::uint8_t>(id & 0xffU);
+      id >>= 8U;
+    }
+    const auto name = "user-" + std::to_string(original_id);
+    return {rss::domain::UserId{bytes}, name, name};
+  }
+
+  rss::persistence::InMemoryUserRepository users_;
   std::unique_ptr<rss::service::RoomService> service_;
   std::unique_ptr<rss::service::MessageRouter> router_;
   rss::service::SessionEvent chat_event_;

@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 
+#include "FakeSessionEventContext.h"
+#include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/service/MessageRouter.h"
 
@@ -15,7 +17,6 @@ using rss::protocol::PacketCodec;
 using rss::protocol::PacketType;
 using rss::service::MessageRouter;
 using rss::service::OutboundMessage;
-using rss::service::OutboundMessageSink;
 using rss::service::RoomService;
 using rss::service::SessionEvent;
 using rss::service::SessionEventKind;
@@ -47,26 +48,87 @@ SessionEvent event(std::uint64_t session_id, PacketType type,
                       decodeSinglePacket(type, payload)};
 }
 
-class CollectingSink final : public OutboundMessageSink {
- public:
-  bool emit(OutboundMessage message) override {
-    messages.push_back(std::move(message));
-    return true;
-  }
-
-  std::vector<OutboundMessage> messages;
-};
-
 std::vector<OutboundMessage> route(MessageRouter& router,
                                    const SessionEvent& input) {
-  CollectingSink sink;
-  router.handle(input, sink);
-  return std::move(sink.messages);
+  rss::test::FakeSessionEventContext context;
+  router.handle(input, context);
+  return context.releaseMessages();
+}
+
+TEST(MessageRouterTest, ReconnectWithSameNameRestoresPermanentUserId) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  const auto first = route(router, event(1, PacketType::LoginReq, "alice"));
+  ASSERT_EQ(first.size(), 1U);
+  const auto first_payload =
+      rss::protocol::payloadToString(decodeSingleMessage(first.front()));
+
+  EXPECT_TRUE(
+      route(router, SessionEvent{SessionEventKind::Disconnected, 1}).empty());
+
+  const auto second = route(router, event(2, PacketType::LoginReq, "alice"));
+  ASSERT_EQ(second.size(), 1U);
+  const auto second_payload =
+      rss::protocol::payloadToString(decodeSingleMessage(second.front()));
+
+  EXPECT_EQ(first_payload,
+            "OK|user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
+            "name=alice");
+  EXPECT_EQ(second_payload,
+            "OK|user_id=00000000-0000-0000-0000-000000000001|session_id=2|"
+            "name=alice");
+}
+
+TEST(MessageRouterTest, TrimsAndFoldsAsciiLoginNameForLookup) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  const auto first = route(router, event(1, PacketType::LoginReq, " Alice "));
+  ASSERT_EQ(first.size(), 1U);
+  EXPECT_TRUE(
+      route(router, SessionEvent{SessionEventKind::Disconnected, 1}).empty());
+  const auto second = route(router, event(2, PacketType::LoginReq, "ALICE"));
+
+  ASSERT_EQ(second.size(), 1U);
+  EXPECT_EQ(rss::protocol::payloadToString(decodeSingleMessage(second.front())),
+            "OK|user_id=00000000-0000-0000-0000-000000000001|session_id=2|"
+            "name=Alice");
+}
+
+TEST(MessageRouterTest, RejectsEmptyAndOversizedLoginNames) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  for (const auto name : {std::string{" \t\n"}, std::string(33, 'a')}) {
+    const auto output = route(router, event(1, PacketType::LoginReq, name));
+    ASSERT_EQ(output.size(), 1U);
+    const auto packet = decodeSingleMessage(output.front());
+    EXPECT_EQ(packet.type, PacketType::Error);
+    EXPECT_EQ(rss::protocol::payloadToString(packet), "invalid user name");
+  }
+}
+
+TEST(MessageRouterTest, PreservesUtf8DisplayName) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  const auto output = route(router, event(1, PacketType::LoginReq, "한글"));
+
+  ASSERT_EQ(output.size(), 1U);
+  EXPECT_EQ(rss::protocol::payloadToString(decodeSingleMessage(output.front())),
+            "OK|user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
+            "name=한글");
 }
 
 TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
+  rss::persistence::InMemoryUserRepository users;
   RoomService service;
-  MessageRouter router(service);
+  MessageRouter router(service, users);
 
   EXPECT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   EXPECT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -86,8 +148,9 @@ TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
 }
 
 TEST(MessageRouterTest, RespondsToPing) {
+  rss::persistence::InMemoryUserRepository users;
   RoomService service;
-  MessageRouter router(service);
+  MessageRouter router(service, users);
 
   const auto output = route(router, event(1, PacketType::Ping, ""));
 
@@ -101,8 +164,9 @@ TEST(MessageRouterTest, RespondsToPing) {
 }
 
 TEST(MessageRouterTest, RejectsRepeatedLoginWithoutChangingUser) {
+  rss::persistence::InMemoryUserRepository users;
   RoomService service;
-  MessageRouter router(service);
+  MessageRouter router(service, users);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   const auto original_user = service.userOf(1);
@@ -124,8 +188,9 @@ TEST(MessageRouterTest, RejectsRepeatedLoginWithoutChangingUser) {
 }
 
 TEST(MessageRouterTest, RejectsJoiningAnotherRoomWithoutBroadcasting) {
+  rss::persistence::InMemoryUserRepository users;
   RoomService service;
-  MessageRouter router(service);
+  MessageRouter router(service, users);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -154,8 +219,9 @@ TEST(MessageRouterTest, RejectsJoiningAnotherRoomWithoutBroadcasting) {
 }
 
 TEST(MessageRouterTest, RejectsRoomCreationWhileInRoomWithoutBroadcasting) {
+  rss::persistence::InMemoryUserRepository users;
   RoomService service;
-  MessageRouter router(service);
+  MessageRouter router(service, users);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -179,8 +245,9 @@ TEST(MessageRouterTest, RejectsRoomCreationWhileInRoomWithoutBroadcasting) {
 }
 
 TEST(MessageRouterTest, LeavesThenJoinsAnotherRoomWithOrderedMessages) {
+  rss::persistence::InMemoryUserRepository users;
   RoomService service;
-  MessageRouter router(service);
+  MessageRouter router(service, users);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -200,12 +267,16 @@ TEST(MessageRouterTest, LeavesThenJoinsAnotherRoomWithOrderedMessages) {
   const auto leave_response = decodeSingleMessage(leave[0]);
   EXPECT_EQ(leave_response.type, PacketType::LeaveRoomRes);
   EXPECT_EQ(rss::protocol::payloadToString(leave_response),
-            "OK|event=LEAVE_ROOM|room_id=1|user_id=1|session_id=1|name=alice");
+            "OK|event=LEAVE_ROOM|room_id=1|"
+            "user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
+            "name=alice");
   EXPECT_EQ(leave[1].session_id, 2);
   const auto leave_broadcast = decodeSingleMessage(leave[1]);
   EXPECT_EQ(leave_broadcast.type, PacketType::RoomBroadcast);
   EXPECT_EQ(rss::protocol::payloadToString(leave_broadcast),
-            "OK|event=LEAVE|room_id=1|user_id=1|session_id=1|name=alice");
+            "OK|event=LEAVE|room_id=1|"
+            "user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
+            "name=alice");
 
   const auto join = route(router, event(1, PacketType::JoinRoomReq, "2"));
 
@@ -214,12 +285,16 @@ TEST(MessageRouterTest, LeavesThenJoinsAnotherRoomWithOrderedMessages) {
   const auto join_response = decodeSingleMessage(join[0]);
   EXPECT_EQ(join_response.type, PacketType::JoinRoomRes);
   EXPECT_EQ(rss::protocol::payloadToString(join_response),
-            "OK|event=JOIN_ROOM|room_id=2|user_id=1|session_id=1|name=alice");
+            "OK|event=JOIN_ROOM|room_id=2|"
+            "user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
+            "name=alice");
   EXPECT_EQ(join[1].session_id, 3);
   const auto join_broadcast = decodeSingleMessage(join[1]);
   EXPECT_EQ(join_broadcast.type, PacketType::RoomBroadcast);
   EXPECT_EQ(rss::protocol::payloadToString(join_broadcast),
-            "OK|event=JOIN|room_id=2|user_id=1|session_id=1|name=alice");
+            "OK|event=JOIN|room_id=2|"
+            "user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
+            "name=alice");
 }
 
 }  // namespace

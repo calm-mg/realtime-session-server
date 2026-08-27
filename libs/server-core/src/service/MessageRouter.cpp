@@ -1,7 +1,9 @@
 #include "rss/service/MessageRouter.h"
 
 #include <charconv>
+#include <cstddef>
 #include <exception>
+#include <optional>
 #include <sstream>
 #include <system_error>
 
@@ -12,6 +14,57 @@ namespace {
 
 std::string payloadText(const protocol::Packet& packet) {
   return protocol::payloadToString(packet);
+}
+
+struct NormalizedLoginName {
+  std::string normalized;
+  std::string display;
+};
+
+bool isAsciiSpace(char character) {
+  return character == ' ' || character == '\t' || character == '\n' ||
+         character == '\r' || character == '\f' || character == '\v';
+}
+
+std::optional<NormalizedLoginName> normalizeLoginName(std::string_view input) {
+  std::size_t begin{};
+  while (begin < input.size() && isAsciiSpace(input[begin])) {
+    ++begin;
+  }
+  std::size_t end = input.size();
+  while (end > begin && isAsciiSpace(input[end - 1])) {
+    --end;
+  }
+  if (begin == end || end - begin > 32) {
+    return std::nullopt;
+  }
+
+  NormalizedLoginName result;
+  result.display.assign(input.substr(begin, end - begin));
+  result.normalized = result.display;
+  for (auto& character : result.normalized) {
+    if (character >= 'A' && character <= 'Z') {
+      character = static_cast<char>(character - 'A' + 'a');
+    }
+  }
+  return result;
+}
+
+std::string_view persistenceErrorText(persistence::PersistenceErrorKind kind) {
+  switch (kind) {
+    case persistence::PersistenceErrorKind::Busy:
+      return "user persistence busy";
+    case persistence::PersistenceErrorKind::Unavailable:
+      return "user persistence unavailable";
+    case persistence::PersistenceErrorKind::Timeout:
+      return "user persistence timeout";
+    case persistence::PersistenceErrorKind::Stopping:
+      return "server is stopping";
+    case persistence::PersistenceErrorKind::Constraint:
+    case persistence::PersistenceErrorKind::InvalidData:
+      return "user persistence failure";
+  }
+  return "user persistence failure";
 }
 
 std::uint32_t parseRoomId(const std::string& text) {
@@ -27,7 +80,7 @@ std::uint32_t parseRoomId(const std::string& text) {
 
 std::string userPrefix(const domain::User& user) {
   std::ostringstream out;
-  out << "user_id=" << user.id << "|session_id=" << user.session_id
+  out << "user_id=" << user.id.toString() << "|session_id=" << user.session_id
       << "|name=" << user.name;
   return out.str();
 }
@@ -44,11 +97,12 @@ std::string okPayload(std::string_view event, const RoomActionResult& result) {
 
 }  // namespace
 
-MessageRouter::MessageRouter(RoomService& room_service)
-    : room_service_(room_service) {}
+MessageRouter::MessageRouter(RoomService& room_service,
+                             persistence::UserRepository& user_repository)
+    : room_service_(room_service), user_repository_(user_repository) {}
 
 void MessageRouter::handle(const SessionEvent& event,
-                           OutboundMessageSink& sink) {
+                           SessionEventContext& context) {
   if (event.kind == SessionEventKind::Disconnected) {
     const auto result = room_service_.disconnect(event.session_id);
     if (!result.ok || result.room_id == 0) {
@@ -58,7 +112,7 @@ void MessageRouter::handle(const SessionEvent& event,
     const auto payload = okPayload("LEAVE", result);
     for (const auto recipient : result.recipients) {
       if (recipient != event.session_id &&
-          !sink.emit(
+          !context.emit(
               make(recipient, protocol::PacketType::RoomBroadcast, payload))) {
         return;
       }
@@ -67,28 +121,58 @@ void MessageRouter::handle(const SessionEvent& event,
   }
 
   try {
-    handlePacket(event.session_id, event.packet, sink);
+    handlePacket(event.session_id, event.packet, context);
   } catch (const std::exception& ex) {
-    static_cast<void>(sink.emit(error(event.session_id, ex.what())));
+    static_cast<void>(context.emit(error(event.session_id, ex.what())));
   }
 }
 
 void MessageRouter::handlePacket(std::uint64_t session_id,
                                  const protocol::Packet& packet,
-                                 OutboundMessageSink& sink) {
+                                 SessionEventContext& context) {
+  auto& sink = static_cast<OutboundMessageSink&>(context);
   using protocol::PacketType;
 
   switch (packet.type) {
     case PacketType::LoginReq: {
-      const auto result = room_service_.login(session_id, payloadText(packet));
-      if (!result.ok) {
-        static_cast<void>(sink.emit(error(session_id, result.error)));
+      const auto normalized = normalizeLoginName(payloadText(packet));
+      if (!normalized.has_value()) {
+        static_cast<void>(sink.emit(error(session_id, "invalid user name")));
         return;
       }
-      std::ostringstream payload;
-      payload << "OK|" << userPrefix(result.user);
-      static_cast<void>(
-          sink.emit(make(session_id, PacketType::LoginRes, payload.str())));
+      auto completion = context.defer();
+      try {
+        user_repository_.findOrCreateByNormalizedName(
+            {normalized->normalized, normalized->display},
+            [this, session_id, completion](persistence::UserResult result) {
+              try {
+                if (!result.user.has_value()) {
+                  const auto message =
+                      result.error.has_value()
+                          ? persistenceErrorText(result.error->kind)
+                          : std::string_view{"user persistence failure"};
+                  static_cast<void>(
+                      completion->succeed({error(session_id, message)}));
+                  return;
+                }
+                const auto login =
+                    room_service_.attachUser(session_id, *result.user);
+                if (!login.ok) {
+                  static_cast<void>(
+                      completion->succeed({error(session_id, login.error)}));
+                  return;
+                }
+                std::ostringstream payload;
+                payload << "OK|" << userPrefix(login.user);
+                static_cast<void>(completion->succeed(
+                    {make(session_id, PacketType::LoginRes, payload.str())}));
+              } catch (...) {
+                static_cast<void>(completion->fail());
+              }
+            });
+      } catch (...) {
+        static_cast<void>(completion->fail());
+      }
       return;
     }
     case PacketType::CreateRoomReq: {

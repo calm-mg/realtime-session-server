@@ -19,17 +19,15 @@ std::string normalizeName(std::string name, std::string fallback) {
 
 }  // namespace
 
-LoginResult RoomService::login(std::uint64_t session_id, std::string name) {
+LoginResult RoomService::attachUser(std::uint64_t session_id,
+                                    const persistence::UserRecord& record) {
   std::lock_guard<std::mutex> lock(mutex_);
   const auto existing = users_by_session_.find(session_id);
   if (existing != users_by_session_.end()) {
     return LoginResult{false, "user is already logged in", existing->second};
   }
 
-  domain::User user;
-  user.id = next_user_id_++;
-  user.session_id = session_id;
-  user.name = normalizeName(std::move(name), "user-" + std::to_string(user.id));
+  domain::User user{record.user_id, session_id, record.display_name};
   users_by_session_[session_id] = user;
   return LoginResult{true, {}, std::move(user)};
 }

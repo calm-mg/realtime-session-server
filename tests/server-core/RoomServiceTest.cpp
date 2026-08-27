@@ -6,20 +6,35 @@
 #include <vector>
 
 #include "rss/domain/Position.h"
+#include "rss/persistence/UserRecord.h"
 #include "rss/service/RoomService.h"
 
 namespace {
 
 using rss::service::RoomService;
 
+rss::persistence::UserRecord userRecord(std::uint64_t id, std::string name) {
+  rss::domain::UserId::Bytes bytes{};
+  for (std::size_t index = 0; index < sizeof(id); ++index) {
+    bytes[bytes.size() - 1 - index] = static_cast<std::uint8_t>(id & 0xffU);
+    id >>= 8U;
+  }
+  return {rss::domain::UserId{bytes}, name, std::move(name)};
+}
+
+rss::service::LoginResult attach(RoomService& service, std::uint64_t session_id,
+                                 std::uint64_t user_id, std::string name) {
+  return service.attachUser(session_id, userRecord(user_id, std::move(name)));
+}
+
 void expectRepeatedLoginInRoomRejected(std::string_view repeated_name) {
   RoomService service;
-  const auto login = service.login(100, "alice");
+  const auto login = attach(service, 100, 1, "alice");
   ASSERT_TRUE(login.ok);
   const auto room = service.createRoom(100, "arena");
   ASSERT_TRUE(room.ok);
 
-  const auto repeated = service.login(100, std::string(repeated_name));
+  const auto repeated = attach(service, 100, 2, std::string(repeated_name));
 
   EXPECT_FALSE(repeated.ok);
   EXPECT_EQ(repeated.error, "user is already logged in");
@@ -42,8 +57,8 @@ void expectRepeatedLoginInRoomRejected(std::string_view repeated_name) {
 TEST(RoomServiceTest, AssignsUniqueUserIds) {
   RoomService service;
 
-  const auto alice = service.login(100, "alice");
-  const auto bob = service.login(200, "bob");
+  const auto alice = attach(service, 100, 1, "alice");
+  const auto bob = attach(service, 200, 2, "bob");
 
   ASSERT_TRUE(alice.ok);
   ASSERT_TRUE(bob.ok);
@@ -60,8 +75,8 @@ TEST(RoomServiceTest, RejectsRepeatedLoginWithDifferentNameWhileInRoom) {
 
 TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {
   RoomService service;
-  service.login(100, "alice");
-  service.login(200, "bob");
+  attach(service, 100, 1, "alice");
+  attach(service, 200, 2, "bob");
 
   const auto create = service.createRoom(100, "arena");
   ASSERT_TRUE(create.ok);
@@ -90,7 +105,7 @@ TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {
 
 TEST(RoomServiceTest, RejectsRejoiningSameRoomForOnlyMember) {
   RoomService service;
-  service.login(100, "alice");
+  attach(service, 100, 1, "alice");
 
   const auto create = service.createRoom(100, "arena");
   ASSERT_TRUE(create.ok);
@@ -111,8 +126,8 @@ TEST(RoomServiceTest, RejectsRejoiningSameRoomForOnlyMember) {
 
 TEST(RoomServiceTest, RejectsRejoiningSameRoomWithoutChangingMembers) {
   RoomService service;
-  service.login(100, "alice");
-  service.login(200, "bob");
+  attach(service, 100, 1, "alice");
+  attach(service, 200, 2, "bob");
 
   const auto create = service.createRoom(100, "arena");
   ASSERT_TRUE(create.ok);
@@ -137,8 +152,8 @@ TEST(RoomServiceTest, RejectsRejoiningSameRoomWithoutChangingMembers) {
 
 TEST(RoomServiceTest, RejectsRoomCreationWhileInRoomWithoutChangingState) {
   RoomService service;
-  ASSERT_TRUE(service.login(100, "alice").ok);
-  ASSERT_TRUE(service.login(200, "bob").ok);
+  ASSERT_TRUE(attach(service, 100, 1, "alice").ok);
+  ASSERT_TRUE(attach(service, 200, 2, "bob").ok);
 
   const auto original_room = service.createRoom(100, "arena");
   ASSERT_TRUE(original_room.ok);
@@ -161,8 +176,8 @@ TEST(RoomServiceTest, RejectsRoomCreationWhileInRoomWithoutChangingState) {
 
 TEST(RoomServiceTest, ChecksCurrentRoomBeforeTargetRoomExists) {
   RoomService service;
-  ASSERT_TRUE(service.login(100, "alice").ok);
-  ASSERT_TRUE(service.login(200, "bob").ok);
+  ASSERT_TRUE(attach(service, 100, 1, "alice").ok);
+  ASSERT_TRUE(attach(service, 200, 2, "bob").ok);
   const auto original_room = service.createRoom(100, "arena");
   ASSERT_TRUE(original_room.ok);
   const auto target_room = service.createRoom(200, "other");

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 #include "rss/service/Command.h"
@@ -32,13 +31,8 @@ class SessionEventHandler {
  public:
   virtual ~SessionEventHandler() = default;
 
-  virtual void handle(const SessionEvent&, OutboundMessageSink&) {
-    throw std::logic_error("session event handler is not implemented");
-  }
-
-  virtual void handle(const SessionEvent& event, SessionEventContext& context) {
-    handle(event, static_cast<OutboundMessageSink&>(context));
-  }
+  virtual void handle(const SessionEvent& event,
+                      SessionEventContext& context) = 0;
 };
 
 }  // namespace rss::service
