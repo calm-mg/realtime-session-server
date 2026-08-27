@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cstdint>
 #include <string>
+
+#include "rss/domain/UserId.h"
 
 namespace rss::domain {
 
 struct User {
-  std::uint64_t id{};
+  UserId id;
   std::uint64_t session_id{};
   std::string name;
 };

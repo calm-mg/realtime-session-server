@@ -13,6 +13,7 @@
 #include "rss/net/CompletionNotifier.h"
 #include "rss/net/OverloadStats.h"
 #include "rss/net/WorkerPool.h"
+#include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/service/MessageRouter.h"
 #include "rss/service/RoomService.h"
 #include "rss/service/SessionEventHandler.h"
@@ -33,7 +34,7 @@ class RecordingSessionEventHandler final
     : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     handled_session_id.store(event.session_id);
     static_cast<void>(sink.emit({event.session_id, {0x01U}}));
   }
@@ -41,13 +42,189 @@ class RecordingSessionEventHandler final
   std::atomic<std::uint64_t> handled_session_id{0};
 };
 
+class DeferredFirstHandler final : public rss::service::SessionEventHandler {
+ public:
+  void handle(const rss::service::SessionEvent& event,
+              rss::service::SessionEventContext& context) override {
+    if (event.session_id == 1) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        completion_ = context.defer();
+      }
+      changed_.notify_all();
+      return;
+    }
+
+    handled_second_session_.store(true);
+    changed_.notify_all();
+  }
+
+  bool waitForDeferredSession() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s,
+                             [this] { return completion_ != nullptr; });
+  }
+
+  bool waitForSecondSession() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s,
+                             [this] { return handled_second_session_.load(); });
+  }
+
+  bool completeDeferredSession() { return completeDeferredSessionWith({}); }
+
+  bool completeDeferredSessionWith(
+      std::vector<rss::service::OutboundMessage> messages) {
+    std::shared_ptr<rss::service::DeferredSessionCompletion> completion;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      completion = completion_;
+    }
+    return completion != nullptr && completion->succeed(std::move(messages));
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
+  std::atomic<bool> handled_second_session_{false};
+};
+
+class OrderedDeferredHandler final : public rss::service::SessionEventHandler {
+ public:
+  void handle(const rss::service::SessionEvent& event,
+              rss::service::SessionEventContext& context) override {
+    if (event.sequence == 0) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        completion_ = context.defer();
+      }
+      changed_.notify_all();
+      return;
+    }
+    static_cast<void>(context.emit({event.session_id, {0xB0U}}));
+  }
+
+  bool waitForDeferredSession() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s,
+                             [this] { return completion_ != nullptr; });
+  }
+
+  bool completeDeferredSession() {
+    std::shared_ptr<rss::service::DeferredSessionCompletion> completion;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      completion = completion_;
+    }
+    return completion != nullptr && completion->succeed({{1, {0xA0U}}});
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
+};
+
+class InlineCompletionHandler final : public rss::service::SessionEventHandler {
+ public:
+  void handle(const rss::service::SessionEvent& event,
+              rss::service::SessionEventContext& context) override {
+    if (event.session_id != 1) {
+      static_cast<void>(context.emit({event.session_id, {0xB0U}}));
+      return;
+    }
+
+    auto completion = context.defer();
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      entered_ = true;
+      changed_.notify_all();
+      changed_.wait(lock, [this] { return released_; });
+    }
+    completion_succeeded_.store(
+        completion->succeed({{event.session_id, {0xA0U}}}));
+    changed_.notify_all();
+  }
+
+  bool waitForEntry() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s, [this] { return entered_; });
+  }
+
+  void release() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released_ = true;
+    }
+    changed_.notify_all();
+  }
+
+  bool waitForCompletionCall() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s,
+                             [this] { return completion_succeeded_.load(); });
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  bool entered_{false};
+  bool released_{false};
+  std::atomic<bool> completion_succeeded_{false};
+};
+
+class FailingDeferredHandler final : public rss::service::SessionEventHandler {
+ public:
+  void handle(const rss::service::SessionEvent& event,
+              rss::service::SessionEventContext& context) override {
+    if (event.session_id == 1) {
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        completion_ = context.defer();
+      }
+      changed_.notify_all();
+      return;
+    }
+    handled_healthy_session_.store(true);
+    changed_.notify_all();
+  }
+
+  bool waitForDeferredSession() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s,
+                             [this] { return completion_ != nullptr; });
+  }
+
+  bool failDeferredSession() {
+    std::shared_ptr<rss::service::DeferredSessionCompletion> completion;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      completion = completion_;
+    }
+    return completion != nullptr && completion->fail();
+  }
+
+  bool waitForHealthySession() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(
+        lock, 1s, [this] { return handled_healthy_session_.load(); });
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
+  std::atomic<bool> handled_healthy_session_{false};
+};
+
 class DelayedLoginHandler final : public rss::service::SessionEventHandler {
  public:
   explicit DelayedLoginHandler(rss::service::RoomService& room_service)
-      : router_(room_service) {}
+      : router_(room_service, users_) {}
 
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& context) override {
     if (event.kind == rss::service::SessionEventKind::Packet) {
       std::unique_lock<std::mutex> lock(mutex_);
       login_entered_ = true;
@@ -60,7 +237,7 @@ class DelayedLoginHandler final : public rss::service::SessionEventHandler {
       }
       changed_.notify_all();
     }
-    router_.handle(event, sink);
+    router_.handle(event, context);
   }
 
   bool waitForLogin() {
@@ -83,6 +260,7 @@ class DelayedLoginHandler final : public rss::service::SessionEventHandler {
   }
 
  private:
+  rss::persistence::InMemoryUserRepository users_;
   rss::service::MessageRouter router_;
   std::mutex mutex_;
   std::condition_variable changed_;
@@ -97,7 +275,7 @@ class BudgetBurstHandler final : public rss::service::SessionEventHandler {
       : outputs_(std::move(outputs)) {}
 
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     for (auto& bytes : outputs_) {
       if (!sink.emit({event.session_id, bytes})) {
         break;
@@ -116,7 +294,7 @@ class BudgetBurstHandler final : public rss::service::SessionEventHandler {
 class BlockingNoOutputHandler final : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent&,
-              rss::service::OutboundMessageSink&) override {
+              rss::service::SessionEventContext&) override {
     const auto entered = entered_.fetch_add(1) + 1;
     changed_.notify_all();
     if (entered != 1) {
@@ -153,7 +331,7 @@ class ThrowingSessionEventHandler final
     : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent& event,
-              rss::service::OutboundMessageSink& sink) override {
+              rss::service::SessionEventContext& sink) override {
     if (event.session_id == 1) {
       if (event.kind == rss::service::SessionEventKind::Disconnected) {
         disconnected_calls_.fetch_add(1);
@@ -217,6 +395,234 @@ std::optional<rss::service::OutboundMessage> waitForOutbound(
     std::this_thread::sleep_for(1ms);
   }
   return std::nullopt;
+}
+
+TEST(WorkerPoolNotificationTest, DeferredSessionDoesNotOccupyOnlyWorker) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(4);
+  DeferredFirstHandler handler;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 2, {}, 0}).succeeded);
+
+  EXPECT_TRUE(handler.waitForSecondSession());
+  EXPECT_TRUE(handler.completeDeferredSession());
+  workers.beginStop();
+  workers.join();
+}
+
+TEST(WorkerPoolNotificationTest,
+     DeferredCompletionPublishesMessagesBeforeNextSequence) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(4);
+  OrderedDeferredHandler handler;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(handler.completeDeferredSession());
+
+  const auto completion_message = waitForOutbound(outbox);
+  const auto next_message = waitForOutbound(outbox);
+  if (!completion_message.has_value() || !next_message.has_value()) {
+    workers.forceStop();
+  } else {
+    workers.beginStop();
+  }
+  workers.join();
+
+  ASSERT_TRUE(completion_message.has_value());
+  EXPECT_EQ(completion_message->bytes, (std::vector<std::uint8_t>{0xA0U}));
+  ASSERT_TRUE(next_message.has_value());
+  EXPECT_EQ(next_message->bytes, (std::vector<std::uint8_t>{0xB0U}));
+}
+
+TEST(WorkerPoolNotificationTest,
+     InlineDeferredCompletionDoesNotBlockOnFullInbox) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(1);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  InlineCompletionHandler handler;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForEntry());
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 2, {}, 0}).succeeded);
+  handler.release();
+
+  const auto completion_call_returned = handler.waitForCompletionCall();
+  const auto completion_message = waitForOutbound(outbox);
+  if (!completion_call_returned || !completion_message.has_value()) {
+    workers.forceStop();
+  } else {
+    workers.beginStop();
+  }
+  workers.join();
+
+  EXPECT_TRUE(completion_call_returned);
+  ASSERT_TRUE(completion_message.has_value());
+  EXPECT_EQ(completion_message->bytes, (std::vector<std::uint8_t>{0xA0U}));
+}
+
+TEST(WorkerPoolNotificationTest, DeferredFailureDisconnectsOnlyOwningSession) {
+  using rss::service::OutboundMessageKind;
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  FailingDeferredHandler handler;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+  ASSERT_TRUE(handler.failDeferredSession());
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 2, {}, 0}).succeeded);
+
+  const auto disconnect = waitForOutbound(outbox);
+  const auto healthy_session_processed = handler.waitForHealthySession();
+  workers.beginStop();
+  workers.join();
+
+  ASSERT_TRUE(disconnect.has_value());
+  EXPECT_EQ(disconnect->kind, OutboundMessageKind::DisconnectSession);
+  EXPECT_EQ(disconnect->session_id, 1U);
+  EXPECT_TRUE(healthy_session_processed);
+}
+
+TEST(WorkerPoolNotificationTest, ParkedEventLimitDisconnectsOnlyOwningSession) {
+  using rss::service::OutboundMessageKind;
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  DeferredFirstHandler handler;
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 1;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config);
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 2}).succeeded);
+
+  const auto disconnect = waitForOutbound(outbox);
+  if (!disconnect.has_value()) {
+    workers.forceStop();
+  } else {
+    static_cast<void>(handler.completeDeferredSession());
+    workers.beginStop();
+  }
+  workers.join();
+
+  ASSERT_TRUE(disconnect.has_value());
+  EXPECT_EQ(disconnect->kind, OutboundMessageKind::DisconnectSession);
+  EXPECT_EQ(disconnect->session_id, 1U);
+}
+
+TEST(WorkerPoolNotificationTest, GracefulStopWaitsForDeferredCompletion) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(2);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  OrderedDeferredHandler handler;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+
+  workers.beginStop();
+  std::this_thread::sleep_for(20ms);
+  EXPECT_FALSE(workers.finished());
+  EXPECT_TRUE(handler.completeDeferredSession());
+
+  const auto completion_message = waitForOutbound(outbox);
+  workers.join();
+
+  ASSERT_TRUE(completion_message.has_value());
+  EXPECT_EQ(completion_message->bytes, (std::vector<std::uint8_t>{0xA0U}));
+  EXPECT_TRUE(workers.finished());
+}
+
+TEST(WorkerPoolNotificationTest, ForceStopRejectsLateDeferredCompletion) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(2);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  OrderedDeferredHandler handler;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+
+  workers.forceStop();
+  EXPECT_FALSE(handler.completeDeferredSession());
+  workers.join();
+
+  EXPECT_EQ(outbox.size(), 0U);
+  EXPECT_TRUE(workers.finished());
+}
+
+TEST(WorkerPoolNotificationTest, DeferredCompletionUsesPerEventOutputBudget) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(2);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(3);
+  DeferredFirstHandler handler;
+  rss::net::OverloadStats stats;
+  auto config = workerConfig();
+  config.max_outbound_messages_per_event = 1;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config, nullptr, nullptr,
+                               &stats);
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+  ASSERT_TRUE(
+      handler.completeDeferredSessionWith({{1, {0xA0U}}, {1, {0xB0U}}}));
+
+  ASSERT_TRUE(waitUntil([&] { return outbox.size() >= 1; }));
+  workers.beginStop();
+  workers.join();
+
+  EXPECT_EQ(outbox.size(), 1U);
+  EXPECT_EQ(stats.snapshot(0, outbox.size(), 0).outbound_budget_rejections, 1U);
 }
 
 TEST(WorkerPoolNotificationTest, ProcessesEventsThroughSessionEventHandler) {

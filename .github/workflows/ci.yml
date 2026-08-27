@@ -42,6 +42,7 @@ jobs:
           cmake -S . -B build/qt-client -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DRSS_BUILD_NETWORK_TARGETS=OFF
+          -DRSS_BUILD_POSTGRES=OFF
           -DRSS_BUILD_QT_CLIENT=ON
 
       - name: Qt 클라이언트 구성 (Windows)
@@ -49,6 +50,7 @@ jobs:
         run: >-
           cmake -S . -B build/qt-client -A x64
           -DRSS_BUILD_NETWORK_TARGETS=OFF
+          -DRSS_BUILD_POSTGRES=OFF
           -DRSS_BUILD_QT_CLIENT=ON
 
       - name: Qt 클라이언트 빌드 (Linux, macOS)
@@ -85,6 +87,7 @@ jobs:
               cmake -S . -B build/core
               -DCMAKE_BUILD_TYPE=Release
               -DRSS_BUILD_NETWORK_TARGETS=OFF
+              -DRSS_BUILD_POSTGRES=OFF
               -DRSS_BUILD_BENCHMARKS=ON
             build: cmake --build build/core --parallel
             test: ctest --test-dir build/core --output-on-failure --timeout 30
@@ -93,6 +96,7 @@ jobs:
             configure: >-
               cmake -S . -B build/core
               -DRSS_BUILD_NETWORK_TARGETS=OFF
+              -DRSS_BUILD_POSTGRES=OFF
               -DRSS_BUILD_BENCHMARKS=ON
             build: cmake --build build/core --config Release --parallel
             test: ctest --test-dir build/core -C Release --output-on-failure --timeout 30
@@ -116,12 +120,30 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-24.04
+    env:
+      RSS_TEST_DATABASE_URL: postgresql://rss:rss_test@127.0.0.1:5432/rss_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rss
+          POSTGRES_PASSWORD: rss_test
+          POSTGRES_DB: rss_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rss -d rss_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
       - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install --yes cmake ninja-build
+        run: >-
+          sudo apt-get update && sudo apt-get install --yes
+          cmake libpq-dev ninja-build postgresql-client
 
       - name: Configure
         run: >
@@ -133,6 +155,11 @@ jobs:
       - name: Build
         run: cmake --build build/release --parallel
 
+      - name: Apply PostgreSQL migrations
+        run: >-
+          psql "$RSS_TEST_DATABASE_URL" -v ON_ERROR_STOP=1
+          -f libs/server-persistence-postgres/migrations/001_users.sql
+
       - name: Test
         run: ctest --test-dir build/release --output-on-failure --timeout 30
 
@@ -141,12 +168,30 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-24.04
+    env:
+      RSS_TEST_DATABASE_URL: postgresql://rss:rss_test@127.0.0.1:5432/rss_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rss
+          POSTGRES_PASSWORD: rss_test
+          POSTGRES_DB: rss_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rss -d rss_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: 저장소 체크아웃
         uses: actions/checkout@v7
 
       - name: 빌드 도구 설치
-        run: sudo apt-get update && sudo apt-get install --yes cmake ninja-build
+        run: >-
+          sudo apt-get update && sudo apt-get install --yes
+          cmake libpq-dev ninja-build postgresql-client
 
       - name: Sanitizer 구성
         run: >
@@ -159,6 +204,11 @@ jobs:
 
       - name: 빌드
         run: cmake --build build/sanitizers --parallel
+
+      - name: PostgreSQL migration 적용
+        run: >-
+          psql "$RSS_TEST_DATABASE_URL" -v ON_ERROR_STOP=1
+          -f libs/server-persistence-postgres/migrations/001_users.sql
 
       - name: 테스트
         env:
@@ -176,7 +226,7 @@ jobs:
         run: >
           sudo apt-get update &&
           sudo apt-get install --yes clang-format-18 clang-tidy-18 cmake
-          ninja-build
+          libpq-dev ninja-build
 
       - name: Configure
         run: >

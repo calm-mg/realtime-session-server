@@ -1,11 +1,13 @@
 add_executable(rss_server_core_tests
     BoundedBlockingQueueTest.cpp
+    InMemoryUserRepositoryTest.cpp
     MessageRouterTest.cpp
     OverloadStatsTest.cpp
     ReadBackpressureControllerTest.cpp
     RoomServiceTest.cpp
     ServerConfigTest.cpp
     SessionTest.cpp
+    UserIdTest.cpp
     WorkerPoolNotificationTest.cpp
 )
 target_link_libraries(rss_server_core_tests

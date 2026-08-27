@@ -37,4 +37,13 @@ TEST(ScenarioOptionsTest, RejectsSlowClientCountAtClientCount) {
   EXPECT_THROW(rss::tools::parseScenarioOptions(args), std::invalid_argument);
 }
 
+TEST(ScenarioOptionsTest, EnforcesChatPayloadLimit) {
+  const std::array<std::string_view, 2> maximum{"--payload-bytes", "3939"};
+  EXPECT_EQ(rss::tools::parseScenarioOptions(maximum).payload_bytes, 3939U);
+
+  const std::array<std::string_view, 2> oversized{"--payload-bytes", "3940"};
+  EXPECT_THROW(rss::tools::parseScenarioOptions(oversized),
+               std::invalid_argument);
+}
+
 }  // namespace

@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 
+#include "rss/persistence/UserRepository.h"
 #include "rss/service/Command.h"
 #include "rss/service/RoomService.h"
 #include "rss/service/SessionEventHandler.h"
@@ -11,13 +12,14 @@ namespace rss::service {
 
 class MessageRouter final : public SessionEventHandler {
  public:
-  explicit MessageRouter(RoomService& room_service);
+  MessageRouter(RoomService& room_service,
+                persistence::UserRepository& user_repository);
 
-  void handle(const SessionEvent& event, OutboundMessageSink& sink) override;
+  void handle(const SessionEvent& event, SessionEventContext& context) override;
 
  private:
   void handlePacket(std::uint64_t session_id, const protocol::Packet& packet,
-                    OutboundMessageSink& sink);
+                    SessionEventContext& context);
   [[nodiscard]] OutboundMessage make(std::uint64_t session_id,
                                      protocol::PacketType type,
                                      std::string_view payload) const;
@@ -25,6 +27,7 @@ class MessageRouter final : public SessionEventHandler {
                                       std::string_view message) const;
 
   RoomService& room_service_;
+  persistence::UserRepository& user_repository_;
 };
 
 }  // namespace rss::service

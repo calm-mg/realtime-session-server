@@ -2,8 +2,10 @@ add_library(rss_server_core
     src/domain/Lobby.cpp
     src/domain/Room.cpp
     src/domain/User.cpp
+    src/domain/UserId.cpp
     src/net/Session.cpp
     src/net/WorkerPool.cpp
+    src/persistence/InMemoryUserRepository.cpp
     src/service/MessageRouter.cpp
     src/service/RoomService.cpp
 )

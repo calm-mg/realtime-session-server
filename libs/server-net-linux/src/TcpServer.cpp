@@ -59,7 +59,7 @@ TcpServer::TcpServer(ServerConfig config, service::SessionEventHandler* handler)
     : config_(std::move(config)),
       inbox_(config_.inbound_queue_capacity),
       outbox_(config_.outbound_queue_capacity),
-      router_(room_service_),
+      router_(room_service_, in_memory_users_),
       handler_(handler == nullptr
                    ? static_cast<service::SessionEventHandler&>(router_)
                    : *handler),
@@ -72,6 +72,8 @@ TcpServer::TcpServer(ServerConfig config, service::SessionEventHandler* handler)
                        config_.max_outbound_messages_per_event,
                    .max_outbound_bytes_per_event =
                        config_.max_outbound_bytes_per_event,
+                   .max_parked_events_per_session =
+                       config_.max_parked_events_per_session,
                },
                &outbound_wakeup_, &input_capacity_wakeup_, &overload_stats_) {
   config_.validate();
@@ -372,9 +374,12 @@ bool TcpServer::enqueueDecodedPackets(Session& session,
     if (remaining_work != nullptr && *remaining_work == 0) {
       return false;
     }
-    const auto push_result = inbox_.tryPush(
-        service::SessionEvent{service::SessionEventKind::Packet, session.id(),
-                              std::move(*packet), session.nextEventSequence()});
+    const auto push_result =
+        inbox_.tryPush(service::SessionEvent{service::SessionEventKind::Packet,
+                                             session.id(),
+                                             std::move(*packet),
+                                             session.nextEventSequence(),
+                                             {}});
     if (!push_result.succeeded) {
       overload_stats_.recordInboundQueueFull();
       static_cast<void>(
@@ -600,7 +605,8 @@ bool TcpServer::enqueueDisconnected(Session& session) {
       service::SessionEvent{service::SessionEventKind::Disconnected,
                             session.id(),
                             {},
-                            session.nextEventSequence()});
+                            session.nextEventSequence(),
+                            {}});
   if (!push_result.succeeded) {
     overload_stats_.recordInboundQueueFull();
     static_cast<void>(

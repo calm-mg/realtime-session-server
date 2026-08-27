@@ -183,10 +183,11 @@ class MainWindowTest final : public QObject {
 
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
-    transport.receive(
-        packet(rss::protocol::PacketType::RoomBroadcast,
-               "event=CHAT|room_id=1|user_id=2|session_id=11|name=bob|"
-               "message=hello"));
+    transport.receive(packet(rss::protocol::PacketType::RoomBroadcast,
+                             "event=CHAT|room_id=1|"
+                             "user_id=00000000-0000-0000-0000-000000000002|"
+                             "session_id=11|name=bob|"
+                             "message=hello"));
     transport.receive(
         packet(rss::protocol::PacketType::Error, "request failed"));
 

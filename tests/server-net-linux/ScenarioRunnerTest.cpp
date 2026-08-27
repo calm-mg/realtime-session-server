@@ -60,7 +60,7 @@ TEST(ScenarioRunnerTest,
   options.clients = 3;
   options.slow_clients = 1;
   options.messages_per_sender = 2000;
-  options.payload_bytes = 4000;
+  options.payload_bytes = 3939;
   options.worker_count = 2;
 
   const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
@@ -82,7 +82,7 @@ TEST(ScenarioRunnerTest, SharedWindowKeepsFastClientsWithinPendingCapacity) {
   options.clients = 10;
   options.slow_clients = 1;
   options.messages_per_sender = 100;
-  options.payload_bytes = 4000;
+  options.payload_bytes = 3939;
   options.worker_count = 2;
 
   rss::tools::ScenarioRunner runner{
