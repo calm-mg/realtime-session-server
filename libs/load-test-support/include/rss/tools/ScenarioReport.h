@@ -16,6 +16,7 @@ struct OverloadReport {
   std::uint64_t read_resumes{};
   std::uint64_t inbound_queue_full{};
   std::uint64_t outbound_budget_rejections{};
+  std::uint64_t handler_exceptions{};
   std::uint64_t slow_client_disconnects{};
   std::uint64_t rejected_connections{};
   std::size_t max_inbound_queue_size{};

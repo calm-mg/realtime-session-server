@@ -46,10 +46,16 @@ class WorkerPool {
     std::uint64_t next_sequence{};
     std::size_t waiting_workers{};
     bool active{};
+    bool failed{};
   };
 
   void run();
   [[nodiscard]] bool waitForSessionTurn(const service::SessionEvent& event);
+  [[nodiscard]] bool shouldSkipFailedSession(
+      const service::SessionEvent& event);
+  [[nodiscard]] bool markSessionFailed(std::uint64_t session_id);
+  [[nodiscard]] bool publishOutbound(service::OutboundMessage message);
+  void requestSessionDisconnect(std::uint64_t session_id);
   void completeSessionTurn(const service::SessionEvent& event);
 
   util::BoundedBlockingQueue<service::SessionEvent>& inbox_;

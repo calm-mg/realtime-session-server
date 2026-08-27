@@ -6,6 +6,7 @@
 #include <future>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
@@ -146,6 +147,44 @@ class BlockingNoOutputHandler final : public rss::service::SessionEventHandler {
   std::mutex mutex_;
   std::condition_variable changed_;
   bool released_{false};
+};
+
+class ThrowingSessionEventHandler final
+    : public rss::service::SessionEventHandler {
+ public:
+  void handle(const rss::service::SessionEvent& event,
+              rss::service::OutboundMessageSink& sink) override {
+    if (event.session_id == 1) {
+      if (event.kind == rss::service::SessionEventKind::Disconnected) {
+        disconnected_calls_.fetch_add(1);
+        return;
+      }
+      const auto packet_calls = failed_session_packet_calls_.fetch_add(1) + 1;
+      if (packet_calls == 1) {
+        static_cast<void>(sink.emit({event.session_id, {0xEEU}}));
+        throw std::runtime_error("handler failure");
+      }
+      return;
+    }
+    healthy_session_calls_.fetch_add(1);
+  }
+
+  [[nodiscard]] std::size_t failedSessionPacketCalls() const {
+    return failed_session_packet_calls_.load();
+  }
+
+  [[nodiscard]] std::size_t healthySessionCalls() const {
+    return healthy_session_calls_.load();
+  }
+
+  [[nodiscard]] std::size_t disconnectedCalls() const {
+    return disconnected_calls_.load();
+  }
+
+ private:
+  std::atomic<std::size_t> failed_session_packet_calls_{0};
+  std::atomic<std::size_t> healthy_session_calls_{0};
+  std::atomic<std::size_t> disconnected_calls_{0};
 };
 
 rss::net::WorkerPoolConfig workerConfig(std::size_t inbound_low_watermark = 1) {
@@ -417,6 +456,47 @@ TEST(WorkerPoolNotificationTest,
   workers.join();
 
   EXPECT_EQ(handler.entered(), 1U);
+}
+
+TEST(WorkerPoolNotificationTest,
+     HandlerExceptionQuarantinesFailedSessionAndKeepsWorkerRunning) {
+  using rss::service::OutboundMessageKind;
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  ThrowingSessionEventHandler handler;
+  rss::net::OverloadStats stats;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig(), nullptr,
+                               nullptr, &stats);
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(inbox.push(SessionEvent{SessionEventKind::Disconnected, 1, {}, 2})
+                  .succeeded);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 2, {}, 0}).succeeded);
+
+  ASSERT_TRUE(waitUntil([&] {
+    return handler.disconnectedCalls() == 1 &&
+           handler.healthySessionCalls() == 1;
+  }));
+  const auto disconnect = waitForOutbound(outbox);
+  workers.beginStop();
+  workers.join();
+
+  EXPECT_EQ(handler.failedSessionPacketCalls(), 1U);
+  EXPECT_EQ(handler.healthySessionCalls(), 1U);
+  EXPECT_EQ(handler.disconnectedCalls(), 1U);
+  ASSERT_TRUE(disconnect.has_value());
+  EXPECT_EQ(disconnect->kind, OutboundMessageKind::DisconnectSession);
+  EXPECT_EQ(disconnect->session_id, 1U);
+  EXPECT_TRUE(disconnect->bytes.empty());
+  EXPECT_EQ(stats.snapshot(0, 0, 0).handler_exceptions, 1U);
 }
 
 TEST(WorkerPoolNotificationTest, DestructorClosesQueuesAndJoinsWorkers) {

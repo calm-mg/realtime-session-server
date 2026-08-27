@@ -73,11 +73,12 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
       .read_pauses = 5,
       .inbound_queue_full = 6,
       .outbound_budget_rejections = 7,
-      .slow_client_disconnects = 8,
-      .rejected_connections = 9,
-      .max_inbound_queue_size = 10,
-      .max_outbound_queue_size = 11,
-      .max_session_pending_write_bytes = 12,
+      .handler_exceptions = 8,
+      .slow_client_disconnects = 9,
+      .rejected_connections = 10,
+      .max_inbound_queue_size = 11,
+      .max_outbound_queue_size = 12,
+      .max_session_pending_write_bytes = 13,
   };
 
   EXPECT_EQ(rss::tools::formatRunResult(2, options.scenario, result),
@@ -87,9 +88,10 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
             "failed_clients=0 elapsed_sec=2.000 "
             "throughput_broadcasts_per_sec=2.000 p50_ms=2.000 p95_ms=4.000 "
             "p99_ms=4.000 read_pauses=5 inbound_queue_full=6 "
-            "outbound_budget_rejections=7 slow_client_disconnects=8 "
-            "rejected_connections=9 max_inbound_queue_size=10 "
-            "max_outbound_queue_size=11 max_session_pending_write_bytes=12");
+            "outbound_budget_rejections=7 handler_exceptions=8 "
+            "slow_client_disconnects=9 rejected_connections=10 "
+            "max_inbound_queue_size=11 max_outbound_queue_size=12 "
+            "max_session_pending_write_bytes=13");
 }
 
 }  // namespace

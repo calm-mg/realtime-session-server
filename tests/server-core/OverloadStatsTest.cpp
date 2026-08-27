@@ -18,6 +18,7 @@ TEST(OverloadStatsTest, AccumulatesCountersAndKeepsObservedMaximums) {
     stats.recordReadPause();
     stats.recordReadResume();
     stats.recordInboundQueueFull();
+    stats.recordHandlerException();
     stats.recordSlowClientDisconnect();
     stats.recordRejectedConnection();
   }
@@ -32,6 +33,7 @@ TEST(OverloadStatsTest, AccumulatesCountersAndKeepsObservedMaximums) {
   EXPECT_EQ(snapshot.read_pauses, 2U);
   EXPECT_EQ(snapshot.read_resumes, 2U);
   EXPECT_EQ(snapshot.inbound_queue_full, 2U);
+  EXPECT_EQ(snapshot.handler_exceptions, 2U);
   EXPECT_EQ(snapshot.slow_client_disconnects, 2U);
   EXPECT_EQ(snapshot.rejected_connections, 2U);
   EXPECT_EQ(snapshot.max_inbound_queue_size, 5U);

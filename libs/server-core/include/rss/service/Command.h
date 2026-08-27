@@ -12,6 +12,11 @@ enum class SessionEventKind {
   Disconnected,
 };
 
+enum class OutboundMessageKind {
+  SendBytes,
+  DisconnectSession,
+};
+
 struct SessionEvent {
   SessionEventKind kind{SessionEventKind::Packet};
   std::uint64_t session_id{};
@@ -22,6 +27,7 @@ struct SessionEvent {
 struct OutboundMessage {
   std::uint64_t session_id{};
   std::vector<std::uint8_t> bytes;
+  OutboundMessageKind kind{OutboundMessageKind::SendBytes};
 };
 
 }  // namespace rss::service

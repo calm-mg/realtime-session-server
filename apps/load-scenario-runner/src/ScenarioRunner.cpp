@@ -183,6 +183,7 @@ OverloadReport makeOverloadReport(const rss::net::OverloadSnapshot& snapshot) {
       .read_resumes = snapshot.read_resumes,
       .inbound_queue_full = snapshot.inbound_queue_full,
       .outbound_budget_rejections = snapshot.outbound_budget_rejections,
+      .handler_exceptions = snapshot.handler_exceptions,
       .slow_client_disconnects = snapshot.slow_client_disconnects,
       .rejected_connections = snapshot.rejected_connections,
       .max_inbound_queue_size = snapshot.max_inbound_queue_size,
