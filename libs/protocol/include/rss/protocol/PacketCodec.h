@@ -4,21 +4,15 @@
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "rss/protocol/Packet.h"
+#include "rss/protocol/ProtocolError.h"
 
 namespace rss::protocol {
-
-class ProtocolError final : public std::runtime_error {
- public:
-  explicit ProtocolError(const char* message);
-  explicit ProtocolError(const std::string& message);
-};
 
 class PacketCodec {
  public:

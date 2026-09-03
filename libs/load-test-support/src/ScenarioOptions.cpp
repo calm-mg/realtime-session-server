@@ -67,7 +67,8 @@ ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args) {
 
   if (options.payload_bytes < 64 ||
       options.payload_bytes > protocol::kMaxChatMessageBytes) {
-    throw std::invalid_argument("payload bytes must be between 64 and 3939");
+    throw std::invalid_argument("payload bytes must be between 64 and " +
+                                std::to_string(protocol::kMaxChatMessageBytes));
   }
   if (options.scenario == ScenarioKind::MultiRoom &&
       options.rooms > options.clients) {
