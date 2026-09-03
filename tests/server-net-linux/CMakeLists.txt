@@ -7,6 +7,7 @@ add_executable(rss_server_net_tests
     PostgresServerLoginTest.cpp
     ScenarioClientTest.cpp
     ScenarioRunnerTest.cpp
+    ServerProgramTest.cpp
     ServerSignalTest.cpp
     TcpServerBackpressureTest.cpp
 )

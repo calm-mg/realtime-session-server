@@ -102,6 +102,14 @@ void TcpServer::run() {
           boundPort(), config_.worker_count);
       std::cout.flush();
     }
+    if (started_callback_) {
+      try {
+        started_callback_();
+      } catch (...) {
+        // Optional observability hooks must not prevent the server from
+        // entering its event loop.
+      }
+    }
 
     while (shutdown_phase_ != ShutdownPhase::Complete) {
       if (stop_requested_.load(std::memory_order_acquire)) {
@@ -220,6 +228,13 @@ void TcpServer::run() {
 void TcpServer::stop() {
   stop_requested_.store(true, std::memory_order_release);
   outbound_wakeup_.notify();
+}
+
+void TcpServer::setStartedCallback(StartedCallback callback) {
+  if (running_.load(std::memory_order_acquire)) {
+    throw std::logic_error("started callback must be set before run");
+  }
+  started_callback_ = std::move(callback);
 }
 
 std::uint16_t TcpServer::boundPort() const noexcept {

@@ -111,7 +111,9 @@ export RSS_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:5432/rss'
 시작·주기 통계·정상 종료는 표준 출력, 시작 실패는 표준 오류에 기록합니다.
 과부하 통계 출력 주기는 `RSS_OBSERVABILITY_INTERVAL_SECONDS`로 설정하며
 기본값은 `30`초입니다. `0`이면 주기 출력만 끄고 시작·최종 통계·종료
-이벤트는 계속 기록합니다.
+이벤트는 계속 기록합니다. 주기 reporter는 listener가 열린 뒤
+`server_started`가 기록된 다음 시작하며, thread 생성에 실패해도 서버는
+계속 실행되고 주기 출력만 비활성화됩니다.
 
 ```bash
 RSS_OBSERVABILITY_INTERVAL_SECONDS=10 \

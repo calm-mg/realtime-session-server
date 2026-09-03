@@ -60,20 +60,20 @@ std::size_t sizeEnvironment(const char* name, std::size_t fallback) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  rss::net::ServerConfig config;
-  if (argc >= 2) {
-    config.host = argv[1];
-  }
-  if (argc >= 3) {
-    config.port = parsePort(argv[2]);
-  }
-  if (argc >= 4) {
-    config.worker_count = static_cast<std::size_t>(std::stoul(argv[3]));
-  } else {
-    config.worker_count = std::max(1U, std::thread::hardware_concurrency());
-  }
-
   try {
+    rss::net::ServerConfig config;
+    if (argc >= 2) {
+      config.host = argv[1];
+    }
+    if (argc >= 3) {
+      config.port = parsePort(argv[2]);
+    }
+    if (argc >= 4) {
+      config.worker_count = static_cast<std::size_t>(std::stoul(argv[3]));
+    } else {
+      config.worker_count = std::max(1U, std::thread::hardware_concurrency());
+    }
+
     const auto shutdown_signals = rss::server::blockShutdownSignals();
     const auto database_url = requiredEnvironment("RSS_DATABASE_URL");
     const auto database_workers = sizeEnvironment("RSS_DB_WORKERS", 2);
@@ -99,7 +99,8 @@ int main(int argc, char** argv) {
     rss::observability::PeriodicOverloadReporter reporter(
         reporting_interval, [&server] { return server.overloadSnapshot(); },
         std::cout);
-    reporter.start();
+    server.setStartedCallback(
+        [&reporter] { static_cast<void>(reporter.start()); });
     try {
       server.run();
       reporter.stop();

@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 #include "rss/observability/OperationalConfig.h"
@@ -16,6 +18,27 @@ TEST(OperationalConfigTest, ParsesPositiveReportingInterval) {
 
 TEST(OperationalConfigTest, AcceptsZeroToDisablePeriodicReporting) {
   EXPECT_EQ(rss::observability::parseReportingIntervalSeconds("0"), 0s);
+}
+
+TEST(OperationalConfigTest, AcceptsLargestIntervalRepresentableAsMilliseconds) {
+  const auto maximum_seconds = static_cast<std::uint64_t>(
+      std::chrono::milliseconds::max().count() / 1000);
+
+  EXPECT_EQ(rss::observability::parseReportingIntervalSeconds(
+                std::to_string(maximum_seconds)),
+            std::chrono::milliseconds(maximum_seconds * 1000));
+}
+
+TEST(OperationalConfigTest, RejectsIntervalThatOverflowsMilliseconds) {
+  const auto first_overflowing_second =
+      static_cast<std::uint64_t>(std::chrono::milliseconds::max().count() /
+                                 1000) +
+      1;
+
+  EXPECT_THROW(
+      static_cast<void>(rss::observability::parseReportingIntervalSeconds(
+          std::to_string(first_overflowing_second))),
+      std::invalid_argument);
 }
 
 class InvalidReportingIntervalTest

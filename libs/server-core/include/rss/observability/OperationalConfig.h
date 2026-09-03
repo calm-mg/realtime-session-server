@@ -5,7 +5,7 @@
 
 namespace rss::observability {
 
-[[nodiscard]] std::chrono::seconds parseReportingIntervalSeconds(
+[[nodiscard]] std::chrono::milliseconds parseReportingIntervalSeconds(
     std::string_view value);
 
 }  // namespace rss::observability

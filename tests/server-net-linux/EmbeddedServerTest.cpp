@@ -74,6 +74,29 @@ TEST(EmbeddedServerTest, DoesNotEmitStartupDiagnostic) {
   EXPECT_TRUE(output.empty());
 }
 
+TEST(EmbeddedServerTest, RunsStartedCallbackAfterStartupDiagnostic) {
+  rss::net::ServerConfig config;
+  config.host = "127.0.0.1";
+  config.port = 0;
+  config.worker_count = 1;
+  rss::net::TcpServer server(config);
+  server.setStartedCallback([&] {
+    std::cout << "started callback\n";
+    server.stop();
+  });
+
+  testing::internal::CaptureStdout();
+  server.run();
+  std::cout.flush();
+  const auto output = testing::internal::GetCapturedStdout();
+
+  const auto diagnostic = output.find("\"event\":\"server_started\"");
+  const auto callback = output.find("started callback");
+  ASSERT_NE(diagnostic, std::string::npos);
+  ASSERT_NE(callback, std::string::npos);
+  EXPECT_LT(diagnostic, callback);
+}
+
 TEST(EmbeddedServerTest, StartsOnAnEphemeralLoopbackPortAndStops) {
   rss::net::ServerConfig config;
   config.host = "127.0.0.1";

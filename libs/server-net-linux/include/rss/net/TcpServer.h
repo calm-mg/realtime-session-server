@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -26,6 +27,8 @@ namespace rss::net {
 
 class TcpServer {
  public:
+  using StartedCallback = std::function<void()>;
+
   explicit TcpServer(ServerConfig config,
                      service::SessionEventHandler* handler = nullptr);
   ~TcpServer();
@@ -35,6 +38,7 @@ class TcpServer {
 
   void run();
   void stop();
+  void setStartedCallback(StartedCallback callback);
   [[nodiscard]] std::uint16_t boundPort() const noexcept;
   [[nodiscard]] OverloadSnapshot overloadSnapshot() const;
 
@@ -93,6 +97,7 @@ class TcpServer {
   std::atomic<bool> running_{false};
   std::atomic<std::uint16_t> bound_port_{0};
   std::atomic<std::size_t> current_sessions_{0};
+  StartedCallback started_callback_;
   ShutdownPhase shutdown_phase_{ShutdownPhase::Running};
   std::chrono::steady_clock::time_point shutdown_deadline_{};
   std::uint64_t next_session_id_{1};

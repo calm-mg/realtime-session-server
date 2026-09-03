@@ -10,8 +10,16 @@ namespace rss::observability {
 PeriodicOverloadReporter::PeriodicOverloadReporter(
     std::chrono::milliseconds interval, SnapshotProvider snapshot_provider,
     std::ostream& output)
+    : PeriodicOverloadReporter(
+          interval, std::move(snapshot_provider), output,
+          [](Task task) { return std::thread(std::move(task)); }) {}
+
+PeriodicOverloadReporter::PeriodicOverloadReporter(
+    std::chrono::milliseconds interval, SnapshotProvider snapshot_provider,
+    std::ostream& output, ThreadFactory thread_factory)
     : interval_(interval),
       snapshot_provider_(std::move(snapshot_provider)),
+      thread_factory_(std::move(thread_factory)),
       output_(output) {
   if (interval_ < std::chrono::milliseconds::zero()) {
     throw std::invalid_argument("reporting interval must not be negative");
@@ -19,22 +27,30 @@ PeriodicOverloadReporter::PeriodicOverloadReporter(
   if (!snapshot_provider_) {
     throw std::invalid_argument("snapshot provider is required");
   }
+  if (!thread_factory_) {
+    throw std::invalid_argument("thread factory is required");
+  }
 }
 
 PeriodicOverloadReporter::~PeriodicOverloadReporter() { stop(); }
 
-void PeriodicOverloadReporter::start() {
+bool PeriodicOverloadReporter::start() noexcept {
   if (interval_ == std::chrono::milliseconds::zero()) {
-    return;
+    return false;
   }
   if (thread_.joinable()) {
-    throw std::logic_error("overload reporter is already running");
+    return true;
   }
   {
     std::lock_guard<std::mutex> lock(mutex_);
     stop_requested_ = false;
   }
-  thread_ = std::thread(&PeriodicOverloadReporter::run, this);
+  try {
+    thread_ = thread_factory_([this] { run(); });
+    return thread_.joinable();
+  } catch (...) {
+    return false;
+  }
 }
 
 void PeriodicOverloadReporter::stop() noexcept {

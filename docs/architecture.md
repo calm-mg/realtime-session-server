@@ -224,9 +224,10 @@ snapshot의 각 항목은 동시 갱신 중에도 독립적으로 읽을 수 있
 
 주기 reporter는 `TcpServer::overloadSnapshot()` provider에만 의존하는
 플랫폼 독립 구성 요소입니다. 자체 thread는 설정 주기마다 snapshot을 읽으며,
-종료 요청은 condition variable로 대기 시간을 즉시 중단합니다. 출력 실패나
-snapshot 수집 실패가 서버를 종료시키지 않도록 reporter thread 밖으로 예외를
-전파하지 않습니다.
+listener가 열린 뒤 `server_started` 출력이 완료된 시점에 시작합니다. 종료
+요청은 condition variable로 대기 시간을 즉시 중단합니다. thread 생성 실패는
+주기 출력만 비활성화하며, 출력 실패나 snapshot 수집 실패도 서버를 종료시키지
+않도록 reporter thread 밖으로 예외를 전파하지 않습니다.
 
 운영 로그에는 사용자 이름, 방 이름, 채팅 payload, 인증정보와 database URL을
 넣지 않습니다. 여러 snapshot 필드의 원자성 제약은 위 과부하 통계 설명과

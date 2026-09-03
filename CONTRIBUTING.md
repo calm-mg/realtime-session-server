@@ -79,6 +79,7 @@ docker compose -p rss-test down -v
 운영 로그 변경은 각 출력 줄이 독립적인 JSON 객체인지, 시작과 종료 사이에
 주기 통계가 출력되는지 함께 확인합니다. 아래 설정은 통계 주기를 1초로
 줄이며 `0`을 지정하면 주기 출력만 비활성화합니다.
+잘못된 실행 인자도 단일 `server_failed` JSON 객체로 기록되는지 확인합니다.
 
 ```bash
 RSS_OBSERVABILITY_INTERVAL_SECONDS=1 \

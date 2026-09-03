@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <sstream>
+#include <system_error>
 #include <thread>
 
 #include "rss/observability/PeriodicOverloadReporter.h"
@@ -24,7 +25,7 @@ TEST(PeriodicOverloadReporterTest, EmitsSnapshotsAtConfiguredInterval) {
       },
       output);
 
-  reporter.start();
+  EXPECT_TRUE(reporter.start());
   const auto deadline = std::chrono::steady_clock::now() + 500ms;
   while (calls.load() == 0 && std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(1ms);
@@ -49,7 +50,7 @@ TEST(PeriodicOverloadReporterTest, ZeroIntervalDisablesPeriodicSnapshots) {
       },
       output);
 
-  reporter.start();
+  EXPECT_FALSE(reporter.start());
   reporter.stop();
 
   EXPECT_EQ(calls.load(), 0);
@@ -62,9 +63,23 @@ TEST(PeriodicOverloadReporterTest, StopInterruptsLongReportingInterval) {
       std::chrono::hours(1), [] { return rss::net::OverloadSnapshot{}; },
       output);
 
-  reporter.start();
+  EXPECT_TRUE(reporter.start());
   reporter.stop();
 
+  EXPECT_TRUE(output.str().empty());
+}
+
+TEST(PeriodicOverloadReporterTest, ThreadStartFailureDisablesReporter) {
+  std::ostringstream output;
+  rss::observability::PeriodicOverloadReporter reporter(
+      1s, [] { return rss::net::OverloadSnapshot{}; }, output,
+      [](rss::observability::PeriodicOverloadReporter::Task) -> std::thread {
+        throw std::system_error(
+            std::make_error_code(std::errc::resource_unavailable_try_again));
+      });
+
+  EXPECT_FALSE(reporter.start());
+  reporter.stop();
   EXPECT_TRUE(output.str().empty());
 }
 
