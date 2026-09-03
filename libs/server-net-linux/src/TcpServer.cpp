@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "rss/net/detail/AcceptBatchLimiter.h"
+#include "rss/observability/OperationalLogFormatter.h"
 #include "rss/protocol/PacketCodec.h"
 
 namespace rss::net {
@@ -96,9 +97,10 @@ void TcpServer::run() {
     workers_.start(config_.worker_count);
 
     if (config_.emit_startup_diagnostic) {
-      std::cout << "rss_server listening on " << config_.host << ':'
-                << boundPort() << " with " << config_.worker_count
-                << " workers\n";
+      std::cout << observability::formatServerStarted(
+          observability::currentUnixTimeMilliseconds(), config_.host,
+          boundPort(), config_.worker_count);
+      std::cout.flush();
     }
 
     while (shutdown_phase_ != ShutdownPhase::Complete) {

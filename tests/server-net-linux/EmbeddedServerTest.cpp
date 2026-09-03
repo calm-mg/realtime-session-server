@@ -50,8 +50,10 @@ std::string captureTcpServerStartupDiagnostic() {
 TEST(EmbeddedServerTest, TcpServerEmitsStartupDiagnosticByDefault) {
   const auto output = captureTcpServerStartupDiagnostic();
 
-  EXPECT_NE(output.find("rss_server listening on 127.0.0.1:"),
-            std::string::npos);
+  EXPECT_NE(output.find("\"level\":\"info\""), std::string::npos);
+  EXPECT_NE(output.find("\"event\":\"server_started\""), std::string::npos);
+  EXPECT_NE(output.find("\"host\":\"127.0.0.1\""), std::string::npos);
+  EXPECT_NE(output.find("\"worker_count\":1"), std::string::npos);
 }
 
 TEST(EmbeddedServerTest, DoesNotEmitStartupDiagnostic) {

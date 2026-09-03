@@ -76,6 +76,19 @@ docker compose -p rss-test down -v
 명시적으로 건너뜁니다. PostgreSQL adapter compile, 잘못된 연결 처리와 코어
 테스트는 계속 실행됩니다.
 
+운영 로그 변경은 각 출력 줄이 독립적인 JSON 객체인지, 시작과 종료 사이에
+주기 통계가 출력되는지 함께 확인합니다. 아래 설정은 통계 주기를 1초로
+줄이며 `0`을 지정하면 주기 출력만 비활성화합니다.
+
+```bash
+RSS_OBSERVABILITY_INTERVAL_SECONDS=1 \
+RSS_DATABASE_URL="$RSS_TEST_DATABASE_URL" \
+  ./build/linux-dev/rss_server 127.0.0.1 7777 1
+```
+
+로그 테스트에는 사용자 이름, 채팅 payload나 database URL처럼 운영 로그에
+남기지 않는 값을 추가하지 않습니다.
+
 등록된 테스트 이름을 먼저 보고 싶다면 다음 명령을 실행합니다.
 
 ```bash

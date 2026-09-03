@@ -107,6 +107,22 @@ export RSS_DATABASE_URL='postgresql://rss:local-password@127.0.0.1:5432/rss'
 값은 모두 서버 시작 전에 검증되며 DB 연결에 실패하면 listener를 열지
 않습니다.
 
+서버는 운영 로그를 한 줄에 JSON 객체 하나인 NDJSON 형식으로 출력합니다.
+시작·주기 통계·정상 종료는 표준 출력, 시작 실패는 표준 오류에 기록합니다.
+과부하 통계 출력 주기는 `RSS_OBSERVABILITY_INTERVAL_SECONDS`로 설정하며
+기본값은 `30`초입니다. `0`이면 주기 출력만 끄고 시작·최종 통계·종료
+이벤트는 계속 기록합니다.
+
+```bash
+RSS_OBSERVABILITY_INTERVAL_SECONDS=10 \
+  ./build/rss_server 0.0.0.0 7777 4
+```
+
+각 로그에는 Unix epoch 밀리초인 `timestamp_unix_ms`, `level`, `event`가
+포함됩니다. `overload_snapshot` 이벤트는 `periodic` 또는 `final` phase와
+queue, 세션, 거절·종료·예외 누적값을 제공합니다. 사용자 이름, 방 이름,
+채팅 payload와 database URL은 운영 로그에 기록하지 않습니다.
+
 DB를 정지하되 데이터를 보존하려면 다음 명령을 사용합니다.
 
 ```bash

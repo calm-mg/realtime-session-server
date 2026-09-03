@@ -205,6 +205,33 @@ snapshot의 각 항목은 동시 갱신 중에도 독립적으로 읽을 수 있
 필드의 관측과 추세 확인에는 사용할 수 있으나, 서로 다른 필드의 조합을
 하나의 원자적 상태로 해석하지 않아야 합니다.
 
+## 운영 로그와 통계 노출
+
+운영 서버는 외부 logging library나 별도 관리 port 없이 NDJSON을 표준
+스트림에 기록합니다. 컨테이너와 process supervisor가 그대로 수집할 수 있고,
+로그 구현 때문에 I/O 스레드가 외부 network 호출을 수행하지 않습니다.
+
+- `server_started`: listener가 열린 뒤 host, 실제 port와 worker 수를 기록
+- `overload_snapshot`: 기본 30초마다 현재 `OverloadSnapshot` 전체를 기록
+- `overload_snapshot`의 `final` phase: network drain 완료 뒤 최종값 기록
+- `server_stopped`: 최종 통계 다음에 정상 종료 완료를 기록
+- `server_failed`: 시작 또는 실행 실패 원인을 표준 오류에 기록
+
+모든 이벤트에는 Unix epoch 밀리초 `timestamp_unix_ms`, `level`, `event`가
+있습니다. 정보 이벤트는 표준 출력, 실패 이벤트는 표준 오류를 사용합니다.
+`RSS_OBSERVABILITY_INTERVAL_SECONDS`는 0 이상의 정수이며 기본값은 30입니다.
+0은 주기 snapshot만 끕니다. 최종 snapshot은 정상 종료 시 항상 기록합니다.
+
+주기 reporter는 `TcpServer::overloadSnapshot()` provider에만 의존하는
+플랫폼 독립 구성 요소입니다. 자체 thread는 설정 주기마다 snapshot을 읽으며,
+종료 요청은 condition variable로 대기 시간을 즉시 중단합니다. 출력 실패나
+snapshot 수집 실패가 서버를 종료시키지 않도록 reporter thread 밖으로 예외를
+전파하지 않습니다.
+
+운영 로그에는 사용자 이름, 방 이름, 채팅 payload, 인증정보와 database URL을
+넣지 않습니다. 여러 snapshot 필드의 원자성 제약은 위 과부하 통계 설명과
+동일합니다.
+
 ## 종료 순서
 
 종료 요청을 받으면 서버는 새 연결 수락과 새 소켓 읽기를 멈춘 뒤, 이미
