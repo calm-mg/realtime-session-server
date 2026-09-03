@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 
+#include "rss/protocol/Packet.h"
 #include "rss/protocol/ProtocolError.h"
 #include "rss/protocol/StructuredPayload.h"
 
@@ -95,6 +96,23 @@ TEST(StructuredPayloadTest, BuilderRequiresAtLeastOneField) {
                ProtocolError);
   EXPECT_THROW(static_cast<void>(StructuredPayloadBuilder("OK").build()),
                ProtocolError);
+}
+
+TEST(StructuredPayloadTest, WorstCaseChatEnvelopeFitsPacketLimit) {
+  const auto wire =
+      StructuredPayloadBuilder()
+          .addField("event", "CHAT")
+          .addField("room_id", "4294967295")
+          .addField("user_id", "ffffffff-ffff-ffff-ffff-ffffffffffff")
+          .addField("session_id", "18446744073709551615")
+          .addField("name", std::string(rss::protocol::kMaxUserNameBytes, '|'))
+          .addField("message",
+                    std::string(rss::protocol::kMaxChatMessageBytes, '='))
+          .build();
+
+  EXPECT_EQ(wire.size() + rss::protocol::kPacketHeaderSize, 4094U);
+  EXPECT_LE(wire.size() + rss::protocol::kPacketHeaderSize,
+            rss::protocol::kMaxPacketSize);
 }
 
 }  // namespace

@@ -190,6 +190,8 @@ user is not logged in
 `invalid room name`, `invalid chat message` 오류를 반환합니다. 채팅은 UTF-8
 검사보다 byte 상한을 먼저 확인하므로 1291바이트를 넘으면 내용과 관계없이
 `chat message too large`를 반환합니다.
+payload가 비어 있어야 하는 `LEAVE_ROOM_REQ`와 `PING`에 데이터가 있으면 각각
+`invalid leave room request`, `invalid ping request`를 반환합니다.
 서버는 `ERROR` packet을 보낸 뒤 연결을 유지하며, 거부된 요청으로 사용자·방·
 membership 상태를 바꾸거나 broadcast를 만들지 않습니다.
 

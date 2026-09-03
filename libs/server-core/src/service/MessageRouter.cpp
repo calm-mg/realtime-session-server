@@ -215,6 +215,11 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       return;
     }
     case PacketType::LeaveRoomReq: {
+      if (!packet.payload.empty()) {
+        static_cast<void>(
+            sink.emit(error(session_id, "invalid leave room request")));
+        return;
+      }
       const auto result = room_service_.leaveRoom(session_id);
       if (!result.ok) {
         static_cast<void>(sink.emit(error(session_id, result.error)));
@@ -293,6 +298,10 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       return;
     }
     case PacketType::Ping:
+      if (!packet.payload.empty()) {
+        static_cast<void>(sink.emit(error(session_id, "invalid ping request")));
+        return;
+      }
       static_cast<void>(sink.emit(make(session_id, PacketType::Pong, "PONG")));
       return;
     default:

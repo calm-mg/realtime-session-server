@@ -197,11 +197,31 @@ class ClientControllerTest final : public QObject {
     transport.completeConnection();
     QSignalSpy validation_spy(&controller, &ClientController::validationFailed);
 
+    controller.login(QString::fromUtf8("가가가가가가가가가가"));
+    QCOMPARE(transport.lastPayload(), std::string("가가가가가가가가가가"));
+    const int sent_before = transport.sentCount();
+
     controller.login(QString::fromUtf8("가가가가가가가가가가가"));
 
-    QCOMPARE(transport.sentCount(), 0);
+    QCOMPARE(transport.sentCount(), sent_before);
     QCOMPARE(validation_spy.count(), 1);
     QCOMPARE(controller.state(), ClientState::Connected);
+  }
+
+  void enforcesRoomNameUtf8ByteLimit() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    logIn(controller, transport);
+    QSignalSpy validation_spy(&controller, &ClientController::validationFailed);
+
+    controller.createRoom(QString::fromUtf8(" 가가가가가가가가가가 "));
+    QCOMPARE(transport.lastPayload(), std::string("가가가가가가가가가가"));
+    const int sent_before = transport.sentCount();
+
+    controller.createRoom(QString::fromUtf8("가가가가가가가가가가가"));
+    QCOMPARE(transport.sentCount(), sent_before);
+    QCOMPARE(validation_spy.count(), 1);
+    QCOMPARE(controller.state(), ClientState::LoggedIn);
   }
 
   void parsesChatBroadcastAndMarksOwnSender() {
@@ -267,6 +287,43 @@ class ClientControllerTest final : public QObject {
     QCOMPARE(entry.kind, LogKind::Error);
     QCOMPARE(entry.text,
              QString("Protocol error: invalid structured payload."));
+  }
+
+  void malformedRoomResponsesAndBroadcastDoNotChangeState() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    logIn(controller, transport);
+    QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
+
+    transport.receive(
+        packet(PacketType::CreateRoomRes, roomResponse("JOIN_ROOM")));
+    QCOMPARE(controller.state(), ClientState::LoggedIn);
+    transport.receive(packet(
+        PacketType::JoinRoomRes,
+        "OK|event=JOIN_ROOM|room_id=invalid|user_id=" + std::string(kUserId) +
+            "|session_id=10|name=alice"));
+    QCOMPARE(controller.state(), ClientState::LoggedIn);
+
+    transport.receive(
+        packet(PacketType::CreateRoomRes, roomResponse("CREATE_ROOM")));
+    QCOMPARE(controller.state(), ClientState::InRoom);
+    transport.receive(packet(PacketType::LeaveRoomRes,
+                             "OK|event=LEAVE_ROOM|room_id=1|user_id=" +
+                                 std::string(kUserId) + "|session_id=10"));
+    QCOMPARE(controller.state(), ClientState::InRoom);
+    transport.receive(
+        packet(PacketType::RoomBroadcast,
+               "event=CHAT|room_id=1|user_id=" + std::string(kUserId) +
+                   "|session_id=10|name=alice"));
+    QCOMPARE(controller.state(), ClientState::InRoom);
+
+    QCOMPARE(log_spy.count(), 5);
+    for (const int index : {0, 1, 3, 4}) {
+      const auto entry = log_spy.at(index).at(0).value<ChatLogEntry>();
+      QCOMPARE(entry.kind, LogKind::Error);
+      QCOMPARE(entry.text,
+               QString("Protocol error: invalid structured payload."));
+    }
   }
 
  private:

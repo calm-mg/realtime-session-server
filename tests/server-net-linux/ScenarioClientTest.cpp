@@ -242,6 +242,8 @@ TEST(ScenarioClientTest, RejectsMalformedStructuredCreateRoomResponse) {
   const std::string_view malformed[] = {
       "OK|event=CREATE_ROOM|room_id=42|room_id=43",
       "OK|event=CREATE_ROOM|room_id=42|name=%GG",
+      "OK|event=CREATE_ROOM|name=arena",
+      "OK|event=CREATE_ROOM|room_id=4two",
       "NO|event=CREATE_ROOM|room_id=42",
   };
 

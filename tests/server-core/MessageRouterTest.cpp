@@ -137,7 +137,8 @@ TEST(MessageRouterTest, RejectsEmptyAndOversizedLoginNames) {
   RoomService service;
   MessageRouter router(service, users);
 
-  for (const auto name : {std::string{" \t\n"}, std::string(33, 'a')}) {
+  for (const auto name : {std::string{" \t\n"}, std::string(33, 'a'),
+                          std::string("가가가가가가가가가가가")}) {
     const auto output = route(router, event(1, PacketType::LoginReq, name));
     ASSERT_EQ(output.size(), 1U);
     const auto packet = decodeSingleMessage(output.front());
@@ -151,12 +152,13 @@ TEST(MessageRouterTest, PreservesUtf8DisplayName) {
   RoomService service;
   MessageRouter router(service, users);
 
-  const auto output = route(router, event(1, PacketType::LoginReq, "한글"));
+  const auto output =
+      route(router, event(1, PacketType::LoginReq, "가가가가가가가가가가"));
 
   ASSERT_EQ(output.size(), 1U);
   EXPECT_EQ(rss::protocol::payloadToString(decodeSingleMessage(output.front())),
             "OK|user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
-            "name=한글");
+            "name=가가가가가가가가가가");
 }
 
 TEST(MessageRouterTest, RejectsInvalidLoginWithoutMutatingSession) {
@@ -359,6 +361,45 @@ TEST(MessageRouterTest, RespondsToPing) {
   ASSERT_EQ(packets.size(), 1);
   EXPECT_EQ(packets.front().type, PacketType::Pong);
   EXPECT_EQ(rss::protocol::payloadToString(packets.front()), "PONG");
+}
+
+TEST(MessageRouterTest, RejectsNonEmptyPingPayload) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  const auto output = route(router, event(1, PacketType::Ping, "unexpected"));
+
+  ASSERT_EQ(output.size(), 1);
+  const auto packet = decodeSingleMessage(output.front());
+  EXPECT_EQ(packet.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(packet), "invalid ping request");
+}
+
+TEST(MessageRouterTest, RejectsNonEmptyLeaveWithoutChangingMembership) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
+            1);
+  ASSERT_EQ(route(router, event(2, PacketType::LoginReq, "observer")).size(),
+            1);
+  ASSERT_EQ(route(router, event(2, PacketType::JoinRoomReq, "1")).size(), 2);
+
+  const auto output =
+      route(router, event(1, PacketType::LeaveRoomReq, "unexpected"));
+
+  ASSERT_EQ(output.size(), 1);
+  const auto packet = decodeSingleMessage(output.front());
+  EXPECT_EQ(packet.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(packet),
+            "invalid leave room request");
+
+  const auto chat = service.chat(1);
+  ASSERT_TRUE(chat.ok);
+  EXPECT_EQ(chat.recipients.size(), 2);
 }
 
 TEST(MessageRouterTest, RejectsRepeatedLoginWithoutChangingUser) {

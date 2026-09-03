@@ -112,6 +112,7 @@ TEST(RoomServiceTest, RejectsInvalidRoomNamesWithoutCreatingRoom) {
       std::string{},
       std::string{" \t"},
       std::string(rss::protocol::kMaxRoomNameBytes + 1, 'x'),
+      std::string("가가가가가가가가가가가"),
       std::string("\xC0\xAF", 2),
       std::string{"bad\nname"},
   };
@@ -121,7 +122,7 @@ TEST(RoomServiceTest, RejectsInvalidRoomNamesWithoutCreatingRoom) {
     EXPECT_EQ(rejected.error, "invalid room name");
   }
 
-  const auto created = service.createRoom(100, " arena ");
+  const auto created = service.createRoom(100, " 가가가가가가가가가가 ");
   ASSERT_TRUE(created.ok);
   EXPECT_EQ(created.room_id, 1U);
 }
