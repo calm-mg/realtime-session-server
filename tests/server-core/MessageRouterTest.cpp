@@ -9,6 +9,7 @@
 #include "FakeSessionEventContext.h"
 #include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/protocol/PacketCodec.h"
+#include "rss/protocol/StructuredPayload.h"
 #include "rss/service/MessageRouter.h"
 
 namespace {
@@ -156,6 +157,145 @@ TEST(MessageRouterTest, PreservesUtf8DisplayName) {
   EXPECT_EQ(rss::protocol::payloadToString(decodeSingleMessage(output.front())),
             "OK|user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
             "name=한글");
+}
+
+TEST(MessageRouterTest, RejectsInvalidLoginWithoutMutatingSession) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+
+  const auto rejected =
+      route(router, event(1, PacketType::LoginReq, std::string("\xC0\xAF", 2)));
+  ASSERT_EQ(rejected.size(), 1U);
+  const auto error = decodeSingleMessage(rejected.front());
+  EXPECT_EQ(error.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(error), "invalid user name");
+  EXPECT_FALSE(service.userOf(1).has_value());
+
+  const auto accepted = route(router, event(1, PacketType::LoginReq, "alice"));
+  ASSERT_EQ(accepted.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(accepted.front()).type, PacketType::LoginRes);
+  EXPECT_TRUE(service.userOf(1).has_value());
+}
+
+TEST(MessageRouterTest, RejectsInvalidRoomNameWithoutCreatingRoom) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1U);
+
+  const auto rejected =
+      route(router, event(1, PacketType::CreateRoomReq, "bad\nroom"));
+  ASSERT_EQ(rejected.size(), 1U);
+  EXPECT_EQ(
+      rss::protocol::payloadToString(decodeSingleMessage(rejected.front())),
+      "invalid room name");
+
+  const auto accepted =
+      route(router, event(1, PacketType::CreateRoomReq, " arena "));
+  ASSERT_EQ(accepted.size(), 1U);
+  const auto parsed = rss::protocol::StructuredPayload::parse(
+      rss::protocol::payloadToString(decodeSingleMessage(accepted.front())));
+  EXPECT_EQ(parsed.requireField("room_id"), "1");
+}
+
+TEST(MessageRouterTest, EncodesStructuredDynamicValues) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  constexpr std::string_view name = "kim|role=admin%";
+
+  const auto login = route(router, event(1, PacketType::LoginReq, name));
+  ASSERT_EQ(login.size(), 1U);
+  const auto login_text =
+      rss::protocol::payloadToString(decodeSingleMessage(login.front()));
+  EXPECT_NE(login_text.find("name=kim%7Crole%3Dadmin%25"), std::string::npos);
+  const auto parsed_login = rss::protocol::StructuredPayload::parse(login_text);
+  EXPECT_EQ(parsed_login.requireField("name"), name);
+
+  ASSERT_EQ(
+      route(router, event(1, PacketType::CreateRoomReq, "room|tier=1%")).size(),
+      1U);
+  const auto chat =
+      route(router, event(1, PacketType::ChatReq, "hello|kind=admin%"));
+  ASSERT_EQ(chat.size(), 1U);
+  const auto chat_text =
+      rss::protocol::payloadToString(decodeSingleMessage(chat.front()));
+  EXPECT_NE(chat_text.find("message=hello%7Ckind%3Dadmin%25"),
+            std::string::npos);
+  const auto parsed_chat = rss::protocol::StructuredPayload::parse(chat_text);
+  EXPECT_EQ(parsed_chat.requireField("name"), name);
+  EXPECT_EQ(parsed_chat.requireField("message"), "hello|kind=admin%");
+}
+
+TEST(MessageRouterTest, PreservesWorstCaseMaximumChatWithinPacketLimit) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  const std::string reserved_name(rss::protocol::kMaxUserNameBytes, '|');
+  const std::string maximum_message(rss::protocol::kMaxChatMessageBytes, '=');
+
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, reserved_name)).size(),
+            1U);
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
+            1U);
+  const auto chat =
+      route(router, event(1, PacketType::ChatReq, maximum_message));
+  ASSERT_EQ(chat.size(), 1U);
+  const auto packet = decodeSingleMessage(chat.front());
+  EXPECT_EQ(packet.type, PacketType::RoomBroadcast);
+  EXPECT_LE(packet.payload.size() + rss::protocol::kPacketHeaderSize,
+            rss::protocol::kMaxPacketSize);
+
+  const auto parsed = rss::protocol::StructuredPayload::parse(
+      rss::protocol::payloadToString(packet));
+  EXPECT_EQ(parsed.requireField("name"), reserved_name);
+  EXPECT_EQ(parsed.requireField("message"), maximum_message);
+}
+
+TEST(MessageRouterTest, RejectsInvalidChatWithoutBroadcasting) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1U);
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
+            1U);
+
+  const auto oversized = route(
+      router, event(1, PacketType::ChatReq,
+                    std::string(rss::protocol::kMaxChatMessageBytes + 1, 'x')));
+  ASSERT_EQ(oversized.size(), 1U);
+  const auto oversized_packet = decodeSingleMessage(oversized.front());
+  EXPECT_EQ(oversized_packet.type, PacketType::Error);
+  EXPECT_EQ(rss::protocol::payloadToString(oversized_packet),
+            "chat message too large");
+
+  for (const std::string message :
+       {std::string("\xC0\xAF", 2), std::string{"bad\nchat"}}) {
+    const auto rejected = route(router, event(1, PacketType::ChatReq, message));
+    ASSERT_EQ(rejected.size(), 1U);
+    const auto packet = decodeSingleMessage(rejected.front());
+    EXPECT_EQ(packet.type, PacketType::Error);
+    EXPECT_EQ(rss::protocol::payloadToString(packet), "invalid chat message");
+  }
+}
+
+TEST(MessageRouterTest, PreservesEmptyAndWhitespaceChat) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1U);
+  ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
+            1U);
+
+  for (const std::string_view message :
+       {std::string_view{}, std::string_view{"   "}}) {
+    const auto output = route(router, event(1, PacketType::ChatReq, message));
+    ASSERT_EQ(output.size(), 1U);
+    const auto parsed = rss::protocol::StructuredPayload::parse(
+        rss::protocol::payloadToString(decodeSingleMessage(output.front())));
+    EXPECT_EQ(parsed.requireField("message"), message);
+  }
 }
 
 TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
