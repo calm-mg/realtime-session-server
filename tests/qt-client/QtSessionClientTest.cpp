@@ -225,7 +225,11 @@ class QtSessionClientTest final : public QObject {
     QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
                               rss::qt_client::ClientState::Connected, 1000);
 
-    controller.login(QString(4093, QChar('x')));
+    const std::string oversized_payload(
+        rss::protocol::kMaxPacketSize - rss::protocol::kPacketHeaderSize + 1,
+        'x');
+    QVERIFY(!client.sendPacket(rss::protocol::PacketType::LoginReq,
+                               oversized_payload));
 
     QCOMPARE(error_spy.count(), 1);
     QCOMPARE(error_spy.at(0).at(0).value<rss::qt_client::TransportErrorKind>(),

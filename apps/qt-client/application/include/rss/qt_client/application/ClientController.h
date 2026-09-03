@@ -4,6 +4,7 @@
 #include <QString>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 #include "rss/qt_client/application/ChatLogEntry.h"
 #include "rss/qt_client/application/ClientState.h"
@@ -40,7 +41,7 @@ class ClientController final : public QObject {
   void onTransportError(TransportErrorKind kind, const QString& message);
   void setState(ClientState state);
   bool requireState(ClientState expected, const QString& message);
-  bool sendTextPacket(protocol::PacketType type, const QString& payload);
+  bool sendTextPacket(protocol::PacketType type, std::string_view payload);
 
   SessionTransport& transport_;
   ClientState state_{ClientState::Disconnected};
