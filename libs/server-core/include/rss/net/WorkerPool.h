@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -81,7 +82,8 @@ class WorkerPool {
   CompletionNotifier* input_capacity_notifier_{nullptr};
   OverloadStats* overload_stats_{nullptr};
   std::atomic<std::size_t> active_workers_{0};
-  std::atomic<bool> force_stop_requested_{false};
+  std::shared_ptr<std::atomic<bool>> force_stop_requested_{
+      std::make_shared<std::atomic<bool>>(false)};
   std::mutex sequence_mutex_;
   std::unordered_map<std::uint64_t, SessionSequenceState> sequence_by_session_;
   std::size_t outstanding_deferred_{};

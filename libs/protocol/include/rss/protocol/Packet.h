@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -9,10 +10,10 @@ namespace rss::protocol {
 
 constexpr std::uint16_t kPacketHeaderSize = 4;
 constexpr std::uint16_t kMaxPacketSize = 4096;
-// Leaves room for the largest CHAT broadcast envelope: a uint32 room id,
-// canonical UUID, uint64 session id, and 32-byte display name.
-constexpr std::uint16_t kMaxChatMessageBytes =
-    kMaxPacketSize - kPacketHeaderSize - 153;
+// Text limits use raw UTF-8 bytes after trimming and before percent encoding.
+constexpr std::size_t kMaxUserNameBytes = 32;
+constexpr std::size_t kMaxRoomNameBytes = 32;
+constexpr std::size_t kMaxChatMessageBytes = 1291;
 
 #pragma pack(push, 1)
 struct PacketHeader {

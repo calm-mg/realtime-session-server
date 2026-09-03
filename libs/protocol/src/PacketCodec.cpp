@@ -45,12 +45,6 @@ void encodeFloat(std::vector<std::uint8_t>& out, float value) {
 
 }  // namespace
 
-ProtocolError::ProtocolError(const char* message)
-    : std::runtime_error(message) {}
-
-ProtocolError::ProtocolError(const std::string& message)
-    : std::runtime_error(message) {}
-
 std::vector<std::uint8_t> PacketCodec::encode(
     PacketType type, std::span<const std::uint8_t> payload) {
   const auto total_size = payload.size() + kPacketHeaderSize;

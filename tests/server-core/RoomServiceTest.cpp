@@ -7,6 +7,7 @@
 
 #include "rss/domain/Position.h"
 #include "rss/persistence/UserRecord.h"
+#include "rss/protocol/Packet.h"
 #include "rss/service/RoomService.h"
 
 namespace {
@@ -101,6 +102,29 @@ TEST(RoomServiceTest, RoutesRoomActionsToCurrentMembers) {
   EXPECT_EQ(leave.recipients.size(), 2);
 
   EXPECT_TRUE(service.disconnect(200).ok);
+}
+
+TEST(RoomServiceTest, RejectsInvalidRoomNamesWithoutCreatingRoom) {
+  RoomService service;
+  ASSERT_TRUE(attach(service, 100, 1, "alice").ok);
+
+  const std::string invalid_names[] = {
+      std::string{},
+      std::string{" \t"},
+      std::string(rss::protocol::kMaxRoomNameBytes + 1, 'x'),
+      std::string("가가가가가가가가가가가"),
+      std::string("\xC0\xAF", 2),
+      std::string{"bad\nname"},
+  };
+  for (const auto& name : invalid_names) {
+    const auto rejected = service.createRoom(100, name);
+    EXPECT_FALSE(rejected.ok);
+    EXPECT_EQ(rejected.error, "invalid room name");
+  }
+
+  const auto created = service.createRoom(100, " 가가가가가가가가가가 ");
+  ASSERT_TRUE(created.ok);
+  EXPECT_EQ(created.room_id, 1U);
 }
 
 TEST(RoomServiceTest, RejectsRejoiningSameRoomForOnlyMember) {

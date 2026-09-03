@@ -24,6 +24,7 @@
 #include "ScenarioClient.h"
 #include "rss/net/ServerConfig.h"
 #include "rss/protocol/PacketCodec.h"
+#include "rss/protocol/StructuredPayload.h"
 
 namespace {
 
@@ -207,7 +208,7 @@ TEST(ScenarioClientTest, ReturnsRealServerJoinAndChatPacketsInOrder) {
   guest.login("guest", 2s);
   guest.joinRoom(room_id, 2s);
   const std::string message =
-      "run=1;sender=1;seq=0;sent_us=1;" + std::string(3000, 'x');
+      "run=1;sender=1;seq=0;sent_us=1;" + std::string(1000, 'x');
   guest.sendChat(message, 2s);
 
   const auto joined = owner.receivePacket(2s);
@@ -217,9 +218,65 @@ TEST(ScenarioClientTest, ReturnsRealServerJoinAndChatPacketsInOrder) {
 
   const auto chat = owner.receivePacket(2s);
   ASSERT_EQ(chat.type, rss::protocol::PacketType::RoomBroadcast);
-  const auto chat_payload = rss::protocol::payloadToString(chat);
-  EXPECT_NE(chat_payload.find("event=CHAT|"), std::string::npos);
-  EXPECT_NE(chat_payload.find(message), std::string::npos);
+  const auto chat_payload = rss::protocol::StructuredPayload::parse(
+      rss::protocol::payloadToString(chat));
+  EXPECT_EQ(chat_payload.requireField("event"), "CHAT");
+  EXPECT_EQ(chat_payload.requireField("message"), message);
+}
+
+TEST(ScenarioClientTest, ParsesReorderedStructuredCreateRoomResponse) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  client.connect("127.0.0.1", peer.port(), 2s);
+  peer.acceptClient(2s);
+  const auto response = rss::protocol::PacketCodec::encode(
+      rss::protocol::PacketType::CreateRoomRes,
+      "OK|event=CREATE_ROOM|name=a%7Cb|room_id=42|"
+      "user_id=00000000-0000-0000-0000-000000000001|session_id=1");
+  peer.sendSingleWrite(response, 2s);
+
+  EXPECT_EQ(client.createRoom("arena", 2s), 42U);
+}
+
+TEST(ScenarioClientTest, RejectsMalformedStructuredCreateRoomResponse) {
+  const std::string_view malformed[] = {
+      "OK|event=CREATE_ROOM|room_id=42|room_id=43",
+      "OK|event=CREATE_ROOM|room_id=42|name=%GG",
+      "OK|event=CREATE_ROOM|name=arena",
+      "OK|event=CREATE_ROOM|room_id=4two",
+      "NO|event=CREATE_ROOM|room_id=42",
+  };
+
+  for (const auto payload : malformed) {
+    RawLoopbackPeer peer;
+    rss::tools::ScenarioClient client;
+    client.connect("127.0.0.1", peer.port(), 2s);
+    peer.acceptClient(2s);
+    const auto response = rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::CreateRoomRes, payload);
+    peer.sendSingleWrite(response, 2s);
+
+    EXPECT_THROW(static_cast<void>(client.createRoom("arena", 2s)),
+                 std::runtime_error)
+        << std::string(payload);
+  }
+}
+
+TEST(ScenarioClientTest, RoundTripsEscapedTextThroughRealServer) {
+  auto server = startTestServer();
+  rss::tools::ScenarioClient client;
+  client.connect("127.0.0.1", server->port(), 2s);
+  client.login("kim|role=admin%", 2s);
+  const auto room_id = client.createRoom("room|tier=1%", 2s);
+  ASSERT_NE(room_id, 0U);
+
+  client.sendChat("hello|kind=admin%", 2s);
+  const auto packet = client.receivePacket(2s);
+  ASSERT_EQ(packet.type, rss::protocol::PacketType::RoomBroadcast);
+  const auto parsed = rss::protocol::StructuredPayload::parse(
+      rss::protocol::payloadToString(packet));
+  EXPECT_EQ(parsed.requireField("name"), "kim|role=admin%");
+  EXPECT_EQ(parsed.requireField("message"), "hello|kind=admin%");
 }
 
 TEST(ScenarioClientTest, WaitsForRemainderOfSplitFrame) {

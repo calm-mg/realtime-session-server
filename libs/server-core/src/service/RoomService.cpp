@@ -1,20 +1,21 @@
 #include "rss/service/RoomService.h"
 
+#include <optional>
 #include <utility>
+
+#include "rss/protocol/Packet.h"
+#include "rss/protocol/TextValidation.h"
 
 namespace rss::service {
 namespace {
 
-constexpr auto kDefaultRoomName = "room";
-
-std::string normalizeName(std::string name, std::string fallback) {
-  if (name.empty()) {
-    return fallback;
+std::optional<std::string> normalizeRoomName(std::string_view input) {
+  const auto trimmed = protocol::trimAsciiWhitespace(input);
+  if (trimmed.empty() || trimmed.size() > protocol::kMaxRoomNameBytes ||
+      !protocol::isValidText(trimmed)) {
+    return std::nullopt;
   }
-  if (name.size() > 32) {
-    name.resize(32);
-  }
-  return name;
+  return std::string(trimmed);
 }
 
 }  // namespace
@@ -44,6 +45,14 @@ std::optional<domain::User> RoomService::userOf(
 
 RoomActionResult RoomService::createRoom(std::uint64_t session_id,
                                          std::string room_name) {
+  const auto normalized_name = normalizeRoomName(room_name);
+  if (!normalized_name.has_value()) {
+    RoomActionResult result;
+    result.ok = false;
+    result.error = "invalid room name";
+    return result;
+  }
+
   std::lock_guard<std::mutex> lock(mutex_);
   auto result = requireUserLocked(session_id);
   if (!result.ok) {
@@ -56,8 +65,7 @@ RoomActionResult RoomService::createRoom(std::uint64_t session_id,
     return result;
   }
 
-  auto room =
-      lobby_.createRoom(normalizeName(std::move(room_name), kDefaultRoomName));
+  auto room = lobby_.createRoom(*normalized_name);
   room->join(result.actor);
   room_by_session_[session_id] = room->id();
 

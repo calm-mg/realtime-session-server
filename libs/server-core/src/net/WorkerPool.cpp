@@ -32,9 +32,11 @@ class QueueDeferredSessionCompletion final
  public:
   QueueDeferredSessionCompletion(
       util::BoundedBlockingQueue<service::SessionEvent>& inbox,
+      std::shared_ptr<std::atomic<bool>> force_stop_requested,
       std::uint64_t session_id, std::uint64_t sequence,
       std::shared_ptr<DeferredCompletionState> state)
       : inbox_(inbox),
+        force_stop_requested_(std::move(force_stop_requested)),
         session_id_(session_id),
         sequence_(sequence),
         state_(std::move(state)) {}
@@ -47,6 +49,9 @@ class QueueDeferredSessionCompletion final
 
  private:
   bool complete(bool failed, std::vector<service::OutboundMessage> messages) {
+    if (force_stop_requested_->load(std::memory_order_acquire)) {
+      return false;
+    }
     auto payload = std::make_shared<service::DeferredCompletionPayload>();
     payload->failed = failed;
     payload->messages = std::move(messages);
@@ -72,6 +77,7 @@ class QueueDeferredSessionCompletion final
   }
 
   util::BoundedBlockingQueue<service::SessionEvent>& inbox_;
+  std::shared_ptr<std::atomic<bool>> force_stop_requested_;
   std::uint64_t session_id_{};
   std::uint64_t sequence_{};
   std::shared_ptr<DeferredCompletionState> state_;
@@ -80,7 +86,8 @@ class QueueDeferredSessionCompletion final
 class WorkerSessionEventContext final : public service::SessionEventContext {
  public:
   WorkerSessionEventContext(
-      const WorkerPoolConfig& config, std::atomic<bool>& force_stop_requested,
+      const WorkerPoolConfig& config,
+      const std::shared_ptr<std::atomic<bool>>& force_stop_requested,
       OverloadStats* overload_stats,
       util::BoundedBlockingQueue<service::SessionEvent>& inbox,
       const service::SessionEvent& event)
@@ -92,7 +99,7 @@ class WorkerSessionEventContext final : public service::SessionEventContext {
 
   bool emit(service::OutboundMessage message) override {
     const auto byte_count = message.bytes.size();
-    if (force_stop_requested_.load(std::memory_order_acquire)) {
+    if (force_stop_requested_->load(std::memory_order_acquire)) {
       return false;
     }
     if (byte_count == 0 ||
@@ -118,7 +125,8 @@ class WorkerSessionEventContext final : public service::SessionEventContext {
     deferred_ = true;
     deferred_state_ = std::make_shared<DeferredCompletionState>();
     return std::make_shared<QueueDeferredSessionCompletion>(
-        inbox_, event_.session_id, event_.sequence, deferred_state_);
+        inbox_, force_stop_requested_, event_.session_id, event_.sequence,
+        deferred_state_);
   }
 
   std::vector<service::OutboundMessage> release() {
@@ -149,7 +157,7 @@ class WorkerSessionEventContext final : public service::SessionEventContext {
 
  private:
   const WorkerPoolConfig& config_;
-  std::atomic<bool>& force_stop_requested_;
+  const std::shared_ptr<std::atomic<bool>>& force_stop_requested_;
   OverloadStats* overload_stats_;
   util::BoundedBlockingQueue<service::SessionEvent>& inbox_;
   const service::SessionEvent& event_;
@@ -217,7 +225,7 @@ void WorkerPool::beginStop() {
 }
 
 void WorkerPool::forceStop() {
-  force_stop_requested_.store(true, std::memory_order_release);
+  force_stop_requested_->store(true, std::memory_order_release);
   inbox_.close();
   outbox_.close();
 }
@@ -247,13 +255,13 @@ void WorkerPool::run() {
       input_capacity_notifier_->notify();
     }
 
-    if (force_stop_requested_.load(std::memory_order_acquire)) {
+    if (force_stop_requested_->load(std::memory_order_acquire)) {
       return;
     }
 
     std::optional<service::SessionEvent> current(std::move(event));
     while (current.has_value()) {
-      if (force_stop_requested_.load(std::memory_order_acquire)) {
+      if (force_stop_requested_->load(std::memory_order_acquire)) {
         return;
       }
 

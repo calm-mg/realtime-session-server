@@ -27,20 +27,30 @@ rss::protocol::Packet packet(rss::protocol::PacketType type,
   return {type, std::vector<std::uint8_t>(payload.begin(), payload.end())};
 }
 
+constexpr std::string_view kUserFields =
+    "user_id=00000000-0000-0000-0000-000000000001|session_id=10|"
+    "name=alice";
+
+std::string roomResponse(std::string_view event) {
+  return "OK|event=" + std::string(event) + "|room_id=1|" +
+         std::string(kUserFields);
+}
+
 void logIn(rss::qt_client::ClientController& controller,
            FakeSessionTransport& transport) {
   controller.connectToServer("127.0.0.1", 7777);
   transport.completeConnection();
   controller.login("alice");
-  transport.receive(packet(rss::protocol::PacketType::LoginRes, "OK"));
+  transport.receive(packet(rss::protocol::PacketType::LoginRes,
+                           "OK|" + std::string(kUserFields)));
 }
 
 void enterRoom(rss::qt_client::ClientController& controller,
                FakeSessionTransport& transport) {
   logIn(controller, transport);
   controller.createRoom("study");
-  transport.receive(
-      packet(rss::protocol::PacketType::CreateRoomRes, "OK|room_id=1"));
+  transport.receive(packet(rss::protocol::PacketType::CreateRoomRes,
+                           roomResponse("CREATE_ROOM")));
 }
 
 }  // namespace
@@ -162,12 +172,13 @@ class MainWindowTest final : public QObject {
     room_edit->setText("study");
     window.findChild<QPushButton*>("createRoomButton")->click();
     QVERIFY(transport.lastType() == rss::protocol::PacketType::CreateRoomReq);
-    transport.receive(
-        packet(rss::protocol::PacketType::CreateRoomRes, "OK|room_id=1"));
+    transport.receive(packet(rss::protocol::PacketType::CreateRoomRes,
+                             roomResponse("CREATE_ROOM")));
 
     window.findChild<QPushButton*>("leaveRoomButton")->click();
     QVERIFY(transport.lastType() == rss::protocol::PacketType::LeaveRoomReq);
-    transport.receive(packet(rss::protocol::PacketType::LeaveRoomRes, "OK"));
+    transport.receive(packet(rss::protocol::PacketType::LeaveRoomRes,
+                             roomResponse("LEAVE_ROOM")));
 
     room_edit->setText("1");
     window.findChild<QPushButton*>("joinRoomButton")->click();
@@ -277,10 +288,11 @@ class MainWindowTest final : public QObject {
     enterRoom(controller, transport);
 
     auto* edit = window.findChild<QLineEdit*>("messageEdit");
-    edit->setText("   ");
+    const QString oversized(1292, 'x');
+    edit->setText(oversized);
     window.findChild<QPushButton*>("sendButton")->click();
 
-    QCOMPARE(edit->text(), QString("   "));
+    QCOMPARE(edit->text(), oversized);
   }
 
   void keepsMessageWhenTransportRejectsSend() {

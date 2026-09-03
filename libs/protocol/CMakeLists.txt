@@ -1,6 +1,9 @@
 add_library(rss_protocol
     src/PacketCodec.cpp
     src/PacketTypes.cpp
+    src/ProtocolError.cpp
+    src/StructuredPayload.cpp
+    src/TextValidation.cpp
 )
 
 target_include_directories(rss_protocol

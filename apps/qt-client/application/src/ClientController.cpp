@@ -2,38 +2,86 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <charconv>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <system_error>
+
+#include "rss/protocol/PacketCodec.h"
+#include "rss/protocol/ProtocolError.h"
+#include "rss/protocol/StructuredPayload.h"
+#include "rss/protocol/TextValidation.h"
 
 namespace rss::qt_client {
 
 namespace {
 
-QString payloadText(const protocol::Packet& packet) {
-  return QString::fromUtf8(reinterpret_cast<const char*>(packet.payload.data()),
-                           static_cast<qsizetype>(packet.payload.size()));
+constexpr auto kProtocolErrorText =
+    "Protocol error: invalid structured payload.";
+
+QString toQString(std::string_view text) {
+  return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
 }
 
-bool isSuccessfulResponse(const QString& payload) {
-  return payload == "OK" || payload.startsWith("OK|");
-}
-
-QString fieldValue(const QString& payload, const QString& key) {
-  const QString marker = QString("|%1=").arg(key);
-  const qsizetype marker_position = payload.indexOf(marker);
-  if (marker_position < 0) {
-    return {};
+std::uint64_t positiveInteger(std::string_view text) {
+  std::uint64_t value{};
+  const auto [position, error] =
+      std::from_chars(text.data(), text.data() + text.size(), value);
+  if (text.empty() || error != std::errc{} ||
+      position != text.data() + text.size() || value == 0) {
+    throw protocol::ProtocolError("invalid positive integer field");
   }
-  const qsizetype value_position = marker_position + marker.size();
-  const qsizetype separator_position = payload.indexOf('|', value_position);
-  return separator_position < 0
-             ? payload.mid(value_position)
-             : payload.mid(value_position, separator_position - value_position);
+  return value;
 }
 
-std::optional<qulonglong> sessionId(const QString& payload) {
-  bool ok = false;
-  const qulonglong value = fieldValue(payload, "session_id").toULongLong(&ok);
-  return ok ? std::optional<qulonglong>{value} : std::nullopt;
+void requireStatus(const protocol::StructuredPayload& payload,
+                   std::optional<std::string_view> expected) {
+  if (payload.status() != expected) {
+    throw protocol::ProtocolError("unexpected structured payload status");
+  }
+}
+
+void requireNonEmpty(const protocol::StructuredPayload& payload,
+                     std::string_view key) {
+  if (payload.requireField(key).empty()) {
+    throw protocol::ProtocolError("required field is empty");
+  }
+}
+
+std::uint64_t requireUserFields(const protocol::StructuredPayload& payload) {
+  requireNonEmpty(payload, "user_id");
+  requireNonEmpty(payload, "name");
+  return positiveInteger(payload.requireField("session_id"));
+}
+
+void requireRoomFields(const protocol::StructuredPayload& payload,
+                       std::string_view event) {
+  requireStatus(payload, std::string_view{"OK"});
+  if (payload.requireField("event") != event) {
+    throw protocol::ProtocolError("unexpected room response event");
+  }
+  static_cast<void>(positiveInteger(payload.requireField("room_id")));
+  static_cast<void>(requireUserFields(payload));
+}
+
+QString displayText(const protocol::StructuredPayload& payload) {
+  QString text;
+  bool needs_separator = false;
+  if (const auto status = payload.status(); status.has_value()) {
+    text = toQString(*status);
+    needs_separator = true;
+  }
+  for (const auto& [key, value] : payload.fields()) {
+    if (needs_separator) {
+      text += '|';
+    }
+    text += toQString(key);
+    text += '=';
+    text += toQString(value);
+    needs_separator = true;
+  }
+  return text;
 }
 
 ChatLogEntry logEntry(LogKind kind, const QString& text) {
@@ -44,25 +92,36 @@ ChatLogEntry logEntry(LogKind kind, const QString& text) {
   };
 }
 
-ChatLogEntry chatEntry(const QString& payload,
+ChatLogEntry chatEntry(const protocol::StructuredPayload& payload,
                        std::optional<qulonglong> own_session_id) {
-  const QString message_marker = "|message=";
-  const qsizetype message_position = payload.indexOf(message_marker);
-  const QString metadata =
-      message_position < 0 ? payload : payload.left(message_position);
-  const QString message =
-      message_position < 0
-          ? payload
-          : payload.mid(message_position + message_marker.size());
-  const auto sender_session_id = sessionId(metadata);
+  const auto sender_session_id = requireUserFields(payload);
+  static_cast<void>(positiveInteger(payload.requireField("room_id")));
   return {
       .kind = LogKind::Chat,
-      .author = fieldValue(metadata, "name"),
-      .text = message,
+      .author = toQString(payload.requireField("name")),
+      .text = toQString(payload.requireField("message")),
       .received_at = QDateTime::currentDateTime(),
-      .is_own = own_session_id.has_value() && sender_session_id.has_value() &&
-                *own_session_id == *sender_session_id,
+      .is_own =
+          own_session_id.has_value() && *own_session_id == sender_session_id,
   };
+}
+
+void validateBroadcast(const protocol::StructuredPayload& payload) {
+  const auto event = payload.requireField("event");
+  if (event == "JOIN" || event == "LEAVE") {
+    requireStatus(payload, std::string_view{"OK"});
+  } else if (event == "CHAT") {
+    requireStatus(payload, std::nullopt);
+    static_cast<void>(payload.requireField("message"));
+  } else if (event == "POSITION") {
+    requireStatus(payload, std::nullopt);
+    requireNonEmpty(payload, "x");
+    requireNonEmpty(payload, "y");
+  } else {
+    throw protocol::ProtocolError("unknown room broadcast event");
+  }
+  static_cast<void>(positiveInteger(payload.requireField("room_id")));
+  static_cast<void>(requireUserFields(payload));
 }
 
 }  // namespace
@@ -113,9 +172,12 @@ void ClientController::login(const QString& username) {
                     "Connect to the server before logging in.")) {
     return;
   }
-  const QString value = username.trimmed();
-  if (value.isEmpty()) {
-    emit validationFailed("Enter a user name.");
+  const QByteArray utf8 = username.toUtf8();
+  const auto value = protocol::trimAsciiWhitespace(std::string_view(
+      utf8.constData(), static_cast<std::size_t>(utf8.size())));
+  if (value.empty() || value.size() > protocol::kMaxUserNameBytes ||
+      !protocol::isValidText(value)) {
+    emit validationFailed("Enter a valid user name of at most 32 UTF-8 bytes.");
     return;
   }
   sendTextPacket(protocol::PacketType::LoginReq, value);
@@ -125,9 +187,12 @@ void ClientController::createRoom(const QString& room_name) {
   if (!requireState(ClientState::LoggedIn, "Log in before creating a room.")) {
     return;
   }
-  const QString value = room_name.trimmed();
-  if (value.isEmpty()) {
-    emit validationFailed("Enter a room name.");
+  const QByteArray utf8 = room_name.toUtf8();
+  const auto value = protocol::trimAsciiWhitespace(std::string_view(
+      utf8.constData(), static_cast<std::size_t>(utf8.size())));
+  if (value.empty() || value.size() > protocol::kMaxRoomNameBytes ||
+      !protocol::isValidText(value)) {
+    emit validationFailed("Enter a valid room name of at most 32 UTF-8 bytes.");
     return;
   }
   sendTextPacket(protocol::PacketType::CreateRoomReq, value);
@@ -144,14 +209,17 @@ void ClientController::joinRoom(const QString& room_id) {
     emit validationFailed("Enter a positive numeric room ID.");
     return;
   }
-  sendTextPacket(protocol::PacketType::JoinRoomReq, value);
+  const QByteArray utf8 = value.toUtf8();
+  sendTextPacket(protocol::PacketType::JoinRoomReq,
+                 std::string_view(utf8.constData(),
+                                  static_cast<std::size_t>(utf8.size())));
 }
 
 void ClientController::leaveRoom() {
   if (!requireState(ClientState::InRoom, "Join a room before leaving it.")) {
     return;
   }
-  sendTextPacket(protocol::PacketType::LeaveRoomReq, {});
+  sendTextPacket(protocol::PacketType::LeaveRoomReq, std::string_view{});
 }
 
 bool ClientController::sendChat(const QString& message) {
@@ -159,9 +227,15 @@ bool ClientController::sendChat(const QString& message) {
                     "Join a room before sending a message.")) {
     return false;
   }
-  const QString value = message.trimmed();
-  if (value.isEmpty()) {
-    emit validationFailed("Enter a chat message.");
+  const QByteArray utf8 = message.toUtf8();
+  const std::string_view value(utf8.constData(),
+                               static_cast<std::size_t>(utf8.size()));
+  if (value.size() > protocol::kMaxChatMessageBytes) {
+    emit validationFailed("Chat messages are limited to 1291 UTF-8 bytes.");
+    return false;
+  }
+  if (!protocol::isValidText(value)) {
+    emit validationFailed("Enter a valid chat message.");
     return false;
   }
   return sendTextPacket(protocol::PacketType::ChatReq, value);
@@ -183,40 +257,69 @@ void ClientController::onDisconnected() {
 }
 
 void ClientController::onPacketReceived(const protocol::Packet& packet) {
-  const QString payload = payloadText(packet);
-  const bool ok = isSuccessfulResponse(payload);
+  const auto raw_payload = protocol::payloadToString(packet);
 
-  switch (packet.type) {
-    case protocol::PacketType::LoginRes:
-      if (ok && state_ == ClientState::Connected) {
-        session_id_ = sessionId(payload);
-        setState(ClientState::LoggedIn);
+  try {
+    switch (packet.type) {
+      case protocol::PacketType::LoginRes: {
+        const auto payload = protocol::StructuredPayload::parse(raw_payload);
+        requireStatus(payload, std::string_view{"OK"});
+        const auto parsed_session_id = requireUserFields(payload);
+        if (state_ == ClientState::Connected) {
+          session_id_ = parsed_session_id;
+          setState(ClientState::LoggedIn);
+        }
+        emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
+        return;
       }
-      break;
-    case protocol::PacketType::CreateRoomRes:
-    case protocol::PacketType::JoinRoomRes:
-      if (ok && state_ == ClientState::LoggedIn) {
-        setState(ClientState::InRoom);
+      case protocol::PacketType::CreateRoomRes: {
+        const auto payload = protocol::StructuredPayload::parse(raw_payload);
+        requireRoomFields(payload, "CREATE_ROOM");
+        if (state_ == ClientState::LoggedIn) {
+          setState(ClientState::InRoom);
+        }
+        emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
+        return;
       }
-      break;
-    case protocol::PacketType::LeaveRoomRes:
-      if (ok && state_ == ClientState::InRoom) {
-        setState(ClientState::LoggedIn);
+      case protocol::PacketType::JoinRoomRes: {
+        const auto payload = protocol::StructuredPayload::parse(raw_payload);
+        requireRoomFields(payload, "JOIN_ROOM");
+        if (state_ == ClientState::LoggedIn) {
+          setState(ClientState::InRoom);
+        }
+        emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
+        return;
       }
-      break;
-    case protocol::PacketType::RoomBroadcast:
-      emit logEntryAdded(payload.startsWith("event=CHAT|")
-                             ? chatEntry(payload, session_id_)
-                             : logEntry(LogKind::System, payload));
-      return;
-    case protocol::PacketType::Error:
-      emit logEntryAdded(logEntry(LogKind::Error, payload));
-      return;
-    default:
-      return;
+      case protocol::PacketType::LeaveRoomRes: {
+        const auto payload = protocol::StructuredPayload::parse(raw_payload);
+        requireRoomFields(payload, "LEAVE_ROOM");
+        if (state_ == ClientState::InRoom) {
+          setState(ClientState::LoggedIn);
+        }
+        emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
+        return;
+      }
+      case protocol::PacketType::RoomBroadcast: {
+        const auto payload = protocol::StructuredPayload::parse(raw_payload);
+        validateBroadcast(payload);
+        emit logEntryAdded(
+            payload.requireField("event") == "CHAT"
+                ? chatEntry(payload, session_id_)
+                : logEntry(LogKind::System, displayText(payload)));
+        return;
+      }
+      case protocol::PacketType::Error:
+        if (!protocol::isValidText(raw_payload)) {
+          throw protocol::ProtocolError("invalid error payload text");
+        }
+        emit logEntryAdded(logEntry(LogKind::Error, toQString(raw_payload)));
+        return;
+      default:
+        return;
+    }
+  } catch (const protocol::ProtocolError&) {
+    emit logEntryAdded(logEntry(LogKind::Error, kProtocolErrorText));
   }
-
-  emit logEntryAdded(logEntry(ok ? LogKind::System : LogKind::Error, payload));
 }
 
 void ClientController::onTransportError(TransportErrorKind kind,
@@ -246,11 +349,8 @@ bool ClientController::requireState(ClientState expected,
 }
 
 bool ClientController::sendTextPacket(protocol::PacketType type,
-                                      const QString& payload) {
-  const QByteArray utf8 = payload.toUtf8();
-  if (transport_.sendPacket(
-          type, std::string_view(utf8.constData(),
-                                 static_cast<std::size_t>(utf8.size())))) {
+                                      std::string_view payload) {
+  if (transport_.sendPacket(type, payload)) {
     return true;
   }
   emit logEntryAdded(

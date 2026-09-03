@@ -60,7 +60,7 @@ TEST(ScenarioRunnerTest,
   options.clients = 3;
   options.slow_clients = 1;
   options.messages_per_sender = 2000;
-  options.payload_bytes = 3939;
+  options.payload_bytes = 1291;
   options.worker_count = 2;
 
   const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
@@ -81,24 +81,24 @@ TEST(ScenarioRunnerTest, SharedWindowKeepsFastClientsWithinPendingCapacity) {
   options.scenario = rss::tools::ScenarioKind::SlowClient;
   options.clients = 10;
   options.slow_clients = 1;
-  options.messages_per_sender = 100;
-  options.payload_bytes = 3939;
+  options.messages_per_sender = 500;
+  options.payload_bytes = 1291;
   options.worker_count = 2;
 
   rss::tools::ScenarioRunner runner{
-      {.max_pending_write_bytes = 32U * 1024U,
+      {.slow_client_max_pending_write_bytes = 256U * 1024U,
        .socket_receive_buffer_bytes = 1024,
        .scenario_timeout = std::chrono::seconds{10}}};
   const auto result = runner.runOnce(options, 1);
   EXPECT_GE(result.overload.slow_client_disconnects, 1U);
-  EXPECT_EQ(result.sent, 900U);
-  EXPECT_EQ(result.expected_broadcasts, 8100U);
-  EXPECT_EQ(result.received_broadcasts, 8100U);
+  EXPECT_EQ(result.sent, 4500U);
+  EXPECT_EQ(result.expected_broadcasts, 40500U);
+  EXPECT_EQ(result.received_broadcasts, 40500U);
   EXPECT_EQ(result.missing_broadcasts, 0U);
   EXPECT_EQ(result.duplicate_broadcasts, 0U);
   EXPECT_EQ(result.unexpected_broadcasts, 0U);
   EXPECT_EQ(result.failed_clients, 0U);
-  EXPECT_EQ(result.latencies.size(), 8100U);
+  EXPECT_EQ(result.latencies.size(), 40500U);
 }
 
 TEST(ScenarioRunnerTest, RejectsZeroSlowClients) {

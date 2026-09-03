@@ -8,6 +8,8 @@
 #include <system_error>
 
 #include "rss/protocol/PacketCodec.h"
+#include "rss/protocol/StructuredPayload.h"
+#include "rss/protocol/TextValidation.h"
 
 namespace rss::service {
 namespace {
@@ -21,26 +23,15 @@ struct NormalizedLoginName {
   std::string display;
 };
 
-bool isAsciiSpace(char character) {
-  return character == ' ' || character == '\t' || character == '\n' ||
-         character == '\r' || character == '\f' || character == '\v';
-}
-
 std::optional<NormalizedLoginName> normalizeLoginName(std::string_view input) {
-  std::size_t begin{};
-  while (begin < input.size() && isAsciiSpace(input[begin])) {
-    ++begin;
-  }
-  std::size_t end = input.size();
-  while (end > begin && isAsciiSpace(input[end - 1])) {
-    --end;
-  }
-  if (begin == end || end - begin > 32) {
+  const auto trimmed = protocol::trimAsciiWhitespace(input);
+  if (trimmed.empty() || trimmed.size() > protocol::kMaxUserNameBytes ||
+      !protocol::isValidText(trimmed)) {
     return std::nullopt;
   }
 
   NormalizedLoginName result;
-  result.display.assign(input.substr(begin, end - begin));
+  result.display.assign(trimmed);
   result.normalized = result.display;
   for (auto& character : result.normalized) {
     if (character >= 'A' && character <= 'Z') {
@@ -48,6 +39,15 @@ std::optional<NormalizedLoginName> normalizeLoginName(std::string_view input) {
     }
   }
   return result;
+}
+
+std::optional<std::string> normalizeRoomName(std::string_view input) {
+  const auto trimmed = protocol::trimAsciiWhitespace(input);
+  if (trimmed.empty() || trimmed.size() > protocol::kMaxRoomNameBytes ||
+      !protocol::isValidText(trimmed)) {
+    return std::nullopt;
+  }
+  return std::string(trimmed);
 }
 
 std::string_view persistenceErrorText(persistence::PersistenceErrorKind kind) {
@@ -78,21 +78,23 @@ std::uint32_t parseRoomId(const std::string& text) {
   return room_id;
 }
 
-std::string userPrefix(const domain::User& user) {
-  std::ostringstream out;
-  out << "user_id=" << user.id.toString() << "|session_id=" << user.session_id
-      << "|name=" << user.name;
-  return out.str();
+void addUserFields(protocol::StructuredPayloadBuilder& builder,
+                   const domain::User& user) {
+  builder.addField("user_id", user.id.toString())
+      .addField("session_id", std::to_string(user.session_id))
+      .addField("name", user.name);
 }
 
-std::string okPayload(std::string_view event, const RoomActionResult& result) {
-  std::ostringstream out;
-  out << "OK|event=" << event;
+std::string roomPayload(bool include_ok_status, std::string_view event,
+                        const RoomActionResult& result) {
+  auto builder = include_ok_status ? protocol::StructuredPayloadBuilder("OK")
+                                   : protocol::StructuredPayloadBuilder();
+  builder.addField("event", event);
   if (result.room_id != 0) {
-    out << "|room_id=" << result.room_id;
+    builder.addField("room_id", std::to_string(result.room_id));
   }
-  out << "|" << userPrefix(result.actor);
-  return out.str();
+  addUserFields(builder, result.actor);
+  return builder.build();
 }
 
 }  // namespace
@@ -109,7 +111,7 @@ void MessageRouter::handle(const SessionEvent& event,
       return;
     }
 
-    const auto payload = okPayload("LEAVE", result);
+    const auto payload = roomPayload(true, "LEAVE", result);
     for (const auto recipient : result.recipients) {
       if (recipient != event.session_id &&
           !context.emit(
@@ -162,10 +164,10 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
                       completion->succeed({error(session_id, login.error)}));
                   return;
                 }
-                std::ostringstream payload;
-                payload << "OK|" << userPrefix(login.user);
+                protocol::StructuredPayloadBuilder payload("OK");
+                addUserFields(payload, login.user);
                 static_cast<void>(completion->succeed(
-                    {make(session_id, PacketType::LoginRes, payload.str())}));
+                    {make(session_id, PacketType::LoginRes, payload.build())}));
               } catch (...) {
                 static_cast<void>(completion->fail());
               }
@@ -176,14 +178,19 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       return;
     }
     case PacketType::CreateRoomReq: {
-      const auto result =
-          room_service_.createRoom(session_id, payloadText(packet));
+      const auto room_name = normalizeRoomName(payloadText(packet));
+      if (!room_name.has_value()) {
+        static_cast<void>(sink.emit(error(session_id, "invalid room name")));
+        return;
+      }
+      const auto result = room_service_.createRoom(session_id, *room_name);
       if (!result.ok) {
         static_cast<void>(sink.emit(error(session_id, result.error)));
         return;
       }
-      static_cast<void>(sink.emit(make(session_id, PacketType::CreateRoomRes,
-                                       okPayload("CREATE_ROOM", result))));
+      static_cast<void>(
+          sink.emit(make(session_id, PacketType::CreateRoomRes,
+                         roomPayload(true, "CREATE_ROOM", result))));
       return;
     }
     case PacketType::JoinRoomReq: {
@@ -195,10 +202,10 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       }
 
       if (!sink.emit(make(session_id, PacketType::JoinRoomRes,
-                          okPayload("JOIN_ROOM", result)))) {
+                          roomPayload(true, "JOIN_ROOM", result)))) {
         return;
       }
-      const auto broadcast = okPayload("JOIN", result);
+      const auto broadcast = roomPayload(true, "JOIN", result);
       for (const auto recipient : result.recipients) {
         if (recipient != session_id &&
             !sink.emit(make(recipient, PacketType::RoomBroadcast, broadcast))) {
@@ -208,6 +215,11 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       return;
     }
     case PacketType::LeaveRoomReq: {
+      if (!packet.payload.empty()) {
+        static_cast<void>(
+            sink.emit(error(session_id, "invalid leave room request")));
+        return;
+      }
       const auto result = room_service_.leaveRoom(session_id);
       if (!result.ok) {
         static_cast<void>(sink.emit(error(session_id, result.error)));
@@ -215,10 +227,10 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       }
 
       if (!sink.emit(make(session_id, PacketType::LeaveRoomRes,
-                          okPayload("LEAVE_ROOM", result)))) {
+                          roomPayload(true, "LEAVE_ROOM", result)))) {
         return;
       }
-      const auto broadcast = okPayload("LEAVE", result);
+      const auto broadcast = roomPayload(true, "LEAVE", result);
       for (const auto recipient : result.recipients) {
         if (recipient != session_id &&
             !sink.emit(make(recipient, PacketType::RoomBroadcast, broadcast))) {
@@ -228,9 +240,14 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
       return;
     }
     case PacketType::ChatReq: {
-      if (packet.payload.size() > protocol::kMaxChatMessageBytes) {
+      const auto message = payloadText(packet);
+      if (message.size() > protocol::kMaxChatMessageBytes) {
         static_cast<void>(
             sink.emit(error(session_id, "chat message too large")));
+        return;
+      }
+      if (!protocol::isValidText(message)) {
+        static_cast<void>(sink.emit(error(session_id, "invalid chat message")));
         return;
       }
       const auto result = room_service_.chat(session_id);
@@ -238,13 +255,16 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
         static_cast<void>(sink.emit(error(session_id, result.error)));
         return;
       }
-      std::ostringstream payload;
-      payload << "event=CHAT|room_id=" << result.room_id << "|"
-              << userPrefix(result.actor) << "|message=" << payloadText(packet);
+      protocol::StructuredPayloadBuilder payload;
+      payload.addField("event", "CHAT")
+          .addField("room_id", std::to_string(result.room_id));
+      addUserFields(payload, result.actor);
+      payload.addField("message", message);
+      const auto encoded_payload = payload.build();
 
       for (const auto recipient : result.recipients) {
         if (!sink.emit(
-                make(recipient, PacketType::RoomBroadcast, payload.str()))) {
+                make(recipient, PacketType::RoomBroadcast, encoded_payload))) {
           return;
         }
       }
@@ -258,19 +278,30 @@ void MessageRouter::handlePacket(std::uint64_t session_id,
         static_cast<void>(sink.emit(error(session_id, result.error)));
         return;
       }
-      std::ostringstream payload;
-      payload << "event=POSITION|room_id=" << result.room_id << "|"
-              << userPrefix(result.actor) << "|x=" << x << "|y=" << y;
+      std::ostringstream x_text;
+      std::ostringstream y_text;
+      x_text << x;
+      y_text << y;
+      protocol::StructuredPayloadBuilder payload;
+      payload.addField("event", "POSITION")
+          .addField("room_id", std::to_string(result.room_id));
+      addUserFields(payload, result.actor);
+      payload.addField("x", x_text.str()).addField("y", y_text.str());
+      const auto encoded_payload = payload.build();
 
       for (const auto recipient : result.recipients) {
         if (!sink.emit(
-                make(recipient, PacketType::RoomBroadcast, payload.str()))) {
+                make(recipient, PacketType::RoomBroadcast, encoded_payload))) {
           return;
         }
       }
       return;
     }
     case PacketType::Ping:
+      if (!packet.payload.empty()) {
+        static_cast<void>(sink.emit(error(session_id, "invalid ping request")));
+        return;
+      }
       static_cast<void>(sink.emit(make(session_id, PacketType::Pong, "PONG")));
       return;
     default:

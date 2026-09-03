@@ -20,6 +20,23 @@ Packet packet(PacketType type, std::string_view payload) {
   return {type, std::vector<std::uint8_t>(payload.begin(), payload.end())};
 }
 
+constexpr std::string_view kUserId = "00000000-0000-0000-0000-000000000001";
+
+std::string loginResponse(std::uint64_t session_id = 10,
+                          std::string_view name = "alice") {
+  return "OK|user_id=" + std::string(kUserId) +
+         "|session_id=" + std::to_string(session_id) +
+         "|name=" + std::string(name);
+}
+
+std::string roomResponse(std::string_view event, std::uint64_t session_id = 10,
+                         std::string_view name = "alice") {
+  return "OK|event=" + std::string(event) +
+         "|room_id=1|user_id=" + std::string(kUserId) +
+         "|session_id=" + std::to_string(session_id) +
+         "|name=" + std::string(name);
+}
+
 }  // namespace
 
 class ClientControllerTest final : public QObject {
@@ -48,8 +65,7 @@ class ClientControllerTest final : public QObject {
              static_cast<std::uint16_t>(PacketType::LoginReq));
     QCOMPARE(transport.lastPayload(), std::string("alice"));
 
-    transport.receive(
-        Packet{PacketType::LoginRes, {'O', 'K', '|', 'u', 's', 'e', 'r'}});
+    transport.receive(packet(PacketType::LoginRes, loginResponse()));
     QCOMPARE(controller.state(), ClientState::LoggedIn);
   }
 
@@ -99,7 +115,7 @@ class ClientControllerTest final : public QObject {
     QCOMPARE(transport.lastPayload(), std::string("general"));
 
     transport.receive(
-        Packet{PacketType::CreateRoomRes, {'O', 'K', '|', 'r', 'o', 'o', 'm'}});
+        packet(PacketType::CreateRoomRes, roomResponse("CREATE_ROOM")));
     QCOMPARE(controller.state(), ClientState::InRoom);
   }
 
@@ -114,7 +130,8 @@ class ClientControllerTest final : public QObject {
              static_cast<std::uint16_t>(PacketType::LeaveRoomReq));
     QCOMPARE(transport.lastPayload(), std::string());
 
-    transport.receive(Packet{PacketType::LeaveRoomRes, {'O', 'K'}});
+    transport.receive(
+        packet(PacketType::LeaveRoomRes, roomResponse("LEAVE_ROOM")));
     QCOMPARE(controller.state(), ClientState::LoggedIn);
   }
 
@@ -147,17 +164,64 @@ class ClientControllerTest final : public QObject {
     QCOMPARE(controller.state(), ClientState::LoggedIn);
   }
 
-  void rejectsBlankChatMessage() {
+  void preservesChatWhitespaceAndAllowsEmptyMessage() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    enterRoom(controller, transport);
+
+    QVERIFY(controller.sendChat("  hello  "));
+    QCOMPARE(transport.lastPayload(), std::string("  hello  "));
+    QVERIFY(controller.sendChat(""));
+    QCOMPARE(transport.lastPayload(), std::string());
+  }
+
+  void enforcesChatUtf8ByteLimit() {
     FakeSessionTransport transport;
     ClientController controller(transport);
     enterRoom(controller, transport);
     QSignalSpy validation_spy(&controller, &ClientController::validationFailed);
-    const int sent_before = transport.sentCount();
 
-    controller.sendChat("   ");
+    QVERIFY(controller.sendChat(QString(1291, 'x')));
+    QCOMPARE(transport.lastPayload().size(), std::size_t{1291});
+    const int sent_before = transport.sentCount();
+    QVERIFY(!controller.sendChat(QString(1292, 'x')));
 
     QCOMPARE(transport.sentCount(), sent_before);
     QCOMPARE(validation_spy.count(), 1);
+  }
+
+  void rejectsUserNameAboveUtf8ByteLimit() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    controller.connectToServer("127.0.0.1", 7777);
+    transport.completeConnection();
+    QSignalSpy validation_spy(&controller, &ClientController::validationFailed);
+
+    controller.login(QString::fromUtf8("가가가가가가가가가가"));
+    QCOMPARE(transport.lastPayload(), std::string("가가가가가가가가가가"));
+    const int sent_before = transport.sentCount();
+
+    controller.login(QString::fromUtf8("가가가가가가가가가가가"));
+
+    QCOMPARE(transport.sentCount(), sent_before);
+    QCOMPARE(validation_spy.count(), 1);
+    QCOMPARE(controller.state(), ClientState::Connected);
+  }
+
+  void enforcesRoomNameUtf8ByteLimit() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    logIn(controller, transport);
+    QSignalSpy validation_spy(&controller, &ClientController::validationFailed);
+
+    controller.createRoom(QString::fromUtf8(" 가가가가가가가가가가 "));
+    QCOMPARE(transport.lastPayload(), std::string("가가가가가가가가가가"));
+    const int sent_before = transport.sentCount();
+
+    controller.createRoom(QString::fromUtf8("가가가가가가가가가가가"));
+    QCOMPARE(transport.sentCount(), sent_before);
+    QCOMPARE(validation_spy.count(), 1);
+    QCOMPARE(controller.state(), ClientState::LoggedIn);
   }
 
   void parsesChatBroadcastAndMarksOwnSender() {
@@ -166,16 +230,14 @@ class ClientControllerTest final : public QObject {
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
     controller.login("alice");
-    transport.receive(packet(PacketType::LoginRes,
-                             "OK|user_id=00000000-0000-0000-0000-000000000001|"
-                             "session_id=10|name=alice"));
+    transport.receive(packet(PacketType::LoginRes, loginResponse()));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
 
     transport.receive(packet(PacketType::RoomBroadcast,
                              "event=CHAT|room_id=1|"
                              "user_id=00000000-0000-0000-0000-000000000001|"
                              "session_id=10|name=alice|"
-                             "message=hello|there"));
+                             "message=hello%7Cthere"));
 
     QCOMPARE(log_spy.count(), 1);
     const auto entry = log_spy.at(0).at(0).value<ChatLogEntry>();
@@ -186,26 +248,82 @@ class ClientControllerTest final : public QObject {
     QVERIFY(entry.received_at.isValid());
   }
 
-  void ignoresMetadataLikeFieldsInsideChatBody() {
+  void decodesEscapedChatAuthorAndMessage() {
     FakeSessionTransport transport;
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
     controller.login("alice");
-    transport.receive(packet(PacketType::LoginRes,
-                             "OK|user_id=00000000-0000-0000-0000-000000000001|"
-                             "session_id=10|name=alice"));
+    transport.receive(packet(PacketType::LoginRes, loginResponse()));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
 
     transport.receive(packet(
         PacketType::RoomBroadcast,
-        "event=CHAT|room_id=1|message=hello|session_id=10|name=mallory"));
+        "event=CHAT|room_id=1|user_id=00000000-0000-0000-0000-000000000001|"
+        "session_id=10|name=kim%7Cadmin%3Dyes%25|message=hello%7Cthere"));
 
     QCOMPARE(log_spy.count(), 1);
     const auto entry = log_spy.at(0).at(0).value<ChatLogEntry>();
-    QCOMPARE(entry.author, QString());
-    QCOMPARE(entry.text, QString("hello|session_id=10|name=mallory"));
-    QVERIFY(!entry.is_own);
+    QCOMPARE(entry.author, QString::fromUtf8("kim|admin=yes%"));
+    QCOMPARE(entry.text, QString::fromUtf8("hello|there"));
+    QVERIFY(entry.is_own);
+  }
+
+  void malformedLoginResponseDoesNotChangeState() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    controller.connectToServer("127.0.0.1", 7777);
+    transport.completeConnection();
+    controller.login("alice");
+    QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
+
+    transport.receive(packet(PacketType::LoginRes,
+                             "OK|user_id=00000000-0000-0000-0000-000000000001|"
+                             "session_id=%GG|name=alice"));
+
+    QCOMPARE(controller.state(), ClientState::Connected);
+    QCOMPARE(log_spy.count(), 1);
+    const auto entry = log_spy.at(0).at(0).value<ChatLogEntry>();
+    QCOMPARE(entry.kind, LogKind::Error);
+    QCOMPARE(entry.text,
+             QString("Protocol error: invalid structured payload."));
+  }
+
+  void malformedRoomResponsesAndBroadcastDoNotChangeState() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    logIn(controller, transport);
+    QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
+
+    transport.receive(
+        packet(PacketType::CreateRoomRes, roomResponse("JOIN_ROOM")));
+    QCOMPARE(controller.state(), ClientState::LoggedIn);
+    transport.receive(packet(
+        PacketType::JoinRoomRes,
+        "OK|event=JOIN_ROOM|room_id=invalid|user_id=" + std::string(kUserId) +
+            "|session_id=10|name=alice"));
+    QCOMPARE(controller.state(), ClientState::LoggedIn);
+
+    transport.receive(
+        packet(PacketType::CreateRoomRes, roomResponse("CREATE_ROOM")));
+    QCOMPARE(controller.state(), ClientState::InRoom);
+    transport.receive(packet(PacketType::LeaveRoomRes,
+                             "OK|event=LEAVE_ROOM|room_id=1|user_id=" +
+                                 std::string(kUserId) + "|session_id=10"));
+    QCOMPARE(controller.state(), ClientState::InRoom);
+    transport.receive(
+        packet(PacketType::RoomBroadcast,
+               "event=CHAT|room_id=1|user_id=" + std::string(kUserId) +
+                   "|session_id=10|name=alice"));
+    QCOMPARE(controller.state(), ClientState::InRoom);
+
+    QCOMPARE(log_spy.count(), 5);
+    for (const int index : {0, 1, 3, 4}) {
+      const auto entry = log_spy.at(index).at(0).value<ChatLogEntry>();
+      QCOMPARE(entry.kind, LogKind::Error);
+      QCOMPARE(entry.text,
+               QString("Protocol error: invalid structured payload."));
+    }
   }
 
  private:
@@ -214,14 +332,15 @@ class ClientControllerTest final : public QObject {
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
     controller.login("alice");
-    transport.receive(Packet{PacketType::LoginRes, {'O', 'K'}});
+    transport.receive(packet(PacketType::LoginRes, loginResponse()));
   }
 
   static void enterRoom(ClientController& controller,
                         FakeSessionTransport& transport) {
     logIn(controller, transport);
     controller.createRoom("general");
-    transport.receive(Packet{PacketType::CreateRoomRes, {'O', 'K'}});
+    transport.receive(
+        packet(PacketType::CreateRoomRes, roomResponse("CREATE_ROOM")));
   }
 };
 

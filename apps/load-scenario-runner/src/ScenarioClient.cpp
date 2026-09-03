@@ -19,6 +19,9 @@
 #include <system_error>
 #include <utility>
 
+#include "rss/protocol/ProtocolError.h"
+#include "rss/protocol/StructuredPayload.h"
+
 namespace rss::tools {
 namespace {
 
@@ -213,24 +216,24 @@ std::uint32_t ScenarioClient::createRoom(std::string_view name,
   const auto response =
       waitFor(rss::protocol::PacketType::CreateRoomRes, timeout);
   const auto payload = rss::protocol::payloadToString(response);
-  constexpr std::string_view marker = "room_id=";
-  const auto marker_position = payload.find(marker);
-  if (marker_position == std::string::npos) {
-    throw std::runtime_error("create room response has no room_id");
-  }
+  try {
+    const auto structured = rss::protocol::StructuredPayload::parse(payload);
+    if (structured.status() != "OK") {
+      throw std::runtime_error("create room response is not successful");
+    }
 
-  const auto value_begin = marker_position + marker.size();
-  const auto separator = payload.find('|', value_begin);
-  const auto value_end =
-      separator == std::string::npos ? payload.size() : separator;
-  std::uint32_t room_id{};
-  const auto* begin = payload.data() + value_begin;
-  const auto* end = payload.data() + value_end;
-  const auto [ptr, error] = std::from_chars(begin, end, room_id);
-  if (error != std::errc{} || ptr != end || begin == end) {
-    throw std::runtime_error("create room response has invalid room_id");
+    const auto room_id_value = structured.requireField("room_id");
+    std::uint32_t room_id{};
+    const auto* begin = room_id_value.data();
+    const auto* end = begin + room_id_value.size();
+    const auto [ptr, error] = std::from_chars(begin, end, room_id);
+    if (error != std::errc{} || ptr != end || begin == end) {
+      throw std::runtime_error("create room response has invalid room_id");
+    }
+    return room_id;
+  } catch (const rss::protocol::ProtocolError&) {
+    throw std::runtime_error("create room response is malformed");
   }
-  return room_id;
 }
 
 void ScenarioClient::joinRoom(std::uint32_t room_id,
