@@ -2,7 +2,10 @@ add_executable(rss_server_core_tests
     BoundedBlockingQueueTest.cpp
     InMemoryUserRepositoryTest.cpp
     MessageRouterTest.cpp
+    OperationalConfigTest.cpp
+    OperationalLogFormatterTest.cpp
     OverloadStatsTest.cpp
+    PeriodicOverloadReporterTest.cpp
     ReadBackpressureControllerTest.cpp
     RoomServiceTest.cpp
     ServerConfigTest.cpp

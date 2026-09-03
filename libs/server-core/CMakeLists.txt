@@ -5,6 +5,9 @@ add_library(rss_server_core
     src/domain/UserId.cpp
     src/net/Session.cpp
     src/net/WorkerPool.cpp
+    src/observability/OperationalConfig.cpp
+    src/observability/OperationalLogFormatter.cpp
+    src/observability/PeriodicOverloadReporter.cpp
     src/persistence/InMemoryUserRepository.cpp
     src/service/MessageRouter.cpp
     src/service/RoomService.cpp

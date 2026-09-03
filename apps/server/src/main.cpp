@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -10,6 +11,9 @@
 
 #include "ShutdownSignalMonitor.h"
 #include "rss/net/TcpServer.h"
+#include "rss/observability/OperationalConfig.h"
+#include "rss/observability/OperationalLogFormatter.h"
+#include "rss/observability/PeriodicOverloadReporter.h"
 #include "rss/persistence/postgres/PostgresExecutor.h"
 #include "rss/persistence/postgres/PostgresUserRepository.h"
 #include "rss/service/MessageRouter.h"
@@ -56,25 +60,32 @@ std::size_t sizeEnvironment(const char* name, std::size_t fallback) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  rss::net::ServerConfig config;
-  if (argc >= 2) {
-    config.host = argv[1];
-  }
-  if (argc >= 3) {
-    config.port = parsePort(argv[2]);
-  }
-  if (argc >= 4) {
-    config.worker_count = static_cast<std::size_t>(std::stoul(argv[3]));
-  } else {
-    config.worker_count = std::max(1U, std::thread::hardware_concurrency());
-  }
-
   try {
+    rss::net::ServerConfig config;
+    if (argc >= 2) {
+      config.host = argv[1];
+    }
+    if (argc >= 3) {
+      config.port = parsePort(argv[2]);
+    }
+    if (argc >= 4) {
+      config.worker_count = static_cast<std::size_t>(std::stoul(argv[3]));
+    } else {
+      config.worker_count = std::max(1U, std::thread::hardware_concurrency());
+    }
+
     const auto shutdown_signals = rss::server::blockShutdownSignals();
     const auto database_url = requiredEnvironment("RSS_DATABASE_URL");
     const auto database_workers = sizeEnvironment("RSS_DB_WORKERS", 2);
     const auto database_queue_capacity =
         sizeEnvironment("RSS_DB_QUEUE_CAPACITY", 1024);
+    const auto* reporting_interval_value =
+        std::getenv("RSS_OBSERVABILITY_INTERVAL_SECONDS");
+    const auto reporting_interval =
+        reporting_interval_value == nullptr
+            ? std::chrono::seconds(30)
+            : rss::observability::parseReportingIntervalSeconds(
+                  reporting_interval_value);
 
     rss::persistence::postgres::PostgresExecutor executor(
         database_url, database_workers, database_queue_capacity);
@@ -85,16 +96,32 @@ int main(int argc, char** argv) {
 
     rss::net::TcpServer server(config, &router);
     rss::server::ShutdownSignalMonitor signal_monitor(shutdown_signals, server);
+    rss::observability::PeriodicOverloadReporter reporter(
+        reporting_interval, [&server] { return server.overloadSnapshot(); },
+        std::cout);
+    server.setStartedCallback(
+        [&reporter] { static_cast<void>(reporter.start()); });
     try {
       server.run();
+      reporter.stop();
       signal_monitor.throwIfFailed();
+      std::cout << rss::observability::formatOverloadSnapshot(
+                       rss::observability::currentUnixTimeMilliseconds(),
+                       rss::observability::SnapshotPhase::Final,
+                       server.overloadSnapshot())
+                << rss::observability::formatServerStopped(
+                       rss::observability::currentUnixTimeMilliseconds());
+      std::cout.flush();
     } catch (...) {
+      reporter.stop();
       executor.stop();
       throw;
     }
     executor.stop();
   } catch (const std::exception& ex) {
-    std::cerr << "server failed: " << ex.what() << '\n';
+    std::cerr << rss::observability::formatServerFailed(
+        rss::observability::currentUnixTimeMilliseconds(), ex.what());
+    std::cerr.flush();
     return EXIT_FAILURE;
   }
 
