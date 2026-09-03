@@ -24,6 +24,8 @@
 #include "rss/net/ServerConfig.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/protocol/PacketTypes.h"
+#include "rss/protocol/ProtocolError.h"
+#include "rss/protocol/StructuredPayload.h"
 
 namespace rss::tools {
 namespace {
@@ -166,15 +168,6 @@ std::string makePayload(std::size_t run, std::size_t sender,
   }
   payload.resize(payload_bytes, 'x');
   return payload;
-}
-
-std::string_view messagePayload(std::string_view broadcast) {
-  constexpr std::string_view marker = "|message=";
-  const auto position = broadcast.find(marker);
-  if (position == std::string_view::npos) {
-    throw std::invalid_argument("chat broadcast has no message");
-  }
-  return broadcast.substr(position + marker.size());
 }
 
 OverloadReport makeOverloadReport(const rss::net::OverloadSnapshot& snapshot) {
@@ -327,13 +320,14 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
         continue;
       }
 
-      const auto broadcast = rss::protocol::payloadToString(*packet);
-      if (!broadcast.starts_with("event=CHAT|")) {
-        continue;
-      }
-
       try {
-        const auto identity = parsePayload(messagePayload(broadcast));
+        const auto broadcast = rss::protocol::StructuredPayload::parse(
+            rss::protocol::payloadToString(*packet));
+        if (broadcast.requireField("event") != "CHAT") {
+          continue;
+        }
+
+        const auto identity = parsePayload(broadcast.requireField("message"));
         if (identity.run != run_id || identity.sender >= client_count ||
             identity.sender % room_count != receiver_room_index ||
             identity.sequence >= messages_per_sender) {
@@ -358,6 +352,8 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
                                     : 0;
         state.latencies.emplace_back(latency_us);
       } catch (const std::invalid_argument&) {
+        ++state.unexpected;
+      } catch (const rss::protocol::ProtocolError&) {
         ++state.unexpected;
       }
     }

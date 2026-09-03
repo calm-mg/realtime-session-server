@@ -15,8 +15,12 @@
 #include <thread>
 #include <vector>
 
+#include "rss/protocol/Packet.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/protocol/PacketTypes.h"
+#include "rss/protocol/ProtocolError.h"
+#include "rss/protocol/StructuredPayload.h"
+#include "rss/protocol/TextValidation.h"
 
 namespace {
 
@@ -62,10 +66,22 @@ std::vector<std::uint8_t> makePacket(const std::string& line) {
   using rss::protocol::PacketType;
 
   if (line.rfind("/login ", 0) == 0) {
-    return PacketCodec::encode(PacketType::LoginReq, line.substr(7));
+    const auto name =
+        rss::protocol::trimAsciiWhitespace(std::string_view(line).substr(7));
+    if (name.empty() || name.size() > rss::protocol::kMaxUserNameBytes ||
+        !rss::protocol::isValidText(name)) {
+      throw std::runtime_error("invalid user name");
+    }
+    return PacketCodec::encode(PacketType::LoginReq, name);
   }
   if (line.rfind("/create ", 0) == 0) {
-    return PacketCodec::encode(PacketType::CreateRoomReq, line.substr(8));
+    const auto name =
+        rss::protocol::trimAsciiWhitespace(std::string_view(line).substr(8));
+    if (name.empty() || name.size() > rss::protocol::kMaxRoomNameBytes ||
+        !rss::protocol::isValidText(name)) {
+      throw std::runtime_error("invalid room name");
+    }
+    return PacketCodec::encode(PacketType::CreateRoomReq, name);
   }
   if (line.rfind("/join ", 0) == 0) {
     return PacketCodec::encode(PacketType::JoinRoomReq, line.substr(6));
@@ -74,7 +90,14 @@ std::vector<std::uint8_t> makePacket(const std::string& line) {
     return PacketCodec::encode(PacketType::LeaveRoomReq, "");
   }
   if (line.rfind("/chat ", 0) == 0) {
-    return PacketCodec::encode(PacketType::ChatReq, line.substr(6));
+    const auto message = std::string_view(line).substr(6);
+    if (message.size() > rss::protocol::kMaxChatMessageBytes) {
+      throw std::runtime_error("chat message too large");
+    }
+    if (!rss::protocol::isValidText(message)) {
+      throw std::runtime_error("invalid chat message");
+    }
+    return PacketCodec::encode(PacketType::ChatReq, message);
   }
   if (line.rfind("/pos ", 0) == 0) {
     std::istringstream in(line.substr(5));
@@ -90,7 +113,53 @@ std::vector<std::uint8_t> makePacket(const std::string& line) {
   if (line == "/ping") {
     return PacketCodec::encode(PacketType::Ping, "");
   }
+  if (line.size() > rss::protocol::kMaxChatMessageBytes) {
+    throw std::runtime_error("chat message too large");
+  }
+  if (!rss::protocol::isValidText(line)) {
+    throw std::runtime_error("invalid chat message");
+  }
   return PacketCodec::encode(PacketType::ChatReq, line);
+}
+
+bool isStructured(rss::protocol::PacketType type) {
+  using rss::protocol::PacketType;
+  return type == PacketType::LoginRes || type == PacketType::CreateRoomRes ||
+         type == PacketType::JoinRoomRes || type == PacketType::LeaveRoomRes ||
+         type == PacketType::RoomBroadcast;
+}
+
+void printStructured(const rss::protocol::StructuredPayload& payload) {
+  bool needs_separator = false;
+  if (const auto status = payload.status(); status.has_value()) {
+    std::cout << *status;
+    needs_separator = true;
+  }
+  for (const auto& [key, value] : payload.fields()) {
+    std::cout << (needs_separator ? "|" : "") << key << '=' << value;
+    needs_separator = true;
+  }
+}
+
+void printPacket(const rss::protocol::Packet& packet) {
+  const auto payload = rss::protocol::payloadToString(packet);
+  try {
+    if (isStructured(packet.type)) {
+      const auto structured = rss::protocol::StructuredPayload::parse(payload);
+      std::cout << '[' << rss::protocol::toString(packet.type) << "] ";
+      printStructured(structured);
+    } else if ((packet.type == rss::protocol::PacketType::Error ||
+                packet.type == rss::protocol::PacketType::Pong) &&
+               rss::protocol::isValidText(payload)) {
+      std::cout << '[' << rss::protocol::toString(packet.type) << "] "
+                << payload;
+    } else {
+      throw rss::protocol::ProtocolError("invalid packet text");
+    }
+    std::cout << '\n';
+  } catch (const rss::protocol::ProtocolError&) {
+    std::cout << "[PROTOCOL_ERROR] invalid structured payload\n";
+  }
 }
 
 void readLoop(int fd, std::atomic_bool& running) {
@@ -105,8 +174,7 @@ void readLoop(int fd, std::atomic_bool& running) {
 
     codec.feed(buffer, static_cast<std::size_t>(n));
     for (const auto& packet : codec.drainPackets()) {
-      std::cout << '[' << rss::protocol::toString(packet.type) << "] "
-                << rss::protocol::payloadToString(packet) << '\n';
+      printPacket(packet);
     }
   }
 }
@@ -138,7 +206,14 @@ int main(int argc, char** argv) {
       if (line == "/quit") {
         break;
       }
-      sendAll(fd, makePacket(line));
+      std::vector<std::uint8_t> packet;
+      try {
+        packet = makePacket(line);
+      } catch (const std::runtime_error& ex) {
+        std::cerr << ex.what() << '\n';
+        continue;
+      }
+      sendAll(fd, packet);
     }
 
     running.store(false);
