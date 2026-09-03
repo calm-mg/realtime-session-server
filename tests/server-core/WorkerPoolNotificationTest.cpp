@@ -126,6 +126,51 @@ class OrderedDeferredHandler final : public rss::service::SessionEventHandler {
   std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
 };
 
+class BlockingDeferredHandler final : public rss::service::SessionEventHandler {
+ public:
+  void handle(const rss::service::SessionEvent&,
+              rss::service::SessionEventContext& context) override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      completion_ = context.defer();
+      deferred_ = true;
+    }
+    changed_.notify_all();
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    changed_.wait(lock, [this] { return released_; });
+  }
+
+  bool waitForDeferredSession() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return changed_.wait_for(lock, 1s, [this] { return deferred_; });
+  }
+
+  bool completeDeferredSession() {
+    std::shared_ptr<rss::service::DeferredSessionCompletion> completion;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      completion = completion_;
+    }
+    return completion != nullptr && completion->succeed({{1, {0xA0U}}});
+  }
+
+  void release() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released_ = true;
+    }
+    changed_.notify_all();
+  }
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
+  bool deferred_{false};
+  bool released_{false};
+};
+
 class InlineCompletionHandler final : public rss::service::SessionEventHandler {
  public:
   void handle(const rss::service::SessionEvent& event,
@@ -581,18 +626,22 @@ TEST(WorkerPoolNotificationTest, ForceStopRejectsLateDeferredCompletion) {
 
   rss::util::BoundedBlockingQueue<SessionEvent> inbox(2);
   rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
-  OrderedDeferredHandler handler;
+  BlockingDeferredHandler handler;
   rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
 
   workers.start(1);
   ASSERT_TRUE(
       inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
-  ASSERT_TRUE(handler.waitForDeferredSession());
+  const auto deferred = handler.waitForDeferredSession();
 
   workers.forceStop();
-  EXPECT_FALSE(handler.completeDeferredSession());
+  const auto completion_succeeded =
+      deferred && handler.completeDeferredSession();
+  handler.release();
   workers.join();
 
+  ASSERT_TRUE(deferred);
+  EXPECT_FALSE(completion_succeeded);
   EXPECT_EQ(outbox.size(), 0U);
   EXPECT_TRUE(workers.finished());
 }
