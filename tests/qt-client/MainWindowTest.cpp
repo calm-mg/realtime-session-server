@@ -144,6 +144,35 @@ class MainWindowTest final : public QObject {
     QVERIFY(!window.findChild<QPushButton*>("sendButton")->isEnabled());
   }
 
+  void disablesStateActionsWhileRequestIsPending() {
+    FakeSessionTransport transport;
+    rss::qt_client::ClientController controller(transport);
+    rss::qt_client::MainWindow window;
+    window.bind(controller);
+    controller.connectToServer("127.0.0.1", 7777);
+    transport.completeConnection();
+
+    controller.login("alice");
+    QVERIFY(!window.findChild<QLineEdit*>("usernameEdit")->isEnabled());
+    QVERIFY(!window.findChild<QPushButton*>("loginButton")->isEnabled());
+    QVERIFY(window.findChild<QPushButton*>("disconnectButton")->isEnabled());
+
+    transport.receive(packet(rss::protocol::PacketType::LoginRes,
+                             "OK|" + std::string(kUserFields)));
+    controller.createRoom("study");
+    QVERIFY(!window.findChild<QLineEdit*>("roomEdit")->isEnabled());
+    QVERIFY(!window.findChild<QPushButton*>("createRoomButton")->isEnabled());
+    QVERIFY(!window.findChild<QPushButton*>("joinRoomButton")->isEnabled());
+
+    transport.receive(packet(rss::protocol::PacketType::CreateRoomRes,
+                             roomResponse("CREATE_ROOM")));
+    controller.leaveRoom();
+    QVERIFY(!window.findChild<QPushButton*>("leaveRoomButton")->isEnabled());
+    QVERIFY(!window.findChild<QLineEdit*>("messageEdit")->isEnabled());
+    QVERIFY(!window.findChild<QPushButton*>("sendButton")->isEnabled());
+    QVERIFY(window.findChild<QPushButton*>("disconnectButton")->isEnabled());
+  }
+
   void sendsChatWhenReturnIsPressed() {
     FakeSessionTransport transport;
     rss::qt_client::ClientController controller(transport);

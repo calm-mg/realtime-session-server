@@ -140,6 +140,10 @@ ClientController::ClientController(SessionTransport& transport, QObject* parent)
 
 ClientState ClientController::state() const noexcept { return state_; }
 
+PendingRequest ClientController::pendingRequest() const noexcept {
+  return pending_request_;
+}
+
 void ClientController::connectToServer(const QString& host,
                                        std::uint16_t port) {
   if (!requireState(ClientState::Disconnected,
@@ -172,6 +176,9 @@ void ClientController::login(const QString& username) {
                     "Connect to the server before logging in.")) {
     return;
   }
+  if (!requireNoPendingRequest()) {
+    return;
+  }
   const QByteArray utf8 = username.toUtf8();
   const auto value = protocol::trimAsciiWhitespace(std::string_view(
       utf8.constData(), static_cast<std::size_t>(utf8.size())));
@@ -180,11 +187,14 @@ void ClientController::login(const QString& username) {
     emit validationFailed("Enter a valid user name of at most 32 UTF-8 bytes.");
     return;
   }
-  sendTextPacket(protocol::PacketType::LoginReq, value);
+  sendRequest(protocol::PacketType::LoginReq, value, PendingRequest::Login);
 }
 
 void ClientController::createRoom(const QString& room_name) {
   if (!requireState(ClientState::LoggedIn, "Log in before creating a room.")) {
+    return;
+  }
+  if (!requireNoPendingRequest()) {
     return;
   }
   const QByteArray utf8 = room_name.toUtf8();
@@ -195,11 +205,15 @@ void ClientController::createRoom(const QString& room_name) {
     emit validationFailed("Enter a valid room name of at most 32 UTF-8 bytes.");
     return;
   }
-  sendTextPacket(protocol::PacketType::CreateRoomReq, value);
+  sendRequest(protocol::PacketType::CreateRoomReq, value,
+              PendingRequest::CreateRoom);
 }
 
 void ClientController::joinRoom(const QString& room_id) {
   if (!requireState(ClientState::LoggedIn, "Log in before joining a room.")) {
+    return;
+  }
+  if (!requireNoPendingRequest()) {
     return;
   }
   const QString value = room_id.trimmed();
@@ -210,21 +224,29 @@ void ClientController::joinRoom(const QString& room_id) {
     return;
   }
   const QByteArray utf8 = value.toUtf8();
-  sendTextPacket(protocol::PacketType::JoinRoomReq,
-                 std::string_view(utf8.constData(),
-                                  static_cast<std::size_t>(utf8.size())));
+  sendRequest(
+      protocol::PacketType::JoinRoomReq,
+      std::string_view(utf8.constData(), static_cast<std::size_t>(utf8.size())),
+      PendingRequest::JoinRoom);
 }
 
 void ClientController::leaveRoom() {
   if (!requireState(ClientState::InRoom, "Join a room before leaving it.")) {
     return;
   }
-  sendTextPacket(protocol::PacketType::LeaveRoomReq, std::string_view{});
+  if (!requireNoPendingRequest()) {
+    return;
+  }
+  sendRequest(protocol::PacketType::LeaveRoomReq, std::string_view{},
+              PendingRequest::LeaveRoom);
 }
 
 bool ClientController::sendChat(const QString& message) {
   if (!requireState(ClientState::InRoom,
                     "Join a room before sending a message.")) {
+    return false;
+  }
+  if (!requireNoPendingRequest()) {
     return false;
   }
   const QByteArray utf8 = message.toUtf8();
@@ -251,6 +273,7 @@ void ClientController::onConnected() {
 
 void ClientController::onDisconnected() {
   setState(ClientState::Disconnected);
+  setPendingRequest(PendingRequest::None);
   session_id_.reset();
   emit logEntryAdded(
       logEntry(LogKind::System, "Disconnected from the server."));
@@ -262,6 +285,9 @@ void ClientController::onPacketReceived(const protocol::Packet& packet) {
   try {
     switch (packet.type) {
       case protocol::PacketType::LoginRes: {
+        if (!isExpectedResponse(packet.type)) {
+          throw protocol::ProtocolError("unexpected login response");
+        }
         const auto payload = protocol::StructuredPayload::parse(raw_payload);
         requireStatus(payload, std::string_view{"OK"});
         const auto parsed_session_id = requireUserFields(payload);
@@ -269,33 +295,46 @@ void ClientController::onPacketReceived(const protocol::Packet& packet) {
           session_id_ = parsed_session_id;
           setState(ClientState::LoggedIn);
         }
+        setPendingRequest(PendingRequest::None);
         emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
         return;
       }
       case protocol::PacketType::CreateRoomRes: {
+        if (!isExpectedResponse(packet.type)) {
+          throw protocol::ProtocolError("unexpected create room response");
+        }
         const auto payload = protocol::StructuredPayload::parse(raw_payload);
         requireRoomFields(payload, "CREATE_ROOM");
         if (state_ == ClientState::LoggedIn) {
           setState(ClientState::InRoom);
         }
+        setPendingRequest(PendingRequest::None);
         emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
         return;
       }
       case protocol::PacketType::JoinRoomRes: {
+        if (!isExpectedResponse(packet.type)) {
+          throw protocol::ProtocolError("unexpected join room response");
+        }
         const auto payload = protocol::StructuredPayload::parse(raw_payload);
         requireRoomFields(payload, "JOIN_ROOM");
         if (state_ == ClientState::LoggedIn) {
           setState(ClientState::InRoom);
         }
+        setPendingRequest(PendingRequest::None);
         emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
         return;
       }
       case protocol::PacketType::LeaveRoomRes: {
+        if (!isExpectedResponse(packet.type)) {
+          throw protocol::ProtocolError("unexpected leave room response");
+        }
         const auto payload = protocol::StructuredPayload::parse(raw_payload);
         requireRoomFields(payload, "LEAVE_ROOM");
         if (state_ == ClientState::InRoom) {
           setState(ClientState::LoggedIn);
         }
+        setPendingRequest(PendingRequest::None);
         emit logEntryAdded(logEntry(LogKind::System, displayText(payload)));
         return;
       }
@@ -312,12 +351,17 @@ void ClientController::onPacketReceived(const protocol::Packet& packet) {
         if (!protocol::isValidText(raw_payload)) {
           throw protocol::ProtocolError("invalid error payload text");
         }
+        setPendingRequest(PendingRequest::None);
         emit logEntryAdded(logEntry(LogKind::Error, toQString(raw_payload)));
         return;
       default:
         return;
     }
   } catch (const protocol::ProtocolError&) {
+    if (packet.type == protocol::PacketType::Error ||
+        isExpectedResponse(packet.type)) {
+      setPendingRequest(PendingRequest::None);
+    }
     emit logEntryAdded(logEntry(LogKind::Error, kProtocolErrorText));
   }
 }
@@ -328,6 +372,7 @@ void ClientController::onTransportError(TransportErrorKind kind,
   if (kind == TransportErrorKind::Fatal) {
     session_id_.reset();
     setState(ClientState::Disconnected);
+    setPendingRequest(PendingRequest::None);
   }
 }
 
@@ -339,12 +384,28 @@ void ClientController::setState(ClientState state) {
   emit stateChanged(state_);
 }
 
+void ClientController::setPendingRequest(PendingRequest request) {
+  if (pending_request_ == request) {
+    return;
+  }
+  pending_request_ = request;
+  emit pendingRequestChanged(pending_request_);
+}
+
 bool ClientController::requireState(ClientState expected,
                                     const QString& message) {
   if (state_ == expected) {
     return true;
   }
   emit validationFailed(message);
+  return false;
+}
+
+bool ClientController::requireNoPendingRequest() {
+  if (pending_request_ == PendingRequest::None) {
+    return true;
+  }
+  emit validationFailed("Wait for the current request to finish.");
   return false;
 }
 
@@ -355,6 +416,33 @@ bool ClientController::sendTextPacket(protocol::PacketType type,
   }
   emit logEntryAdded(
       logEntry(LogKind::Error, "The request could not be sent."));
+  return false;
+}
+
+bool ClientController::sendRequest(protocol::PacketType type,
+                                   std::string_view payload,
+                                   PendingRequest request) {
+  if (!sendTextPacket(type, payload)) {
+    return false;
+  }
+  setPendingRequest(request);
+  return true;
+}
+
+bool ClientController::isExpectedResponse(
+    protocol::PacketType type) const noexcept {
+  switch (pending_request_) {
+    case PendingRequest::None:
+      return false;
+    case PendingRequest::Login:
+      return type == protocol::PacketType::LoginRes;
+    case PendingRequest::CreateRoom:
+      return type == protocol::PacketType::CreateRoomRes;
+    case PendingRequest::JoinRoom:
+      return type == protocol::PacketType::JoinRoomRes;
+    case PendingRequest::LeaveRoom:
+      return type == protocol::PacketType::LeaveRoomRes;
+  }
   return false;
 }
 

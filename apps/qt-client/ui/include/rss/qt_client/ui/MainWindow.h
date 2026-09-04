@@ -25,6 +25,7 @@ class MainWindow final : public QMainWindow {
 
  private:
   void applyState(ClientState state);
+  void applyControls();
   void appendLog(const ChatLogEntry& entry);
   void submitChat();
 

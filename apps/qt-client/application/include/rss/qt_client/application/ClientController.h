@@ -20,6 +20,7 @@ class ClientController final : public QObject {
                             QObject* parent = nullptr);
 
   [[nodiscard]] ClientState state() const noexcept;
+  [[nodiscard]] PendingRequest pendingRequest() const noexcept;
 
   void connectToServer(const QString& host, std::uint16_t port);
   void disconnectFromServer();
@@ -31,6 +32,7 @@ class ClientController final : public QObject {
 
  signals:
   void stateChanged(rss::qt_client::ClientState state);
+  void pendingRequestChanged(rss::qt_client::PendingRequest request);
   void logEntryAdded(rss::qt_client::ChatLogEntry entry);
   void validationFailed(QString message);
 
@@ -40,11 +42,18 @@ class ClientController final : public QObject {
   void onPacketReceived(const protocol::Packet& packet);
   void onTransportError(TransportErrorKind kind, const QString& message);
   void setState(ClientState state);
+  void setPendingRequest(PendingRequest request);
   bool requireState(ClientState expected, const QString& message);
+  bool requireNoPendingRequest();
   bool sendTextPacket(protocol::PacketType type, std::string_view payload);
+  bool sendRequest(protocol::PacketType type, std::string_view payload,
+                   PendingRequest request);
+  [[nodiscard]] bool isExpectedResponse(
+      protocol::PacketType type) const noexcept;
 
   SessionTransport& transport_;
   ClientState state_{ClientState::Disconnected};
+  PendingRequest pending_request_{PendingRequest::None};
   std::optional<qulonglong> session_id_;
 };
 
