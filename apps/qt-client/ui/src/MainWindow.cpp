@@ -93,6 +93,8 @@ void MainWindow::bind(ClientController& controller) {
 
   connect(controller_, &ClientController::stateChanged, this,
           &MainWindow::applyState);
+  connect(controller_, &ClientController::pendingRequestChanged, this,
+          [this](PendingRequest) { applyControls(); });
   connect(controller_, &ClientController::logEntryAdded, this,
           &MainWindow::appendLog);
   connect(controller_, &ClientController::validationFailed, this,
@@ -108,23 +110,7 @@ void MainWindow::bind(ClientController& controller) {
 }
 
 void MainWindow::applyState(ClientState state) {
-  const bool disconnected = state == ClientState::Disconnected;
-  const bool connected = state == ClientState::Connected;
-  const bool logged_in = state == ClientState::LoggedIn;
-  const bool in_room = state == ClientState::InRoom;
-
-  ui_->hostEdit->setEnabled(disconnected);
-  ui_->portSpinBox->setEnabled(disconnected);
-  ui_->connectButton->setEnabled(disconnected);
-  ui_->disconnectButton->setEnabled(!disconnected);
-  ui_->usernameEdit->setEnabled(connected);
-  ui_->loginButton->setEnabled(connected);
-  ui_->roomEdit->setEnabled(logged_in);
-  ui_->createRoomButton->setEnabled(logged_in);
-  ui_->joinRoomButton->setEnabled(logged_in);
-  ui_->leaveRoomButton->setEnabled(in_room);
-  ui_->messageEdit->setEnabled(in_room);
-  ui_->sendButton->setEnabled(in_room);
+  applyControls();
 
   switch (state) {
     case ClientState::Disconnected:
@@ -149,6 +135,31 @@ void MainWindow::applyState(ClientState state) {
       break;
   }
   refreshStyle(*ui_->connectionStatusLabel);
+}
+
+void MainWindow::applyControls() {
+  const auto state =
+      controller_ == nullptr ? ClientState::Disconnected : controller_->state();
+  const bool request_pending =
+      controller_ != nullptr &&
+      controller_->pendingRequest() != PendingRequest::None;
+  const bool disconnected = state == ClientState::Disconnected;
+  const bool connected = state == ClientState::Connected;
+  const bool logged_in = state == ClientState::LoggedIn;
+  const bool in_room = state == ClientState::InRoom;
+
+  ui_->hostEdit->setEnabled(disconnected && !request_pending);
+  ui_->portSpinBox->setEnabled(disconnected && !request_pending);
+  ui_->connectButton->setEnabled(disconnected && !request_pending);
+  ui_->disconnectButton->setEnabled(!disconnected);
+  ui_->usernameEdit->setEnabled(connected && !request_pending);
+  ui_->loginButton->setEnabled(connected && !request_pending);
+  ui_->roomEdit->setEnabled(logged_in && !request_pending);
+  ui_->createRoomButton->setEnabled(logged_in && !request_pending);
+  ui_->joinRoomButton->setEnabled(logged_in && !request_pending);
+  ui_->leaveRoomButton->setEnabled(in_room && !request_pending);
+  ui_->messageEdit->setEnabled(in_room && !request_pending);
+  ui_->sendButton->setEnabled(in_room && !request_pending);
 }
 
 void MainWindow::appendLog(const ChatLogEntry& entry) {

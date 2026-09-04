@@ -12,6 +12,14 @@ enum class ClientState {
   InRoom,
 };
 
+enum class PendingRequest {
+  None,
+  Login,
+  CreateRoom,
+  JoinRoom,
+  LeaveRoom,
+};
+
 enum class LogKind {
   System,
   Chat,
@@ -22,3 +30,4 @@ enum class LogKind {
 
 Q_DECLARE_METATYPE(rss::qt_client::ClientState)
 Q_DECLARE_METATYPE(rss::qt_client::LogKind)
+Q_DECLARE_METATYPE(rss::qt_client::PendingRequest)
