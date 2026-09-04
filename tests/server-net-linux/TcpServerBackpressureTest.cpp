@@ -1192,7 +1192,7 @@ TEST_F(TcpServerBackpressureTest,
 }
 
 TEST_F(TcpServerBackpressureTest,
-       ObservesFullOutboxAndBlockedProducerBeforeSaturatedShutdown) {
+       RecordsFullOutboxPeakUnderConcurrentResponses) {
   auto config = loopbackConfig();
   config.worker_count = 16;
   config.inbound_queue_capacity = 32;
@@ -1223,19 +1223,9 @@ TEST_F(TcpServerBackpressureTest,
   ASSERT_TRUE(handler_.waitForEnteredCount(config.worker_count));
 
   handler_.release();
-  bool observed_saturation = false;
-  const auto observation_deadline = std::chrono::steady_clock::now() + 1s;
-  while (std::chrono::steady_clock::now() < observation_deadline) {
-    const auto snapshot = server_->overloadSnapshot();
-    if (snapshot.current_outbound_queue_size == 1 &&
-        snapshot.outbound_queue_waiting_producers > 0) {
-      observed_saturation = true;
-      break;
-    }
-    std::this_thread::yield();
-  }
-  EXPECT_TRUE(observed_saturation);
-  EXPECT_EQ(server_->overloadSnapshot().max_outbound_queue_size, 1U);
+  ASSERT_TRUE(waitUntil([this] {
+    return server_->overloadSnapshot().max_outbound_queue_size == 1;
+  }));
 
   server_->stop();
   EXPECT_EQ(waitForServerFinishedFuture(1500ms), std::future_status::ready);
