@@ -1,3 +1,4 @@
+#include <QAbstractItemModelTester>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -12,6 +13,37 @@ class ChatLogModelTest final : public QObject {
   Q_OBJECT
 
  private slots:
+  void removesOldestEntriesWithValidNotifications() {
+    ChatLogModel model;
+    QAbstractItemModelTester tester(
+        &model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+    QSignalSpy removed(&model, &QAbstractItemModel::rowsRemoved);
+    for (int i = 0; i < 1000; ++i) {
+      model.append({.text = QString::number(i)});
+    }
+    QCOMPARE(model.rowCount({}), 1000);
+    QCOMPARE(removed.count(), 0);
+    QPersistentModelIndex oldest(model.index(0, 0));
+    QPersistentModelIndex retained(model.index(1, 0));
+    model.append({.text = "1000"});
+    QCOMPARE(model.rowCount({}), 1000);
+    QCOMPARE(removed.count(), 1);
+    QVERIFY(!removed.at(0).at(0).value<QModelIndex>().isValid());
+    QCOMPARE(removed.at(0).at(1).toInt(), 0);
+    QCOMPARE(removed.at(0).at(2).toInt(), 0);
+    QVERIFY(!oldest.isValid());
+    QCOMPARE(retained.row(), 0);
+    QCOMPARE(retained.data(ChatLogModel::TextRole).toString(), QString("1"));
+    for (int i = 1001; i < 1100; ++i) {
+      model.append({.text = QString::number(i)});
+    }
+    QCOMPARE(model.rowCount({}), 1000);
+    QCOMPARE(model.index(0, 0).data(ChatLogModel::TextRole).toString(),
+             QString("100"));
+    QCOMPARE(model.index(999, 0).data(ChatLogModel::TextRole).toString(),
+             QString("1099"));
+  }
+
   void exposesAppendedEntryThroughPresentationRoles() {
     ChatLogModel model;
     QSignalSpy inserted_spy(&model, &QAbstractItemModel::rowsInserted);
@@ -26,7 +58,7 @@ class ChatLogModelTest final : public QObject {
         .is_own = true,
     });
 
-    QCOMPARE(model.rowCount(), 1);
+    QCOMPARE(model.rowCount({}), 1);
     QCOMPARE(inserted_spy.count(), 1);
     const QModelIndex index = model.index(0, 0);
     QCOMPARE(index.data(ChatLogModel::KindRole).value<LogKind>(),

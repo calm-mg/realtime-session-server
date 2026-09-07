@@ -27,6 +27,8 @@ class QtSessionClient final : public SessionTransport {
   void failConnection(const QString& message);
   void resetBuffers();
 
+  static constexpr qint64 kMaxPendingWriteBytes = 1024 * 1024;
+
   QTcpSocket socket_;
   protocol::PacketCodec codec_;
   QByteArray pending_bytes_;

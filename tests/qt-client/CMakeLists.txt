@@ -46,6 +46,7 @@ foreach(test_case
         reconnectsAfterFatalSocketError
         sendsEncodedPacketsInOrder
         keepsConnectionUsableAfterOversizedOutgoingPayload
+        rejectsQueueOverflowAndResumesAfterDrain
         rejectsSendWhileDisconnected)
     add_test(
         NAME rss_qt_session_client_tests.${test_case}

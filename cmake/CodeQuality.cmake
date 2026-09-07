@@ -46,6 +46,12 @@ find_program(
 )
 
 if(RSS_RUN_CLANG_TIDY)
+    # 소스 경로의 정규식 메타 문자를 이스케이프해 검사 누락을 방지합니다.
+    set(RSS_SOURCE_DIR_REGEX "${PROJECT_SOURCE_DIR}")
+    foreach(RSS_REGEX_CHAR IN ITEMS "\\" "." "+" "*" "?" "^" "$" "(" ")" "[" "]" "|")
+        string(REPLACE "${RSS_REGEX_CHAR}" "\\${RSS_REGEX_CHAR}"
+            RSS_SOURCE_DIR_REGEX "${RSS_SOURCE_DIR_REGEX}")
+    endforeach()
     add_custom_target(
         tidy-check
         COMMAND
@@ -53,8 +59,8 @@ if(RSS_RUN_CLANG_TIDY)
             -p "${CMAKE_BINARY_DIR}"
             -config-file "${PROJECT_SOURCE_DIR}/.clang-tidy"
             -header-filter
-            "^${PROJECT_SOURCE_DIR}/(apps|benchmarks|libs|tests)/.*"
-            "^${PROJECT_SOURCE_DIR}/(apps|benchmarks|libs|tests)/.*\\.cpp$"
+            "^${RSS_SOURCE_DIR_REGEX}/(apps|benchmarks|libs|tests)/.*"
+            "^${RSS_SOURCE_DIR_REGEX}/(apps|benchmarks|libs|tests)/.*\\.cpp$"
         WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
         COMMENT "Running Google clang-tidy checks"
         VERBATIM
