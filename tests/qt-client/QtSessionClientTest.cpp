@@ -246,6 +246,52 @@ class QtSessionClientTest final : public QObject {
              toByteArray(expected));
   }
 
+  void rejectsQueueOverflowAndResumesAfterDrain() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    rss::qt_client::QtSessionClient client;
+    QSignalSpy connected(&client, &rss::qt_client::SessionTransport::connected);
+    QSignalSpy errors(&client,
+                      &rss::qt_client::SessionTransport::transportError);
+    QSignalSpy disconnected(&client,
+                            &rss::qt_client::SessionTransport::disconnected);
+    client.connectToHost("127.0.0.1", server.serverPort());
+    QTRY_COMPARE_WITH_TIMEOUT(connected.count(), 1, 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(server.hasPendingConnections(), 1000);
+    auto* peer = server.nextPendingConnection();
+    QVERIFY(peer != nullptr);
+    const std::string payload(4092, 'x');
+    // 이벤트 루프를 진행하지 않아 Qt 송신 버퍼를 정확히 1 MiB 채운다.
+    for (int i = 0; i < 256; ++i) {
+      QVERIFY(client.sendPacket(rss::protocol::PacketType::ChatReq, payload));
+    }
+    QVERIFY(!client.sendPacket(rss::protocol::PacketType::Ping,
+                               std::string_view{}));
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(errors.at(0).at(0).value<rss::qt_client::TransportErrorKind>(),
+             rss::qt_client::TransportErrorKind::Recoverable);
+    QVERIFY(!errors.at(0).at(1).toString().isEmpty());
+    QCOMPARE(disconnected.count(), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(peer->bytesAvailable(), 1048576, 3000);
+    rss::protocol::PacketCodec codec;
+    const auto bytes = peer->readAll();
+    codec.feed(reinterpret_cast<const std::uint8_t*>(bytes.constData()),
+               static_cast<std::size_t>(bytes.size()));
+    const auto packets = codec.drainPackets();
+    QCOMPARE(packets.size(), std::size_t{256});
+    for (const auto& packet : packets) {
+      QCOMPARE(rss::protocol::payloadToString(packet), payload);
+    }
+    QVERIFY(
+        client.sendPacket(rss::protocol::PacketType::Ping, std::string_view{}));
+    QTRY_COMPARE_WITH_TIMEOUT(peer->bytesAvailable(), 4, 1000);
+    QCOMPARE(peer->readAll(),
+             toByteArray(rss::protocol::PacketCodec::encode(
+                 rss::protocol::PacketType::Ping, std::string_view{})));
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(disconnected.count(), 0);
+  }
+
   void rejectsSendWhileDisconnected() {
     rss::qt_client::QtSessionClient client;
 

@@ -64,6 +64,11 @@ QVariant ChatLogModel::data(const QModelIndex& index, int role) const {
 }
 
 void ChatLogModel::append(ChatLogEntry entry) {
+  if (entries_.size() >= kMaxEntries) {
+    beginRemoveRows({}, 0, 0);
+    entries_.removeFirst();
+    endRemoveRows();
+  }
   const int row = static_cast<int>(entries_.size());
   beginInsertRows({}, row, row);
   entries_.append(std::move(entry));

@@ -19,14 +19,14 @@ class ChatLogModel final : public QAbstractListModel {
 
   explicit ChatLogModel(QObject* parent = nullptr);
 
-  [[nodiscard]] int rowCount(
-      const QModelIndex& parent = QModelIndex()) const override;
+  [[nodiscard]] int rowCount(const QModelIndex& parent) const override;
   [[nodiscard]] QVariant data(const QModelIndex& index,
-                              int role = Qt::DisplayRole) const override;
+                              int role) const override;
 
   void append(ChatLogEntry entry);
 
  private:
+  static constexpr int kMaxEntries = 1000;
   QList<ChatLogEntry> entries_;
 };
 

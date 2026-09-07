@@ -47,6 +47,20 @@ bool QtSessionClient::sendPacket(protocol::PacketType type,
 
   try {
     const auto encoded = protocol::PacketCodec::encode(type, payload);
+    const qint64 queued_bytes =
+        socket_.bytesToWrite() + (pending_bytes_.size() - pending_offset_);
+    if (static_cast<qint64>(encoded.size()) >
+        kMaxPendingWriteBytes - queued_bytes) {
+      emit transportError(
+          TransportErrorKind::Recoverable,
+          QStringLiteral(
+              "Send queue limit (1 MiB) exceeded. Please try again shortly."));
+      return false;
+    }
+    if (pending_offset_ > 0) {
+      pending_bytes_.remove(0, pending_offset_);
+      pending_offset_ = 0;
+    }
     pending_bytes_.append(reinterpret_cast<const char*>(encoded.data()),
                           static_cast<qsizetype>(encoded.size()));
   } catch (const protocol::ProtocolError& error) {

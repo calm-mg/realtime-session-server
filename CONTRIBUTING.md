@@ -190,6 +190,17 @@ Google clang-tidy 규칙을 검사합니다.
 cmake --build --preset linux-dev --target tidy-check
 ```
 
+macOS에서 별도 설치한 LLVM의 `clang-tidy`가 표준 헤더를 찾지 못하면
+SDK 경로를 명시해 컴파일 데이터베이스를 다시 생성합니다. `clang-tidy`와
+`run-clang-tidy`가 모두 `PATH`에 있어야 합니다.
+
+```bash
+cmake --preset qt-client-dev -DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)"
+cmake --build --preset qt-client-dev --target tidy-check
+```
+
+검사 출력의 대상 파일 수가 0이 아닌지 확인합니다.
+
 `format`은 파일을 변경합니다. `format-check`와 `tidy-check`는 검사만
 실행하고 문제가 있으면 실패 코드로 종료합니다.
 
