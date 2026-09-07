@@ -24,6 +24,7 @@ target_link_libraries(rss_server_net_tests
     PRIVATE
         rss_load_test_support
         rss_load_scenario_runtime
+        rss_client_net_linux
         rss_server_net
         GTest::gtest_main
 )

@@ -57,6 +57,17 @@ TEST(OperationalLogFormatterTest, FormatsEveryOverloadFieldInStableOrder) {
       .outbound_queue_waiting_producers = 13,
       .current_sessions = 14,
       .outbound_queue_closed = true,
+      .disconnect_peer_closed = 15,
+      .disconnect_socket_error = 16,
+      .disconnect_protocol_error = 17,
+      .disconnect_idle_timeout = 18,
+      .disconnect_worker_requested = 19,
+      .disconnect_pending_write_limit = 20,
+      .disconnect_close_after_flush = 21,
+      .disconnect_shutdown = 22,
+      .worker_parked_limit_failures = 23,
+      .worker_invalid_sequence_failures = 24,
+      .worker_deferred_failures = 25,
   };
 
   EXPECT_EQ(rss::observability::formatOverloadSnapshot(
@@ -72,7 +83,35 @@ TEST(OperationalLogFormatterTest, FormatsEveryOverloadFieldInStableOrder) {
             "\"current_inbound_queue_size\":11,"
             "\"current_outbound_queue_size\":12,"
             "\"outbound_queue_waiting_producers\":13,"
-            "\"current_sessions\":14,\"outbound_queue_closed\":true}\n");
+            "\"current_sessions\":14,\"outbound_queue_closed\":true"
+            ",\"disconnect_peer_closed\":15"
+            ",\"disconnect_socket_error\":16"
+            ",\"disconnect_protocol_error\":17"
+            ",\"disconnect_idle_timeout\":18"
+            ",\"disconnect_worker_requested\":19"
+            ",\"disconnect_pending_write_limit\":20"
+            ",\"disconnect_close_after_flush\":21"
+            ",\"disconnect_shutdown\":22"
+            ",\"worker_parked_limit_failures\":23"
+            ",\"worker_invalid_sequence_failures\":24"
+            ",\"worker_deferred_failures\":25"
+            "}\n");
+}
+
+TEST(OperationalLogFormatterTest, EmitsDisconnectAndWorkerFailureCounters) {
+  const auto output = rss::observability::formatOverloadSnapshot(
+      999, SnapshotPhase::Final, OverloadSnapshot{});
+  for (const auto* field :
+       {"disconnect_peer_closed", "disconnect_socket_error",
+        "disconnect_protocol_error", "disconnect_idle_timeout",
+        "disconnect_worker_requested", "disconnect_pending_write_limit",
+        "disconnect_close_after_flush", "disconnect_shutdown",
+        "worker_parked_limit_failures", "worker_invalid_sequence_failures",
+        "worker_deferred_failures"}) {
+    EXPECT_NE(output.find(std::string("\"") + field + "\":0"),
+              std::string::npos)
+        << field;
+  }
 }
 
 TEST(OperationalLogFormatterTest, FormatsFinalSnapshotPhase) {

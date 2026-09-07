@@ -172,7 +172,7 @@ void TcpServer::run() {
         }
 
         if ((event.events & EPOLLERR) != 0U) {
-          disconnect(fd);
+          disconnect(fd, DisconnectReason::SocketError);
           continue;
         }
 
@@ -363,14 +363,14 @@ void TcpServer::readSession(int fd, bool drain_after_peer_close,
 
     const auto n = ::recv(fd, buffer, sizeof(buffer), 0);
     if (n == 0) {
-      disconnect(fd);
+      disconnect(fd, DisconnectReason::PeerClosed);
       return;
     }
     if (n < 0) {
       if (wouldBlock()) {
         break;
       }
-      disconnect(fd);
+      disconnect(fd, DisconnectReason::SocketError);
       return;
     }
 
@@ -382,7 +382,7 @@ void TcpServer::readSession(int fd, bool drain_after_peer_close,
         return;
       }
     } catch (const protocol::ProtocolError&) {
-      disconnect(fd);
+      disconnect(fd, DisconnectReason::ProtocolError);
       return;
     }
   }
@@ -449,7 +449,7 @@ void TcpServer::flushSession(int fd) {
     const auto n = ::send(fd, data, send_size, MSG_NOSIGNAL);
 
     if (n == 0) {
-      disconnect(fd);
+      disconnect(fd, DisconnectReason::SocketError);
       return;
     }
 
@@ -458,7 +458,7 @@ void TcpServer::flushSession(int fd) {
         updateInterest(session);
         return;
       }
-      disconnect(fd);
+      disconnect(fd, DisconnectReason::SocketError);
       return;
     }
 
@@ -467,18 +467,19 @@ void TcpServer::flushSession(int fd) {
   }
 
   if (session.closingAfterFlush() && !session.hasPendingWrite()) {
-    disconnect(fd);
+    disconnect(fd, DisconnectReason::CloseAfterFlush);
     return;
   }
   updateInterest(session);
 }
 
-void TcpServer::disconnect(int fd) {
+void TcpServer::disconnect(int fd, DisconnectReason reason) {
   auto it = sessions_by_fd_.find(fd);
   if (it == sessions_by_fd_.end()) {
     return;
   }
 
+  overload_stats_.recordDisconnect(reason);
   auto session = std::move(it->second);
   const auto session_id = session->id();
   fd_by_session_.erase(session_id);
@@ -528,7 +529,7 @@ void TcpServer::drainOutbound() {
     }
 
     if (message->kind == service::OutboundMessageKind::DisconnectSession) {
-      disconnect(fd_it->second);
+      disconnect(fd_it->second, DisconnectReason::WorkerRequested);
       continue;
     }
 
@@ -543,7 +544,7 @@ void TcpServer::drainOutbound() {
     }
     if (!session.tryEnqueue(std::move(message->bytes))) {
       overload_stats_.recordSlowClientDisconnect();
-      disconnect(session.fd());
+      disconnect(session.fd(), DisconnectReason::PendingWriteLimit);
       continue;
     }
 
@@ -584,7 +585,7 @@ void TcpServer::expireIdleSessions() {
     }
   }
   for (const auto fd : expired) {
-    disconnect(fd);
+    disconnect(fd, DisconnectReason::IdleTimeout);
   }
 }
 
@@ -730,7 +731,7 @@ bool TcpServer::drainDeferredInput() {
     deferred_read_fds_.pop_front();
     deferred_read_fd_set_.erase(fd);
     if (protocol_error) {
-      disconnect(fd);
+      disconnect(fd, DisconnectReason::ProtocolError);
       if (inbox_.size() >= config_.inbound_high_watermark) {
         return false;
       }
@@ -873,6 +874,7 @@ void TcpServer::closeNetworkResources() noexcept {
   listener_registered_ = false;
 
   for (const auto& [fd, _] : sessions_by_fd_) {
+    overload_stats_.recordDisconnect(DisconnectReason::Shutdown);
     event_loop_.remove(fd);
     ::close(fd);
   }

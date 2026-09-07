@@ -99,7 +99,25 @@ std::string formatOverloadSnapshot(std::int64_t timestamp_unix_ms,
          << snapshot.outbound_queue_waiting_producers
          << ",\"current_sessions\":" << snapshot.current_sessions
          << ",\"outbound_queue_closed\":"
-         << (snapshot.outbound_queue_closed ? "true" : "false") << "}\n";
+         << (snapshot.outbound_queue_closed ? "true" : "false")
+         << ",\"disconnect_peer_closed\":" << snapshot.disconnect_peer_closed
+         << ",\"disconnect_socket_error\":" << snapshot.disconnect_socket_error
+         << ",\"disconnect_protocol_error\":"
+         << snapshot.disconnect_protocol_error
+         << ",\"disconnect_idle_timeout\":" << snapshot.disconnect_idle_timeout
+         << ",\"disconnect_worker_requested\":"
+         << snapshot.disconnect_worker_requested
+         << ",\"disconnect_pending_write_limit\":"
+         << snapshot.disconnect_pending_write_limit
+         << ",\"disconnect_close_after_flush\":"
+         << snapshot.disconnect_close_after_flush
+         << ",\"disconnect_shutdown\":" << snapshot.disconnect_shutdown
+         << ",\"worker_parked_limit_failures\":"
+         << snapshot.worker_parked_limit_failures
+         << ",\"worker_invalid_sequence_failures\":"
+         << snapshot.worker_invalid_sequence_failures
+         << ",\"worker_deferred_failures\":"
+         << snapshot.worker_deferred_failures << "}\n";
   return output.str();
 }
 

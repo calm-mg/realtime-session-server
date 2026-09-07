@@ -258,11 +258,24 @@ void WorkerPool::join() {
 void WorkerPool::run() {
   while (true) {
     service::SessionEvent event;
-    const auto pop_result = inbox_.pop(event);
-    if (!pop_result.succeeded) {
-      return;
+    std::shared_ptr<SessionSequenceState> session_state;
+    std::size_t remaining_input;
+    {
+      // pop 순서대로 상태 참조를 확보해 늦게 실행된 이벤트도 종료 상태를 본다.
+      std::lock_guard intake_lock(intake_mutex_);
+      const auto pop_result = inbox_.pop(event);
+      if (!pop_result.succeeded) {
+        return;
+      }
+      remaining_input = pop_result.size;
+      std::lock_guard sequence_lock(sequence_mutex_);
+      auto& state = sequence_by_session_[event.session_id];
+      if (state == nullptr) {
+        state = std::make_shared<SessionSequenceState>();
+      }
+      session_state = state;
     }
-    if (pop_result.size == config_.inbound_low_watermark &&
+    if (remaining_input == config_.inbound_low_watermark &&
         input_capacity_notifier_ != nullptr) {
       input_capacity_notifier_->notify();
     }
@@ -277,20 +290,40 @@ void WorkerPool::run() {
         return;
       }
 
-      const auto disposition = tryStartSessionTurn(*current);
+      const auto disposition = tryStartSessionTurn(*current, *session_state);
       if (disposition == SessionTurnDisposition::Parked) {
         break;
       }
-      if (disposition == SessionTurnDisposition::Rejected) {
-        if (markSessionFailed(current->session_id)) {
+      if (disposition == SessionTurnDisposition::Discarded) {
+        std::lock_guard lock(sequence_mutex_);
+        maybeCloseInboxForDrainLocked();
+        break;
+      }
+      if (disposition == SessionTurnDisposition::InvalidSequence ||
+          disposition == SessionTurnDisposition::ParkedLimit) {
+        if (markSessionFailed(*session_state)) {
+          if (overload_stats_ != nullptr) {
+            if (disposition == SessionTurnDisposition::ParkedLimit) {
+              overload_stats_->recordWorkerParkedLimitFailure();
+            } else {
+              overload_stats_->recordWorkerInvalidSequenceFailure();
+            }
+          }
           requestSessionDisconnect(current->session_id);
         }
-        break;
+        if (current->kind == service::SessionEventKind::Disconnected) {
+          continue;
+        }
+        current = takePendingDisconnected(*session_state);
+        continue;
       }
 
       if (current->kind == service::SessionEventKind::DeferredCompletion) {
         if (current->completion == nullptr || current->completion->failed) {
-          if (markSessionFailed(current->session_id)) {
+          if (markSessionFailed(*session_state)) {
+            if (overload_stats_ != nullptr) {
+              overload_stats_->recordWorkerDeferredFailure();
+            }
             requestSessionDisconnect(current->session_id);
           }
         } else {
@@ -308,13 +341,13 @@ void WorkerPool::run() {
             }
           }
         }
-        current = completeSessionTurn(*current);
+        current = completeSessionTurn(*current, *session_state);
         continue;
       }
 
       bool deferred = false;
       std::optional<service::SessionEvent> inline_completion;
-      if (!shouldSkipFailedSession(*current)) {
+      if (!shouldSkipFailedSession(*current, *session_state)) {
         WorkerSessionEventContext context(config_, force_stop_requested_,
                                           overload_stats_, inbox_, *current);
         bool handler_succeeded = false;
@@ -325,7 +358,7 @@ void WorkerPool::run() {
           if (overload_stats_ != nullptr) {
             overload_stats_->recordHandlerException();
           }
-          if (markSessionFailed(current->session_id)) {
+          if (markSessionFailed(*session_state)) {
             requestSessionDisconnect(current->session_id);
           }
         }
@@ -340,50 +373,54 @@ void WorkerPool::run() {
         }
       }
       if (deferred) {
-        auto early_completion = markSessionDeferred(*current);
+        auto early_completion = markSessionDeferred(*current, *session_state);
         current = inline_completion.has_value() ? std::move(inline_completion)
                                                 : std::move(early_completion);
       } else {
-        current = completeSessionTurn(*current);
+        current = completeSessionTurn(*current, *session_state);
       }
     }
   }
 }
 
-bool WorkerPool::shouldSkipFailedSession(const service::SessionEvent& event) {
+bool WorkerPool::shouldSkipFailedSession(const service::SessionEvent& event,
+                                         SessionSequenceState& state) {
   if (event.kind == service::SessionEventKind::Disconnected) {
     return false;
   }
   std::lock_guard<std::mutex> lock(sequence_mutex_);
-  const auto it = sequence_by_session_.find(event.session_id);
-  return it != sequence_by_session_.end() && it->second.failed;
+  return state.failed || state.closed;
 }
 
-bool WorkerPool::markSessionFailed(std::uint64_t session_id) {
+bool WorkerPool::markSessionFailed(SessionSequenceState& state) {
   std::lock_guard<std::mutex> lock(sequence_mutex_);
-  const auto it = sequence_by_session_.find(session_id);
-  if (it == sequence_by_session_.end() || it->second.failed) {
+  if (state.failed || state.closed) {
     return false;
   }
-  it->second.failed = true;
+  state.failed = true;
+  for (auto& [_, event] : state.parked) {
+    if (event.kind == service::SessionEventKind::Disconnected) {
+      state.pending_disconnected = std::move(event);
+      break;
+    }
+  }
+  state.parked.clear();
   return true;
 }
 
 std::optional<service::SessionEvent> WorkerPool::markSessionDeferred(
-    const service::SessionEvent& event) {
+    const service::SessionEvent& event, SessionSequenceState& state) {
   std::lock_guard<std::mutex> lock(sequence_mutex_);
-  const auto it = sequence_by_session_.find(event.session_id);
-  if (it == sequence_by_session_.end() || !it->second.active ||
-      it->second.next_sequence != event.sequence) {
+  if (!state.active || state.next_sequence != event.sequence) {
     throw std::logic_error("cannot defer inactive session event");
   }
-  it->second.awaiting_completion = true;
+  state.awaiting_completion = true;
   ++outstanding_deferred_;
-  if (!it->second.early_completion.has_value()) {
+  if (!state.early_completion.has_value()) {
     return std::nullopt;
   }
-  auto completion = std::move(it->second.early_completion);
-  it->second.early_completion.reset();
+  auto completion = std::move(state.early_completion);
+  state.early_completion.reset();
   return completion;
 }
 
@@ -407,9 +444,11 @@ void WorkerPool::requestSessionDisconnect(std::uint64_t session_id) {
 }
 
 WorkerPool::SessionTurnDisposition WorkerPool::tryStartSessionTurn(
-    service::SessionEvent& event) {
+    service::SessionEvent& event, SessionSequenceState& state) {
   std::lock_guard<std::mutex> lock(sequence_mutex_);
-  auto& state = sequence_by_session_[event.session_id];
+  if (state.closed) {
+    return SessionTurnDisposition::Discarded;
+  }
 
   if (event.kind == service::SessionEventKind::DeferredCompletion) {
     if (state.active && state.awaiting_completion &&
@@ -422,32 +461,46 @@ WorkerPool::SessionTurnDisposition WorkerPool::tryStartSessionTurn(
       state.early_completion = std::move(event);
       return SessionTurnDisposition::Parked;
     }
-    return SessionTurnDisposition::Rejected;
+    return SessionTurnDisposition::InvalidSequence;
+  }
+
+  if (state.failed) {
+    if (event.kind != service::SessionEventKind::Disconnected) {
+      return SessionTurnDisposition::Discarded;
+    }
+    if (state.active) {
+      state.pending_disconnected = std::move(event);
+      return SessionTurnDisposition::Parked;
+    }
+    state.next_sequence = event.sequence;
+    state.active = true;
+    state.active_disconnect = true;
+    return SessionTurnDisposition::Process;
   }
 
   if (!state.active && state.next_sequence == event.sequence) {
     state.active = true;
+    state.active_disconnect =
+        event.kind == service::SessionEventKind::Disconnected;
     return SessionTurnDisposition::Process;
   }
 
   if (event.sequence < state.next_sequence ||
-      state.parked.size() >= config_.max_parked_events_per_session) {
-    return SessionTurnDisposition::Rejected;
+      state.parked.contains(event.sequence)) {
+    return SessionTurnDisposition::InvalidSequence;
+  }
+  if (state.parked.size() >= config_.max_parked_events_per_session) {
+    return SessionTurnDisposition::ParkedLimit;
   }
   const auto [_, inserted] =
       state.parked.emplace(event.sequence, std::move(event));
   return inserted ? SessionTurnDisposition::Parked
-                  : SessionTurnDisposition::Rejected;
+                  : SessionTurnDisposition::InvalidSequence;
 }
 
 std::optional<service::SessionEvent> WorkerPool::completeSessionTurn(
-    const service::SessionEvent& event) {
+    const service::SessionEvent& event, SessionSequenceState& state) {
   std::lock_guard<std::mutex> lock(sequence_mutex_);
-  const auto state_it = sequence_by_session_.find(event.session_id);
-  if (state_it == sequence_by_session_.end()) {
-    return std::nullopt;
-  }
-  auto& state = state_it->second;
   state.active = false;
   state.awaiting_completion = false;
   if (event.kind == service::SessionEventKind::DeferredCompletion &&
@@ -456,10 +509,20 @@ std::optional<service::SessionEvent> WorkerPool::completeSessionTurn(
   }
   ++state.next_sequence;
 
-  if (event.kind == service::SessionEventKind::Disconnected) {
-    sequence_by_session_.erase(state_it);
+  if (state.active_disconnect) {
+    state.closed = true;
+    sequence_by_session_.erase(event.session_id);
     maybeCloseInboxForDrainLocked();
     return std::nullopt;
+  }
+
+  if (state.failed) {
+    auto disconnected = std::move(state.pending_disconnected);
+    state.pending_disconnected.reset();
+    if (!disconnected.has_value()) {
+      maybeCloseInboxForDrainLocked();
+    }
+    return disconnected;
   }
 
   const auto next_it = state.parked.find(state.next_sequence);
@@ -472,13 +535,25 @@ std::optional<service::SessionEvent> WorkerPool::completeSessionTurn(
   return next;
 }
 
+std::optional<service::SessionEvent> WorkerPool::takePendingDisconnected(
+    SessionSequenceState& state) {
+  std::lock_guard lock(sequence_mutex_);
+  if (state.active || state.closed) {
+    return std::nullopt;
+  }
+  auto disconnected = std::move(state.pending_disconnected);
+  state.pending_disconnected.reset();
+  return disconnected;
+}
+
 void WorkerPool::maybeCloseInboxForDrainLocked() {
   if (!drain_requested_ || outstanding_deferred_ != 0 || inbox_.size() != 0) {
     return;
   }
   for (const auto& [_, state] : sequence_by_session_) {
-    if (state.active || !state.parked.empty() ||
-        state.early_completion.has_value()) {
+    if (state->active || !state->parked.empty() ||
+        state->early_completion.has_value() ||
+        state->pending_disconnected.has_value()) {
       return;
     }
   }

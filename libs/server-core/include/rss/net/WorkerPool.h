@@ -48,30 +48,37 @@ class WorkerPool {
   enum class SessionTurnDisposition {
     Process,
     Parked,
-    Rejected,
+    Discarded,
+    InvalidSequence,
+    ParkedLimit,
   };
 
   struct SessionSequenceState {
     std::uint64_t next_sequence{};
     bool active{};
+    bool active_disconnect{};
     bool awaiting_completion{};
     bool failed{};
+    bool closed{};
     std::map<std::uint64_t, service::SessionEvent> parked;
     std::optional<service::SessionEvent> early_completion;
+    std::optional<service::SessionEvent> pending_disconnected;
   };
 
   void run();
   [[nodiscard]] SessionTurnDisposition tryStartSessionTurn(
-      service::SessionEvent& event);
-  [[nodiscard]] bool shouldSkipFailedSession(
-      const service::SessionEvent& event);
-  [[nodiscard]] bool markSessionFailed(std::uint64_t session_id);
+      service::SessionEvent& event, SessionSequenceState& state);
+  [[nodiscard]] bool shouldSkipFailedSession(const service::SessionEvent& event,
+                                             SessionSequenceState& state);
+  [[nodiscard]] bool markSessionFailed(SessionSequenceState& state);
   [[nodiscard]] std::optional<service::SessionEvent> markSessionDeferred(
-      const service::SessionEvent& event);
+      const service::SessionEvent& event, SessionSequenceState& state);
   [[nodiscard]] bool publishOutbound(service::OutboundMessage message);
   void requestSessionDisconnect(std::uint64_t session_id);
   [[nodiscard]] std::optional<service::SessionEvent> completeSessionTurn(
-      const service::SessionEvent& event);
+      const service::SessionEvent& event, SessionSequenceState& state);
+  [[nodiscard]] std::optional<service::SessionEvent> takePendingDisconnected(
+      SessionSequenceState& state);
   void maybeCloseInboxForDrainLocked();
 
   util::BoundedBlockingQueue<service::SessionEvent>& inbox_;
@@ -84,8 +91,10 @@ class WorkerPool {
   std::atomic<std::size_t> active_workers_{0};
   std::shared_ptr<std::atomic<bool>> force_stop_requested_{
       std::make_shared<std::atomic<bool>>(false)};
+  std::mutex intake_mutex_;
   std::mutex sequence_mutex_;
-  std::unordered_map<std::uint64_t, SessionSequenceState> sequence_by_session_;
+  std::unordered_map<std::uint64_t, std::shared_ptr<SessionSequenceState>>
+      sequence_by_session_;
   std::size_t outstanding_deferred_{};
   bool drain_requested_{false};
   std::vector<std::thread> threads_;

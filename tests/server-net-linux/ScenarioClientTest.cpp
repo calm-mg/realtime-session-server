@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <future>
 #include <memory>
 #include <span>
@@ -23,8 +24,10 @@
 
 #include "EmbeddedServer.h"
 #include "ScenarioClient.h"
+#include "rss/net/ClientIoError.h"
 #include "rss/net/ServerConfig.h"
 #include "rss/protocol/PacketCodec.h"
+#include "rss/protocol/ProtocolError.h"
 #include "rss/protocol/StructuredPayload.h"
 
 namespace {
@@ -123,6 +126,12 @@ class RawLoopbackPeer {
     responder.get();
   }
 
+  void finishSending() {
+    if (::shutdown(peer_fd_, SHUT_WR) == -1) {
+      throw systemError("shutdown");
+    }
+  }
+
   void sendSingleWrite(std::span<const std::uint8_t> bytes,
                        std::chrono::milliseconds timeout) {
     if (peer_fd_ == -1) {
@@ -199,6 +208,18 @@ class RawLoopbackPeer {
   std::uint16_t port_{};
 };
 
+void expectIoFailure(const std::function<void()>& operation,
+                     rss::net::ClientIoFailure cause) {
+  try {
+    operation();
+    FAIL() << "operation should fail";
+  } catch (const rss::net::ClientIoError& error) {
+    EXPECT_EQ(error.cause(), cause);
+  } catch (...) {
+    FAIL() << "operation should preserve the I/O failure cause";
+  }
+}
+
 std::unique_ptr<rss::tools::EmbeddedServer> startTestServer() {
   rss::net::ServerConfig config;
   config.host = "127.0.0.1";
@@ -237,8 +258,8 @@ TEST(ScenarioClientTest, RejectsSilentPeerWithinConnectTimeoutAndCloses) {
   RawLoopbackPeer peer;
   rss::tools::ScenarioClient client;
   const auto started = std::chrono::steady_clock::now();
-  EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 100ms),
-               std::runtime_error);
+  expectIoFailure([&] { client.connect("127.0.0.1", peer.port(), 100ms); },
+                  rss::net::ClientIoFailure::Timeout);
   EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
   EXPECT_THROW(client.login("alice", 100ms), std::logic_error);
 }
@@ -260,8 +281,8 @@ TEST(ScenarioClientTest, PartialVersionResponseDoesNotExtendDeadline) {
     }
   });
   const auto started = std::chrono::steady_clock::now();
-  EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 100ms),
-               std::runtime_error);
+  expectIoFailure([&] { client.connect("127.0.0.1", peer.port(), 100ms); },
+                  rss::net::ClientIoFailure::Timeout);
   EXPECT_LT(std::chrono::steady_clock::now() - started, 400ms);
   responder.get();
 }
@@ -296,7 +317,7 @@ TEST(ScenarioClientTest, RejectsInvalidVersionResponsesAndCloses) {
                            2s);
     });
     EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 2s),
-                 std::runtime_error)
+                 rss::protocol::ProtocolError)
         << payload;
     responder.get();
     EXPECT_THROW(client.login("alice", 100ms), std::logic_error);
@@ -378,7 +399,7 @@ TEST(ScenarioClientTest, RejectsMalformedStructuredCreateRoomResponse) {
     peer.sendSingleWrite(response, 2s);
 
     EXPECT_THROW(static_cast<void>(client.createRoom("arena", 2s)),
-                 std::runtime_error)
+                 rss::protocol::ProtocolError)
         << std::string(payload);
   }
 }
@@ -509,7 +530,7 @@ TEST(ScenarioClientTest, MoveAssignmentLeavesSourceReconnectable) {
   EXPECT_EQ(rss::protocol::payloadToString(packet), "after-move-assignment");
 }
 
-TEST(ScenarioClientTest, IncludesServerErrorPayloadInException) {
+TEST(ScenarioClientTest, DoesNotExposeServerErrorPayloadInException) {
   auto server = startTestServer();
   rss::tools::ScenarioClient client;
   client.connect("127.0.0.1", server->port(), 2s);
@@ -518,9 +539,64 @@ TEST(ScenarioClientTest, IncludesServerErrorPayloadInException) {
     client.joinRoom(1, 2s);
     FAIL() << "joinRoom should report the server error";
   } catch (const std::runtime_error& error) {
-    EXPECT_NE(std::string(error.what()).find("login required"),
+    EXPECT_EQ(std::string(error.what()).find("login required"),
               std::string::npos);
   }
+}
+
+TEST(ScenarioClientTest, ClassifiesPeerEofDuringNegotiation) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  auto responder = std::async(std::launch::async, [&] {
+    peer.acceptClient(2s);
+    static_cast<void>(peer.receivePacket(2s));
+    peer.finishSending();
+  });
+  expectIoFailure([&] { client.connect("127.0.0.1", peer.port(), 2s); },
+                  rss::net::ClientIoFailure::PeerClosed);
+  responder.get();
+  EXPECT_THROW(client.login("alice", 100ms), std::logic_error);
+}
+
+TEST(ScenarioClientTest, ClassifiesReceiveEofAfterNegotiation) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  peer.connectClient(client);
+  peer.finishSending();
+  expectIoFailure([&] { static_cast<void>(client.receivePacket(2s)); },
+                  rss::net::ClientIoFailure::PeerClosed);
+}
+
+TEST(ScenarioClientTest, ClassifiesReceiveSyscallError) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client(
+      [](int, std::uint8_t* buffer, std::size_t capacity) {
+        return ::recv(-1, buffer, capacity, 0);
+      });
+  peer.connectClient(client);
+  expectIoFailure([&] { static_cast<void>(client.receivePacket(2s)); },
+                  rss::net::ClientIoFailure::SocketError);
+}
+
+TEST(ScenarioClientTest, ClassifiesReceiveAndSendDeadlines) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  peer.connectClient(client);
+  EXPECT_FALSE(client.tryReceivePacket(1ms).has_value());
+  expectIoFailure([&] { static_cast<void>(client.receivePacket(1ms)); },
+                  rss::net::ClientIoFailure::Timeout);
+  expectIoFailure([&] { client.sendChat("message", 0ms); },
+                  rss::net::ClientIoFailure::Timeout);
+}
+
+TEST(ScenarioClientTest, MalformedFramePreservesProtocolCause) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  peer.connectClient(client);
+  const std::uint8_t malformed[] = {0, 1, 0, 1};
+  peer.sendSingleWrite(malformed, 2s);
+  EXPECT_THROW(static_cast<void>(client.receivePacket(2s)),
+               rss::protocol::ProtocolError);
 }
 
 }  // namespace

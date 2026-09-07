@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "rss/net/ClientIoError.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/protocol/ProtocolVersion.h"
 
@@ -25,20 +26,23 @@ using Deadline = Clock::time_point;
 
 void ensureBeforeDeadline(Deadline deadline) {
   if (Clock::now() >= deadline) {
-    throw std::runtime_error("protocol version negotiation timed out");
+    throw ClientIoError(ClientIoFailure::Timeout,
+                        "protocol version negotiation timed out");
   }
 }
 
-std::runtime_error socketError() {
-  return std::runtime_error(std::string("protocol version negotiation: ") +
-                            std::strerror(errno));
+ClientIoError socketError() {
+  return ClientIoError(
+      ClientIoFailure::SocketError,
+      std::string("protocol version negotiation: ") + std::strerror(errno));
 }
 
 void waitForSocket(int fd, std::int16_t events, Deadline deadline) {
   while (true) {
     const auto now = Clock::now();
     if (now >= deadline) {
-      throw std::runtime_error("protocol version negotiation timed out");
+      throw ClientIoError(ClientIoFailure::Timeout,
+                          "protocol version negotiation timed out");
     }
     const auto remaining =
         std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
@@ -47,8 +51,8 @@ void waitForSocket(int fd, std::int16_t events, Deadline deadline) {
         ::poll(&descriptor, 1, static_cast<int>(remaining.count()));
     if (ready > 0) {
       if ((descriptor.revents & POLLNVAL) != 0) {
-        throw std::runtime_error(
-            "protocol version negotiation: invalid socket");
+        throw ClientIoError(ClientIoFailure::SocketError,
+                            "protocol version negotiation: invalid socket");
       }
       return;
     }
@@ -69,7 +73,8 @@ void sendRequest(int fd, std::span<const std::uint8_t> bytes,
     } else if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
       waitForSocket(fd, POLLOUT, deadline);
     } else if (sent == 0) {
-      throw std::runtime_error("connection closed during version negotiation");
+      throw ClientIoError(ClientIoFailure::PeerClosed,
+                          "connection closed during version negotiation");
     } else if (errno != EINTR) {
       throw socketError();
     }
@@ -85,7 +90,8 @@ void receiveExactly(int fd, std::span<std::uint8_t> bytes, Deadline deadline) {
     } else if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
       waitForSocket(fd, POLLIN, deadline);
     } else if (received == 0) {
-      throw std::runtime_error("connection closed during version negotiation");
+      throw ClientIoError(ClientIoFailure::PeerClosed,
+                          "connection closed during version negotiation");
     } else if (errno != EINTR) {
       throw socketError();
     }

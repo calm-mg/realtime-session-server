@@ -1,0 +1,22 @@
+{
+  "source": "a598180 plus disconnect diagnostics before cleanup fix",
+  "binary_sha256": "a333bea22204ad841ef64aafa415dfc082071aea684f6001dd04ca32445afa0f",
+  "command": [
+    "/instrumented-runner",
+    "--scenario",
+    "broadcast",
+    "--clients",
+    "20",
+    "--messages",
+    "100",
+    "--payload-bytes",
+    "256",
+    "--workers",
+    "2",
+    "--repeat",
+    "1"
+  ],
+  "exit_code": 1,
+  "stdout": "environment commit=a598180 os=Linux kernel=5.15.49-linuxkit-pr cpu=implementer_0x61_architecture_8_part_0x000 compiler=GNU_13.3.0 build_type=Release workers=2 requested_slow_receive_buffer_bytes=1024\nrun=1 scenario=broadcast clients=20 rooms=1 messages_per_sender=100 payload_bytes=256 slow_clients=1 repeats=1 sent=2000 expected=40000 received=1334 missing=38666 duplicates=0 unexpected=0 failed_clients=20 client_setup_peer_closed=0 client_setup_socket_error=0 client_setup_timeout=0 client_setup_protocol=0 client_setup_other=0 client_send_peer_closed=0 client_send_socket_error=0 client_send_timeout=0 client_send_protocol=0 client_send_other=0 client_receive_peer_closed=20 client_receive_socket_error=0 client_receive_timeout=0 client_receive_protocol=0 client_receive_other=0 elapsed_sec=0.014 throughput_broadcasts_per_sec=94933.106 p50_ms=11.002 p95_ms=12.395 p99_ms=12.841 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=0 rejected_connections=0 max_inbound_queue_size=988 max_outbound_queue_size=1562 max_session_pending_write_bytes=9854 disconnect_peer_closed=0 disconnect_socket_error=0 disconnect_protocol_error=0 disconnect_idle_timeout=0 disconnect_worker_requested=20 disconnect_pending_write_limit=0 disconnect_close_after_flush=0 disconnect_shutdown=0 worker_parked_limit_failures=20 worker_invalid_sequence_failures=0 worker_deferred_failures=0\n",
+  "stderr": ""
+}

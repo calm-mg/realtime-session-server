@@ -139,6 +139,10 @@ cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
 수와 실행 인자에서 얻은 결과끼리만 비교합니다. 세 시나리오의 상세 인자와
 필드 의미는 `docs/benchmark.md`를 참고하세요.
 
+실패를 재현할 때는 `client_setup_*`, `client_send_*`, `client_receive_*`와
+서버의 `disconnect_*`, `worker_*_failures`도 함께 보관합니다. 원인별 값은
+서로 다른 단계를 나타내므로 합산해 실패한 연결 수로 해석하지 않습니다.
+
 ## 마이크로벤치마크
 
 Google Benchmark 기반 마이크로벤치마크는 기본 빌드에서 꺼져 있습니다.

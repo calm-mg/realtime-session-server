@@ -21,6 +21,7 @@
 
 #include "EmbeddedServer.h"
 #include "ScenarioClient.h"
+#include "rss/net/ClientIoError.h"
 #include "rss/net/ServerConfig.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/protocol/PacketTypes.h"
@@ -32,6 +33,32 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
+
+void recordClientFailure(ClientFailureCounts& counts,
+                         const std::exception_ptr& failure) {
+  if (!failure) {
+    return;
+  }
+  try {
+    std::rethrow_exception(failure);
+  } catch (const rss::net::ClientIoError& error) {
+    switch (error.cause()) {
+      case rss::net::ClientIoFailure::PeerClosed:
+        ++counts.peer_closed;
+        break;
+      case rss::net::ClientIoFailure::SocketError:
+        ++counts.socket_error;
+        break;
+      case rss::net::ClientIoFailure::Timeout:
+        ++counts.timeout;
+        break;
+    }
+  } catch (const rss::protocol::ProtocolError&) {
+    ++counts.protocol;
+  } catch (...) {
+    ++counts.other;
+  }
+}
 
 constexpr auto kSetupTimeout = std::chrono::seconds(30);
 constexpr auto kReceiverPollInterval = std::chrono::milliseconds(10);
@@ -183,6 +210,18 @@ OverloadReport makeOverloadReport(const rss::net::OverloadSnapshot& snapshot) {
       .max_outbound_queue_size = snapshot.max_outbound_queue_size,
       .max_session_pending_write_bytes =
           snapshot.max_session_pending_write_bytes,
+      .disconnect_peer_closed = snapshot.disconnect_peer_closed,
+      .disconnect_socket_error = snapshot.disconnect_socket_error,
+      .disconnect_protocol_error = snapshot.disconnect_protocol_error,
+      .disconnect_idle_timeout = snapshot.disconnect_idle_timeout,
+      .disconnect_worker_requested = snapshot.disconnect_worker_requested,
+      .disconnect_pending_write_limit = snapshot.disconnect_pending_write_limit,
+      .disconnect_close_after_flush = snapshot.disconnect_close_after_flush,
+      .disconnect_shutdown = snapshot.disconnect_shutdown,
+      .worker_parked_limit_failures = snapshot.worker_parked_limit_failures,
+      .worker_invalid_sequence_failures =
+          snapshot.worker_invalid_sequence_failures,
+      .worker_deferred_failures = snapshot.worker_deferred_failures,
   };
 }
 
@@ -277,7 +316,8 @@ void acquireSendPermit(ReceiveProgress& progress, std::size_t sender,
                 progress.max_outstanding_messages);
   });
   if (!acquired) {
-    throw std::runtime_error("fast receiver progress timed out");
+    throw rss::net::ClientIoError(rss::net::ClientIoFailure::Timeout,
+                                  "fast receiver progress timed out");
   }
   if (progress.failed) {
     throw std::runtime_error("scenario progress failed");
@@ -308,7 +348,8 @@ void receiveBroadcasts(ScenarioClient& client, std::size_t run_id,
         break;
       }
       if (Clock::now() >= deadline) {
-        throw std::runtime_error("scenario receive timed out");
+        throw rss::net::ClientIoError(rss::net::ClientIoFailure::Timeout,
+                                      "scenario receive timed out");
       }
 
       const auto packet = client.tryReceivePacket(
@@ -470,6 +511,8 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
     };
     const auto setupFailureResult = [&] {
       result.failed_clients = options.clients - completed_setup_clients;
+      recordClientFailure(result.client_failures.setup,
+                          std::current_exception());
       result.overload = makeOverloadReport(server.snapshot());
       server.stop();
       return result;
@@ -480,7 +523,7 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       try {
         client.connect("127.0.0.1", server.port(), kSetupTimeout);
         client.login("scenario-client-" + std::to_string(index), kSetupTimeout);
-      } catch (const std::runtime_error&) {
+      } catch (...) {
         return setupFailureResult();
       }
     }
@@ -497,7 +540,7 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
         } else {
           clients[index].joinRoom(room_ids[room_index], kSetupTimeout);
         }
-      } catch (const std::runtime_error&) {
+      } catch (...) {
         return setupFailureResult();
       }
       if (options.scenario != ScenarioKind::SlowClient ||
@@ -512,7 +555,7 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
         try {
           clients[index].setReceiveBufferBytes(
               tuning_.socket_receive_buffer_bytes);
-        } catch (const std::runtime_error&) {
+        } catch (...) {
           return setupFailureResult();
         }
         markSetupCompleted(index);
@@ -623,6 +666,10 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       result.latencies.insert(result.latencies.end(),
                               receive_states[index].latencies.begin(),
                               receive_states[index].latencies.end());
+      recordClientFailure(result.client_failures.send,
+                          send_states[index].failure);
+      recordClientFailure(result.client_failures.receive,
+                          receive_states[index].failure);
       if (send_states[index].failure != nullptr ||
           receive_states[index].failure != nullptr) {
         ++result.failed_clients;
