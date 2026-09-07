@@ -154,7 +154,7 @@ cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 
 ```bash
 ./build/benchmark/rss_microbenchmarks \
-  --benchmark_filter='BM_Packet(Encode|Decode)'
+  --benchmark_filter='BM_PacketCodec(Encode|Decode)'
 ```
 
 모든 항목이 실행 가능한지만 빠르게 확인할 때는 실제 반복 측정 대신
@@ -163,6 +163,11 @@ dry-run을 사용합니다.
 ```bash
 ./build/benchmark/rss_microbenchmarks --benchmark_dry_run
 ```
+
+벤치마크 검증 실패는 종료 코드 1입니다. 실패한 반복을 숨길 수 있는
+`--benchmark_report_aggregates_only`, `--benchmark_display_aggregates_only`와
+대응하는 환경변수는 활성화하지 않습니다. 자세한 제한은
+[벤치마크 가이드](docs/benchmark.md)를 참고하세요.
 
 ## Google C++ 스타일
 
