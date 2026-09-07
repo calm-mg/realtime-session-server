@@ -15,6 +15,8 @@
   코드. `protocol`에만 의존한다.
 - `libs/server-net-linux`: epoll/eventfd/TCP 서버 코드. `server-core`와
   `protocol`에 의존한다.
+- `libs/client-net-linux`: Linux 클라이언트 공용 연결 지원 코드.
+  `protocol`에만 의존한다.
 - `libs/load-test-support`: 부하 테스트 통계 지원 코드
 - `apps/qt-client`: Qt 6 Widgets 데스크톱 클라이언트. `protocol`에만
   의존하며 Linux 전용 라이브러리에 의존하지 않는다.

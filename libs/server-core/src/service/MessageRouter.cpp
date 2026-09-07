@@ -8,6 +8,7 @@
 #include <system_error>
 
 #include "rss/protocol/PacketCodec.h"
+#include "rss/protocol/ProtocolVersion.h"
 #include "rss/protocol/StructuredPayload.h"
 #include "rss/protocol/TextValidation.h"
 
@@ -106,6 +107,10 @@ MessageRouter::MessageRouter(RoomService& room_service,
 void MessageRouter::handle(const SessionEvent& event,
                            SessionEventContext& context) {
   if (event.kind == SessionEventKind::Disconnected) {
+    {
+      std::lock_guard lock(negotiation_mutex_);
+      negotiated_versions_.erase(event.session_id);
+    }
     const auto result = room_service_.disconnect(event.session_id);
     if (!result.ok || result.room_id == 0) {
       return;
@@ -123,10 +128,63 @@ void MessageRouter::handle(const SessionEvent& event,
   }
 
   try {
-    handlePacket(event.session_id, event.packet, context);
+    if (!handleNegotiation(event.session_id, event.packet, context)) {
+      handlePacket(event.session_id, event.packet, context);
+    }
   } catch (const std::exception& ex) {
     static_cast<void>(context.emit(error(event.session_id, ex.what())));
   }
+}
+
+bool MessageRouter::handleNegotiation(std::uint64_t session_id,
+                                      const protocol::Packet& packet,
+                                      SessionEventContext& context) {
+  std::optional<OutboundMessage> response;
+  {
+    std::lock_guard lock(negotiation_mutex_);
+    const auto existing = negotiated_versions_.find(session_id);
+    if (existing != negotiated_versions_.end()) {
+      if (existing->second == 0) {
+        return true;
+      }
+      if (packet.type != protocol::PacketType::VersionReq) {
+        return false;
+      }
+      existing->second = 0;
+      response = error(session_id, "protocol version already negotiated");
+    } else {
+      auto& version = negotiated_versions_[session_id];
+      if (packet.type != protocol::PacketType::VersionReq) {
+        response = error(session_id, "protocol version negotiation required");
+      } else {
+        try {
+          const auto selected = protocol::negotiateVersion(
+              protocol::decodeVersionRequest(payloadText(packet)));
+          if (selected.has_value()) {
+            version = *selected;
+            response = make(session_id, protocol::PacketType::VersionRes,
+                            protocol::encodeVersionResponse(version));
+          } else {
+            response = error(session_id, "unsupported protocol version");
+          }
+        } catch (const protocol::ProtocolError&) {
+          response = error(session_id, "invalid protocol version request");
+        }
+      }
+    }
+    if (negotiated_versions_.at(session_id) == 0) {
+      response->kind = OutboundMessageKind::SendBytesAndDisconnect;
+    }
+  }
+  if (!context.emit(std::move(*response))) {
+    {
+      std::lock_guard lock(negotiation_mutex_);
+      negotiated_versions_[session_id] = 0;
+    }
+    static_cast<void>(
+        context.emit({session_id, {}, OutboundMessageKind::DisconnectSession}));
+  }
+  return true;
 }
 
 void MessageRouter::handlePacket(std::uint64_t session_id,

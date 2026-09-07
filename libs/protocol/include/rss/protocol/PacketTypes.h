@@ -8,6 +8,8 @@ namespace rss::protocol {
 enum class PacketType : std::uint16_t {
   LoginReq = 1,
   LoginRes = 2,
+  VersionReq = 3,
+  VersionRes = 4,
   CreateRoomReq = 10,
   CreateRoomRes = 11,
   JoinRoomReq = 12,

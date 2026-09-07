@@ -109,6 +109,32 @@ class QtSessionClientTest final : public QObject {
              std::string("event=CHAT|message=hi"));
   }
 
+  void negotiatesOverSocketAndRejectsUnsupportedVersion() {
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost));
+    rss::qt_client::QtSessionClient client;
+    rss::qt_client::ClientController controller(client);
+    controller.connectToServer("127.0.0.1", server.serverPort());
+    QTRY_VERIFY_WITH_TIMEOUT(server.hasPendingConnections(), 1000);
+    auto* peer = server.nextPendingConnection();
+    QVERIFY(peer != nullptr);
+    const auto request = toByteArray(rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionReq, "min_version=1|max_version=1"));
+    QTRY_COMPARE_WITH_TIMEOUT(peer->bytesAvailable(), request.size(), 1000);
+    QCOMPARE(peer->readAll(), request);
+    QCOMPARE(controller.state(), rss::qt_client::ClientState::Connecting);
+    const auto response = toByteArray(rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionRes, "OK|version=2"));
+    peer->write(response.first(2));
+    QTest::qWait(20);
+    QCOMPARE(controller.state(), rss::qt_client::ClientState::Connecting);
+    peer->write(response.sliced(2));
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
+                              rss::qt_client::ClientState::Disconnected, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(peer->state(), QAbstractSocket::UnconnectedState,
+                              1000);
+  }
+
   void reconnectsOnceAfterFatalProtocolError() {
     QTcpServer first_server;
     QVERIFY2(first_server.listen(QHostAddress::LocalHost),
@@ -137,6 +163,9 @@ class QtSessionClientTest final : public QObject {
     QTRY_VERIFY_WITH_TIMEOUT(first_server.hasPendingConnections(), 1000);
     auto* peer = first_server.nextPendingConnection();
     QVERIFY(peer != nullptr);
+    const auto version_response = rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionRes, "OK|version=1");
+    peer->write(toByteArray(version_response));
     QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
                               rss::qt_client::ClientState::Connected, 1000);
     state_spy.clear();
@@ -152,6 +181,9 @@ class QtSessionClientTest final : public QObject {
     QTRY_COMPARE_WITH_TIMEOUT(peer->state(), QAbstractSocket::UnconnectedState,
                               1000);
     QTRY_VERIFY_WITH_TIMEOUT(second_server.hasPendingConnections(), 1000);
+    auto* second_peer = second_server.nextPendingConnection();
+    QVERIFY(second_peer != nullptr);
+    second_peer->write(toByteArray(version_response));
     QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
                               rss::qt_client::ClientState::Connected, 1000);
 
@@ -183,6 +215,10 @@ class QtSessionClientTest final : public QObject {
              qPrintable(available_server.errorString()));
     controller.connectToServer("127.0.0.1", available_server.serverPort());
     QTRY_VERIFY_WITH_TIMEOUT(available_server.hasPendingConnections(), 1000);
+    auto* peer = available_server.nextPendingConnection();
+    QVERIFY(peer != nullptr);
+    peer->write(toByteArray(rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionRes, "OK|version=1")));
     QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
                               rss::qt_client::ClientState::Connected, 1000);
     QCOMPARE(error_spy.count(), 1);
@@ -222,6 +258,12 @@ class QtSessionClientTest final : public QObject {
     QTRY_VERIFY_WITH_TIMEOUT(server.hasPendingConnections(), 1000);
     auto* peer = server.nextPendingConnection();
     QVERIFY(peer != nullptr);
+    const auto request = toByteArray(rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionReq, "min_version=1|max_version=1"));
+    QTRY_COMPARE_WITH_TIMEOUT(peer->bytesAvailable(), request.size(), 1000);
+    QCOMPARE(peer->readAll(), request);
+    peer->write(toByteArray(rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionRes, "OK|version=1")));
     QTRY_COMPARE_WITH_TIMEOUT(controller.state(),
                               rss::qt_client::ClientState::Connected, 1000);
 

@@ -57,6 +57,16 @@ std::vector<OutboundMessage> route(MessageRouter& router,
   return context.releaseMessages();
 }
 
+void negotiateSessions(MessageRouter& router) {
+  for (const auto id : {1U, 2U, 3U}) {
+    const auto version = route(router, event(id, PacketType::VersionReq,
+                                             "min_version=1|max_version=1"));
+    ASSERT_EQ(version.size(), 1U);
+    ASSERT_EQ(decodeSingleMessage(version.front()).type,
+              PacketType::VersionRes);
+  }
+}
+
 class UnavailableUserRepository final
     : public rss::persistence::UserRepository {
  public:
@@ -74,6 +84,7 @@ TEST(MessageRouterTest, RepositoryFailureDoesNotPreventAnotherSessionPing) {
   UnavailableUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto login = route(router, event(1, PacketType::LoginReq, "alice"));
   ASSERT_EQ(login.size(), 1U);
@@ -93,6 +104,7 @@ TEST(MessageRouterTest, ReconnectWithSameNameRestoresPermanentUserId) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto first = route(router, event(1, PacketType::LoginReq, "alice"));
   ASSERT_EQ(first.size(), 1U);
@@ -119,6 +131,7 @@ TEST(MessageRouterTest, TrimsAndFoldsAsciiLoginNameForLookup) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto first = route(router, event(1, PacketType::LoginReq, " Alice "));
   ASSERT_EQ(first.size(), 1U);
@@ -136,6 +149,7 @@ TEST(MessageRouterTest, RejectsEmptyAndOversizedLoginNames) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   for (const auto name : {std::string{" \t\n"}, std::string(33, 'a'),
                           std::string("가가가가가가가가가가가")}) {
@@ -151,6 +165,7 @@ TEST(MessageRouterTest, PreservesUtf8DisplayName) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto output =
       route(router, event(1, PacketType::LoginReq, "가가가가가가가가가가"));
@@ -165,6 +180,7 @@ TEST(MessageRouterTest, RejectsInvalidLoginWithoutMutatingSession) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto rejected =
       route(router, event(1, PacketType::LoginReq, std::string("\xC0\xAF", 2)));
@@ -184,6 +200,7 @@ TEST(MessageRouterTest, RejectsInvalidRoomNameWithoutCreatingRoom) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1U);
 
   const auto rejected =
@@ -205,6 +222,7 @@ TEST(MessageRouterTest, EncodesStructuredDynamicValues) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
   constexpr std::string_view name = "kim|role=admin%";
 
   const auto login = route(router, event(1, PacketType::LoginReq, name));
@@ -234,6 +252,7 @@ TEST(MessageRouterTest, PreservesWorstCaseMaximumChatWithinPacketLimit) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
   const std::string reserved_name(rss::protocol::kMaxUserNameBytes, '|');
   const std::string maximum_message(rss::protocol::kMaxChatMessageBytes, '=');
 
@@ -259,6 +278,7 @@ TEST(MessageRouterTest, RejectsInvalidChatWithoutBroadcasting) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1U);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
             1U);
@@ -286,6 +306,7 @@ TEST(MessageRouterTest, PreservesEmptyAndWhitespaceChat) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1U);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
             1U);
@@ -304,6 +325,7 @@ TEST(MessageRouterTest, RoutesRoomMessagesToMembers) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   EXPECT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   EXPECT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -326,6 +348,7 @@ TEST(MessageRouterTest, EnforcesChatMessageLimitBeforeBroadcasting) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -351,6 +374,7 @@ TEST(MessageRouterTest, RespondsToPing) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto output = route(router, event(1, PacketType::Ping, ""));
 
@@ -367,6 +391,7 @@ TEST(MessageRouterTest, RejectsNonEmptyPingPayload) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   const auto output = route(router, event(1, PacketType::Ping, "unexpected"));
 
@@ -380,6 +405,7 @@ TEST(MessageRouterTest, RejectsNonEmptyLeaveWithoutChangingMembership) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -406,6 +432,7 @@ TEST(MessageRouterTest, RejectsRepeatedLoginWithoutChangingUser) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   const auto original_user = service.userOf(1);
@@ -430,6 +457,7 @@ TEST(MessageRouterTest, RejectsJoiningAnotherRoomWithoutBroadcasting) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -461,6 +489,7 @@ TEST(MessageRouterTest, RejectsRoomCreationWhileInRoomWithoutBroadcasting) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -487,6 +516,7 @@ TEST(MessageRouterTest, LeavesThenJoinsAnotherRoomWithOrderedMessages) {
   rss::persistence::InMemoryUserRepository users;
   RoomService service;
   MessageRouter router(service, users);
+  negotiateSessions(router);
 
   ASSERT_EQ(route(router, event(1, PacketType::LoginReq, "alice")).size(), 1);
   ASSERT_EQ(route(router, event(1, PacketType::CreateRoomReq, "arena")).size(),
@@ -534,6 +564,94 @@ TEST(MessageRouterTest, LeavesThenJoinsAnotherRoomWithOrderedMessages) {
             "OK|event=JOIN|room_id=2|"
             "user_id=00000000-0000-0000-0000-000000000001|session_id=1|"
             "name=alice");
+}
+
+class CountingUserRepository final : public rss::persistence::UserRepository {
+ public:
+  void findOrCreateByNormalizedName(
+      rss::persistence::FindOrCreateUser request,
+      rss::persistence::UserCallback callback) override {
+    ++requests;
+    users_.findOrCreateByNormalizedName(std::move(request),
+                                        std::move(callback));
+  }
+
+  std::size_t requests{};
+
+ private:
+  rss::persistence::InMemoryUserRepository users_;
+};
+
+TEST(MessageRouterNegotiationTest, RequiresNegotiationBeforeLoginOrPing) {
+  CountingUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  for (const auto type :
+       {PacketType::LoginReq, PacketType::Ping, static_cast<PacketType>(999)}) {
+    const auto id = static_cast<std::uint64_t>(type);
+    const auto output = route(
+        router, event(id, type, type == PacketType::LoginReq ? "alice" : ""));
+    ASSERT_EQ(output.size(), 1U);
+    EXPECT_EQ(decodeSingleMessage(output.front()).type, PacketType::Error);
+    EXPECT_EQ(output.front().kind,
+              rss::service::OutboundMessageKind::SendBytesAndDisconnect);
+    EXPECT_TRUE(
+        route(router, event(id, PacketType::LoginReq, "alice")).empty());
+    EXPECT_FALSE(service.userOf(id).has_value());
+    EXPECT_EQ(users.requests, 0U);
+  }
+}
+
+TEST(MessageRouterNegotiationTest, NegotiatesAndClearsStateOnDisconnect) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  const auto request =
+      event(1, PacketType::VersionReq, "min_version=1|max_version=65535");
+  const auto accepted = route(router, request);
+  ASSERT_EQ(accepted.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(accepted.front()).type, PacketType::VersionRes);
+  EXPECT_EQ(
+      rss::protocol::payloadToString(decodeSingleMessage(accepted.front())),
+      "OK|version=1");
+  const auto ping = route(router, event(1, PacketType::Ping, ""));
+  ASSERT_EQ(ping.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(ping.front()).type, PacketType::Pong);
+  const auto duplicate = route(router, request);
+  ASSERT_EQ(duplicate.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(duplicate.front()).type, PacketType::Error);
+  EXPECT_TRUE(route(router, event(1, PacketType::Ping, "")).empty());
+  EXPECT_TRUE(
+      route(router, SessionEvent{SessionEventKind::Disconnected, 1}).empty());
+  const auto again = route(router, request);
+  ASSERT_EQ(again.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(again.front()).type, PacketType::VersionRes);
+}
+
+TEST(MessageRouterNegotiationTest,
+     InvalidNegotiationIsTerminalAndSessionLocal) {
+  rss::persistence::InMemoryUserRepository users;
+  RoomService service;
+  MessageRouter router(service, users);
+  std::uint64_t id = 10;
+  for (const auto payload :
+       {"min_version=2|max_version=3", "", "min_version=1|max_version=0",
+        "min_version=1|max_version=1|extra=1"}) {
+    const auto output =
+        route(router, event(id, PacketType::VersionReq, payload));
+    ASSERT_EQ(output.size(), 1U);
+    EXPECT_EQ(decodeSingleMessage(output.front()).type, PacketType::Error);
+    EXPECT_EQ(output.front().kind,
+              rss::service::OutboundMessageKind::SendBytesAndDisconnect);
+    EXPECT_TRUE(route(router, event(id, PacketType::VersionReq,
+                                    "min_version=1|max_version=1"))
+                    .empty());
+    ++id;
+  }
+  const auto other = route(
+      router, event(1, PacketType::VersionReq, "min_version=1|max_version=1"));
+  ASSERT_EQ(other.size(), 1U);
+  EXPECT_EQ(decodeSingleMessage(other.front()).type, PacketType::VersionRes);
 }
 
 }  // namespace

@@ -10,6 +10,7 @@ namespace rss::service {
 
 enum class OutboundMessageKind {
   SendBytes,
+  SendBytesAndDisconnect,
   DisconnectSession,
 };
 

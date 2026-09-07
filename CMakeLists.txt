@@ -61,6 +61,7 @@ endif()
 
 if(RSS_BUILD_NETWORK_TARGETS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_subdirectory(libs/server-net-linux)
+    add_subdirectory(libs/client-net-linux)
     add_subdirectory(apps/server)
     add_subdirectory(apps/console-client)
     add_subdirectory(apps/load-test-client)

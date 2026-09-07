@@ -5,6 +5,7 @@ set_target_properties(rss_load_test_client PROPERTIES
 target_link_libraries(rss_load_test_client
     PRIVATE
         rss_protocol
+        rss_client_net_linux
         rss_load_test_support
         Threads::Threads
 )

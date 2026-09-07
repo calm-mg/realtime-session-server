@@ -27,6 +27,9 @@ class Session {
   void markPeerReadClosed() noexcept;
   [[nodiscard]] bool peerReadClosed() const noexcept;
 
+  void closeAfterFlush() noexcept;
+  [[nodiscard]] bool closingAfterFlush() const noexcept;
+
   void touch();
   [[nodiscard]] std::chrono::steady_clock::time_point lastSeen() const;
 
@@ -46,6 +49,7 @@ class Session {
   std::size_t pending_write_bytes_{};
   std::uint64_t next_event_sequence_{};
   bool peer_read_closed_{false};
+  bool closing_after_flush_{false};
   std::chrono::steady_clock::time_point last_seen_{
       std::chrono::steady_clock::now()};
 };

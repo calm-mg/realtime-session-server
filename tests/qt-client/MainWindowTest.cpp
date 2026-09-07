@@ -40,6 +40,8 @@ void logIn(rss::qt_client::ClientController& controller,
            FakeSessionTransport& transport) {
   controller.connectToServer("127.0.0.1", 7777);
   transport.completeConnection();
+  transport.receive(
+      packet(rss::protocol::PacketType::VersionRes, "OK|version=1"));
   controller.login("alice");
   transport.receive(packet(rss::protocol::PacketType::LoginRes,
                            "OK|" + std::string(kUserFields)));
@@ -103,6 +105,8 @@ class MainWindowTest final : public QObject {
     QCOMPARE(status->property("status").toString(), QString("connecting"));
 
     transport.completeConnection();
+    transport.receive(
+        packet(rss::protocol::PacketType::VersionRes, "OK|version=1"));
     QCOMPARE(status->property("status").toString(), QString("online"));
   }
 
@@ -126,6 +130,9 @@ class MainWindowTest final : public QObject {
     window.bind(controller);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    QVERIFY(!window.findChild<QPushButton*>("loginButton")->isEnabled());
+    transport.receive(
+        packet(rss::protocol::PacketType::VersionRes, "OK|version=1"));
 
     QVERIFY(window.findChild<QPushButton*>("loginButton")->isEnabled());
     QVERIFY(!window.findChild<QPushButton*>("connectButton")->isEnabled());
@@ -151,6 +158,8 @@ class MainWindowTest final : public QObject {
     window.bind(controller);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(
+        packet(rss::protocol::PacketType::VersionRes, "OK|version=1"));
 
     controller.login("alice");
     QVERIFY(!window.findChild<QLineEdit*>("usernameEdit")->isEnabled());
@@ -223,6 +232,8 @@ class MainWindowTest final : public QObject {
 
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(
+        packet(rss::protocol::PacketType::VersionRes, "OK|version=1"));
     transport.receive(packet(rss::protocol::PacketType::RoomBroadcast,
                              "event=CHAT|room_id=1|"
                              "user_id=00000000-0000-0000-0000-000000000002|"
@@ -251,6 +262,8 @@ class MainWindowTest final : public QObject {
     window.resize(860, 560);
     window.bind(controller);
     window.show();
+
+    logIn(controller, transport);
 
     for (int i = 0; i < 30; ++i) {
       transport.receive(

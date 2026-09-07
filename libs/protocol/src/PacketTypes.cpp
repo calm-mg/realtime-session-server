@@ -4,6 +4,10 @@ namespace rss::protocol {
 
 std::string_view toString(PacketType type) {
   switch (type) {
+    case PacketType::VersionReq:
+      return "VERSION_REQ";
+    case PacketType::VersionRes:
+      return "VERSION_RES";
     case PacketType::LoginReq:
       return "LOGIN_REQ";
     case PacketType::LoginRes:

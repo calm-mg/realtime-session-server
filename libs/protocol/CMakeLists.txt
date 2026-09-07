@@ -1,4 +1,5 @@
 add_library(rss_protocol
+    src/ProtocolVersion.cpp
     src/PacketCodec.cpp
     src/PacketTypes.cpp
     src/ProtocolError.cpp

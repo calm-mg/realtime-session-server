@@ -42,6 +42,8 @@ struct PacketHeader {
 | ---: | --- | --- | --- |
 | 1 | `LOGIN_REQ` | 클라이언트 → 서버 | UTF-8 사용자 이름 |
 | 2 | `LOGIN_RES` | 서버 → 클라이언트 | 로그인 결과 |
+| 3 | `VERSION_REQ` | 클라이언트 → 서버 | 지원 버전 범위 |
+| 4 | `VERSION_RES` | 서버 → 클라이언트 | 선택한 버전 |
 | 10 | `CREATE_ROOM_REQ` | 클라이언트 → 서버 | UTF-8 방 이름 |
 | 11 | `CREATE_ROOM_RES` | 서버 → 클라이언트 | 방 생성 결과 |
 | 12 | `JOIN_ROOM_REQ` | 클라이언트 → 서버 | 10진수 방 번호 문자열 |
@@ -54,6 +56,35 @@ struct PacketHeader {
 | 30 | `PING` | 클라이언트 → 서버 | 없음 |
 | 31 | `PONG` | 서버 → 클라이언트 | `PONG` |
 | 100 | `ERROR` | 서버 → 클라이언트 | 오류 설명 |
+
+## 연결 시 버전 협상
+
+TCP 연결 직후 첫 요청으로 `VERSION_REQ`를 보냅니다. 현재 지원 범위는 서버와
+클라이언트 모두 버전 1이며, 협상 결과는 해당 TCP 연결에만 유효합니다.
+
+```text
+VERSION_REQ: min_version=1|max_version=1
+VERSION_RES: OK|version=1
+```
+
+아래 구조화 payload grammar를 사용합니다. 요청은 `min_version`과
+`max_version` 두 필드, 응답은 `OK` status와 `version` 한 필드만 허용합니다.
+버전은 1~65535의 ASCII 십진수이며 최소 버전은 최대 버전 이하여야 합니다.
+서버는 양쪽 지원 범위의 교집합에서 가장 높은 버전을 선택합니다.
+
+협상이 끝나기 전에는 `LOGIN_REQ`와 `PING`을 포함한 다른 요청을 처리하지
+않습니다. 협상 누락, 잘못된 요청, 공통 버전 부재 및 이미 협상한 연결의
+재협상 요청에는 `ERROR`를 보낸 뒤 연결을 종료합니다. 거절된 연결에서
+뒤따르는 업무 요청은 사용자·방 상태를 변경하거나 DB 작업을 시작하지 않습니다.
+오류 packet의 전달은 정상적인 소켓 송신이 가능한 경우에 한하며, 송신 실패나
+과부하 시에는 기존 연결 격리 정책을 따릅니다.
+
+클라이언트는 협상을 자동 실행하고 5초 안에 유효한 응답을 받지 못하면
+연결을 닫습니다. 시나리오 도구에 더 짧은 연결 제한 시간이 지정되면 그
+deadline을 따릅니다. 오류 응답, 잘못된 응답 및 지원하지 않는 선택 버전도
+연결 실패로 처리합니다. 재접속 시 다시 협상합니다.
+협상 기능이 없는 기존 서버·클라이언트와의 자동 호환 모드는 제공하지 않습니다.
+무입력 연결에는 서버의 기존 idle timeout 정책을 적용합니다.
 
 ## 문자열 payload 계약
 
@@ -166,12 +197,13 @@ user is not logged in
 ## 기본 사용 순서
 
 1. TCP 연결을 만듭니다.
-2. `LOGIN_REQ`로 로그인합니다.
-3. `CREATE_ROOM_REQ` 또는 `JOIN_ROOM_REQ`로 방에 들어갑니다.
-4. `CHAT_REQ`와 `POSITION_UPDATE`를 보냅니다.
-5. `LEAVE_ROOM_REQ`로 방에서 나갑니다.
+2. `VERSION_REQ`를 보내고 `VERSION_RES`의 선택 버전을 검증합니다.
+3. `LOGIN_REQ`로 로그인합니다.
+4. `CREATE_ROOM_REQ` 또는 `JOIN_ROOM_REQ`로 방에 들어갑니다.
+5. `CHAT_REQ`와 `POSITION_UPDATE`를 보냅니다.
+6. `LEAVE_ROOM_REQ`로 방에서 나갑니다.
 
-`PING`은 로그인하지 않아도 사용할 수 있습니다. 로그인이나 방 참가가
+`PING`은 버전 협상 후 로그인하지 않아도 사용할 수 있습니다. 로그인이나 방 참가가
 필요한 명령을 순서에 맞지 않게 보내면 서버는 `ERROR` 패킷을
 반환합니다.
 
@@ -192,7 +224,7 @@ user is not logged in
 `chat message too large`를 반환합니다.
 payload가 비어 있어야 하는 `LEAVE_ROOM_REQ`와 `PING`에 데이터가 있으면 각각
 `invalid leave room request`, `invalid ping request`를 반환합니다.
-서버는 `ERROR` packet을 보낸 뒤 연결을 유지하며, 거부된 요청으로 사용자·방·
+협상 완료 후 위 업무 요청 오류에서는 서버가 `ERROR` packet을 보낸 뒤 연결을 유지하며, 거부된 요청으로 사용자·방·
 membership 상태를 바꾸거나 broadcast를 만들지 않습니다.
 
 ## TCP에서 패킷을 읽는 방법
