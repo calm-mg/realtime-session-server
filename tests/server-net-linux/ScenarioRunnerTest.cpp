@@ -8,6 +8,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 #include "ScenarioRunner.h"
 #include "rss/net/ClientIoError.h"
@@ -344,22 +345,13 @@ TEST(ScenarioRunnerTestDeathTest,
       ::testing::ExitedWithCode(EXIT_SUCCESS), "");
 }
 
-TEST(ScenarioRunnerTestDeathTest, ReceiverCountOverflowIsCaptured) {
-  EXPECT_EXIT(
-      {
-        rss::tools::ScenarioOptions options;
-        options.scenario = rss::tools::ScenarioKind::Broadcast;
-        options.clients = 2;
-        options.messages_per_sender = std::numeric_limits<std::size_t>::max();
-        options.payload_bytes = 128;
-        options.worker_count = 2;
-
-        const rss::tools::ScenarioRunner runner{
-            {.scenario_timeout = std::chrono::milliseconds{1}}};
-        const auto result = runner.runOnce(options, 1);
-        std::_Exit(result.failed_clients == 2U ? EXIT_SUCCESS : EXIT_FAILURE);
-      },
-      ::testing::ExitedWithCode(EXIT_SUCCESS), "");
+TEST(ScenarioRunnerTest, RejectsUnboundedReceiptAllocationBeforeStarting) {
+  rss::tools::ScenarioOptions options;
+  options.clients = 2;
+  options.messages_per_sender = std::numeric_limits<std::size_t>::max();
+  EXPECT_THROW(
+      static_cast<void>(rss::tools::ScenarioRunner{}.runOnce(options, 1)),
+      std::invalid_argument);
 }
 
 TEST(ScenarioRunnerTest, CountsBothFailingStagesWithoutCountingClientTwice) {
@@ -415,4 +407,146 @@ TEST(ScenarioRunnerTest, SetupValidationFailureCountsOnlyObservedFailure) {
   EXPECT_EQ(result.client_failures.send.other, 0U);
   EXPECT_EQ(result.client_failures.receive.other, 0U);
   EXPECT_EQ(result.sent, 0U);
+}
+
+TEST(ScenarioRunnerTest, PacingSpacesSendsAfterDelayedSendWithoutCatchUp) {
+  using namespace std::chrono_literals;
+  rss::tools::ScenarioOptions options;
+  options.clients = 1;
+  options.messages_per_sender = 3;
+  options.rate_per_client = 20;
+  std::vector<std::chrono::steady_clock::time_point> sends;
+  rss::tools::ScenarioTuning tuning;
+  tuning.before_send = [&](std::size_t, std::size_t sequence) {
+    sends.push_back(std::chrono::steady_clock::now());
+    if (sequence == 0) {
+      std::this_thread::sleep_for(100ms);
+    }
+  };
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  ASSERT_EQ(sends.size(), 3U);
+  EXPECT_GE(sends[1] - sends[0], 150ms);
+  EXPECT_GE(sends[2] - sends[1], 50ms);
+  EXPECT_EQ(result.sent, 3U);
+  EXPECT_EQ(result.received_broadcasts, 3U);
+  EXPECT_EQ(result.failed_clients, 0U);
+}
+
+TEST(ScenarioRunnerTest, WindowBoundsRoomRequestsUntilFastReadersAdvance) {
+  using namespace std::chrono_literals;
+  rss::tools::ScenarioOptions options;
+  options.clients = 3;
+  options.messages_per_sender = 3;
+  options.max_in_flight = 2;
+  std::atomic_size_t attempts{};
+  std::atomic_size_t observed_max{};
+  rss::tools::ScenarioTuning tuning;
+  tuning.before_receive = [&] {
+    std::this_thread::sleep_for(100ms);
+    const auto observed = attempts.load();
+    auto previous = observed_max.load();
+    while (previous < observed &&
+           !observed_max.compare_exchange_weak(previous, observed)) {
+    }
+  };
+  tuning.before_send = [&](std::size_t, std::size_t) { ++attempts; };
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  EXPECT_LE(observed_max.load(), 2U);
+  EXPECT_EQ(result.sent, 9U);
+  EXPECT_EQ(result.received_broadcasts, 27U);
+  EXPECT_EQ(result.failed_clients, 0U);
+  EXPECT_EQ(result.effective_max_in_flight, 2U);
+}
+
+TEST(ScenarioRunnerTest, WindowUsesIndependentTicketsForUnequalRooms) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::MultiRoom;
+  options.clients = 5;
+  options.rooms = 2;
+  options.messages_per_sender = 3;
+  options.max_in_flight = 1;
+  const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
+  EXPECT_EQ(result.sent, 15U);
+  EXPECT_EQ(result.received_broadcasts, 39U);
+  EXPECT_EQ(result.failed_clients, 0U);
+  EXPECT_EQ(result.effective_max_in_flight, 1U);
+}
+
+TEST(ScenarioRunnerTest, PacingWaitStopsAtMeasurementDeadline) {
+  using namespace std::chrono_literals;
+  rss::tools::ScenarioOptions options;
+  options.clients = 1;
+  options.messages_per_sender = 2;
+  options.rate_per_client = 1;
+  const rss::tools::ScenarioRunner runner{{.scenario_timeout = 50ms}};
+  const auto result = runner.runOnce(options, 1);
+  EXPECT_EQ(result.sent, 1U);
+  EXPECT_EQ(result.expected_broadcasts, 1U);
+  EXPECT_EQ(result.client_failures.send.timeout, 1U);
+  EXPECT_LT(result.elapsed, 500ms);
+}
+
+TEST(ScenarioRunnerTest, PacingWaitCancelsWhenFastReceiverFails) {
+  using namespace std::chrono_literals;
+  rss::tools::ScenarioOptions options;
+  options.clients = 1;
+  options.messages_per_sender = 2;
+  options.rate_per_client = 1;
+  rss::tools::ScenarioTuning tuning;
+  tuning.before_receive = [] {
+    std::this_thread::sleep_for(50ms);
+    throw std::runtime_error("injected receiver failure");
+  };
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  EXPECT_LE(result.sent, 1U);
+  EXPECT_EQ(result.failed_clients, 1U);
+  EXPECT_LT(result.elapsed, 500ms);
+}
+
+TEST(ScenarioRunnerTest, RejectsSlowWindowAboveSafePendingCapacity) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 2;
+  options.slow_clients = 1;
+  options.max_in_flight = 100;
+  EXPECT_THROW(
+      static_cast<void>(rss::tools::ScenarioRunner{}.runOnce(options, 1)),
+      std::invalid_argument);
+}
+
+TEST(ScenarioRunnerTest, UsesRequestedTimeoutUnlessTuningOverridesIt) {
+  rss::tools::ScenarioOptions options;
+  options.clients = 1;
+  options.messages_per_sender = 1;
+  options.timeout_seconds = 2;
+  const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
+  EXPECT_EQ(result.effective_timeout_ms, 2000U);
+  const rss::tools::ScenarioRunner runner{
+      {.scenario_timeout = std::chrono::milliseconds{500}}};
+  EXPECT_EQ(runner.runOnce(options, 2).effective_timeout_ms, 500U);
+}
+
+TEST(ScenarioRunnerTest, FailedRoomDoesNotCancelOtherRoomsWindow) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::MultiRoom;
+  options.clients = 4;
+  options.rooms = 2;
+  options.messages_per_sender = 3;
+  options.max_in_flight = 1;
+  std::atomic_size_t other_room_attempts{};
+  rss::tools::ScenarioTuning tuning;
+  tuning.scenario_timeout = std::chrono::milliseconds{500};
+  tuning.before_send = [&](std::size_t sender, std::size_t) {
+    if (sender == 0) {
+      throw std::runtime_error("injected room failure");
+    }
+    if (sender % 2 == 1) {
+      ++other_room_attempts;
+    }
+  };
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  EXPECT_EQ(other_room_attempts.load(), 6U);
+  EXPECT_EQ(result.sent, 6U);
+  EXPECT_EQ(result.received_broadcasts, 12U);
+  EXPECT_EQ(result.failed_clients, 2U);
 }

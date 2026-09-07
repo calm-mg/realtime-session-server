@@ -79,7 +79,13 @@ std::string formatRunResult(std::size_t run, ScenarioKind kind,
          << " messages_per_sender=" << options.messages_per_sender
          << " payload_bytes=" << options.payload_bytes
          << " slow_clients=" << options.slow_clients
-         << " repeats=" << options.repeats << " sent=" << result.sent
+         << " repeats=" << options.repeats
+         << " rate_per_client=" << options.rate_per_client
+         << " max_in_flight=" << options.max_in_flight
+         << " effective_max_in_flight=" << result.effective_max_in_flight
+         << " timeout_seconds=" << options.timeout_seconds
+         << " effective_timeout_ms=" << result.effective_timeout_ms
+         << " sent=" << result.sent
          << " expected=" << result.expected_broadcasts
          << " received=" << result.received_broadcasts
          << " missing=" << result.missing_broadcasts

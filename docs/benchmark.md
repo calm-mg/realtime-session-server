@@ -199,7 +199,8 @@ cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
 rss_load_scenario_runner \
   [--scenario <broadcast|multi-room|slow-client>] \
   [--clients N] [--rooms N] [--messages N] [--payload-bytes N] \
-  [--slow-clients N] [--repeat N] [--workers N]
+  [--slow-clients N] [--repeat N] [--workers N] \
+  [--rate-per-client N] [--max-in-flight N] [--timeout-seconds N]
 ```
 
 | 옵션 | 기본값 | 의미 |
@@ -212,12 +213,54 @@ rss_load_scenario_runner \
 | `--slow-clients` | `1` | 느린 클라이언트 수 |
 | `--repeat` | `5` | warm-up 뒤 측정 반복 수 |
 | `--workers` | `4` | 로컬 서버 worker 수 |
+| `--rate-per-client` | `0` | 빠른 클라이언트별 초당 송신 상한; 0은 속도 제한 없음 |
+| `--max-in-flight` | `0` | 방별 아직 모든 빠른 reader가 받지 않은 채팅 요청 상한; 0은 일반 시나리오 무제한, slow-client 자동 설정 |
+| `--timeout-seconds` | `30` | setup 뒤 송신·수신 측정 구간의 제한 시간(초) |
 
-수치 옵션은 1 이상이어야 합니다. `--payload-bytes`는 64 이상 1291 이하여야
-하며, `multi-room`의 방 수는 클라이언트 수를 넘을 수 없습니다.
+`--rate-per-client`와 `--max-in-flight` 외 수치 옵션은 1 이상이어야 합니다.
+`--payload-bytes`는 64 이상 1291 이하여야 하며, `multi-room`의 방 수는 클라이언트 수를 넘을 수 없습니다.
 `slow-client`의 느린 클라이언트 수는 전체 클라이언트 수보다 작아야 합니다.
 일반 `broadcast`와 `multi-room`은 서버의 세션별 pending write 기본 한도
 1 MiB를 사용하고, `slow-client`는 분리 검증을 위해 32 KiB를 사용합니다.
+
+`--clients`와 `--workers`는 각각 최대 1000, `--rate-per-client`는 최대
+1,000,000, `--timeout-seconds`는 최대 3600입니다. 지연 표본과 중복 검출
+키의 메모리를 제한하기 위해 한 번의 실행에서 기대하는 최대 수신 수는
+5,000,000으로 제한합니다. 단일 방은 `빠른 client 수² × messages`, 다중
+방은 `각 방 크기²의 합 × messages`로 계산하며 실행 전에 검사합니다.
+느린 client는 송신·지연 표본에 포함하지 않습니다.
+
+### 지속 부하
+
+다음은 client별 10건/초 이하로 300건을 보내 약 30초 동안 측정하는 예입니다.
+실제 성능 기록은 Debug 대신 sanitizer를 끈 Release 빌드를 사용합니다.
+
+```bash
+./build/release/rss_load_scenario_runner \
+  --scenario broadcast --clients 20 --messages 300 --payload-bytes 256 \
+  --rate-per-client 10 --max-in-flight 8 --timeout-seconds 60 \
+  --repeat 3 --workers 2
+```
+
+첫 송신은 즉시 시작하고, 다음 송신은 직전 송신 완료 시점에서 간격을 둡니다.
+실행이 지연되어도 밀린 요청을 한꺼번에 보내지 않습니다. 방별 window는
+가장 늦은 빠른 reader를 기준으로 갱신하며 다중 방은 서로 독립적으로
+진행합니다. 같은 방의 송신자에게 순번을 부여해 한 송신자가 window를
+계속 차지하지 않게 합니다. 시간 제한이나 같은 방의 실패가 발생하면
+window와 속도 대기를 깨워 종료합니다.
+
+`slow-client`의 자동 window는 `max(1, pending write 한도 / 최대 패킷 크기)`로
+계산하며 기본 설정은 8입니다. 명시한 window가 이 안전 상한을 넘으면
+실행을 거절합니다. 느린 reader의 수신 버퍼가 충분히 쌓이지 않는 짧고 낮은
+부하는 정상 client가 모두 성공해도 느린 client 종료 조건을 만족하지 못할
+수 있습니다.
+
+`--messages`는 여전히 유한한 종료 조건입니다. rate는 보장 처리량이 아니라
+송신 상한이며, window 대기나 스케줄링 지연 때문에 실제 송신량은 더 낮을 수
+있습니다. 지연 표본은 실제 송신 직전부터 수신까지로, 송신 전 rate/window
+대기 시간은 제외합니다. 따라서 이 결과는 응답에 따라 부하를 조절하는 조건의
+지연이며, 고정 도착률 과부하나 최대 처리량으로 해석하지 않습니다. 시간 제한은
+연결·로그인·방 준비 및 서버 종료 시간을 포함한 전체 프로세스 제한이 아닙니다.
 
 ### 출력과 종료 코드
 
@@ -239,6 +282,8 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 | --- | --- |
 | `run`, `scenario`, `clients`, `rooms` | 측정 반복 번호와 적용된 시나리오·클라이언트 수·effective 방 수; `broadcast`와 `slow-client`의 `rooms`는 `1` |
 | `messages_per_sender`, `payload_bytes`, `slow_clients`, `repeats` | 해당 결과를 재현하는 요청 입력 |
+| `rate_per_client`, `max_in_flight`, `effective_max_in_flight` | 요청한 송신 상한·방별 window와 실제 적용 window |
+| `timeout_seconds`, `effective_timeout_ms` | 요청 제한 시간과 실제 측정 제한 시간(ms) |
 | `sent` | 실제 전송에 성공한 채팅 요청 수 |
 | `expected`, `received` | 방별 실제 성공 전송 수에 reader 수를 곱한 기대 broadcast 수와 실제 수신 수 |
 | `missing`, `duplicates`, `unexpected` | 누락, 중복, 예상하지 않은 broadcast 수 |

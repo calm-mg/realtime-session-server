@@ -43,12 +43,18 @@ TEST(ProgramTest, InvalidArgumentsReturnUsageErrorWithoutRunningScenario) {
 }
 
 TEST(ProgramTest, PrintsEnvironmentAndMeasuredRunsButDiscardsOneWarmUp) {
-  const std::array<std::string_view, 4> args{"--repeat", "2", "--workers", "3"};
+  const std::array<std::string_view, 10> args{
+      "--repeat",          "2",  "--workers",       "3",
+      "--rate-per-client", "25", "--max-in-flight", "8",
+      "--timeout-seconds", "90"};
   std::ostringstream out;
   std::ostringstream err;
   std::vector<std::size_t> run_ids;
-  const auto run_once = [&](const rss::tools::ScenarioOptions&,
+  const auto run_once = [&](const rss::tools::ScenarioOptions& options,
                             std::size_t run_id) {
+    EXPECT_EQ(options.rate_per_client, 25U);
+    EXPECT_EQ(options.max_in_flight, 8U);
+    EXPECT_EQ(options.timeout_seconds, 90U);
     run_ids.push_back(run_id);
     auto result = successfulResult();
     if (run_id == 0) {

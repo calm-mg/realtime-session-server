@@ -334,6 +334,13 @@ cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
 ./build/linux-dev/rss_load_scenario_runner --scenario broadcast --clients 2 --messages 2 --payload-bytes 128 --repeat 1 --workers 1
 ```
 
+지속 부하는 `--rate-per-client 10 --max-in-flight 8 --timeout-seconds 60`처럼
+송신 속도와 방별 응답 대기 상한을 함께 지정합니다. `--messages 300`이면
+약 30초 동안 측정합니다. rate/window 기본값 0은 일반 시나리오의 제한을
+끄며, 느린 client 시나리오의 window는 자동으로 8을 적용합니다. 최대 예상
+수신 표본은 실행당 5,000,000개입니다. [옵션과 측정 한계](docs/benchmark.md)를
+확인하고 성능 기록에는 sanitizer를 끈 Release 빌드를 사용하세요.
+
 각 `run` 줄은 effective 방 수와 `messages_per_sender`, `payload_bytes`,
 `slow_clients`, `repeats`를 고정 순서로 기록합니다. `expected`는 설정상 최대치가
 아니라 방별 실제 성공 전송 수에서 계산합니다. client setup 실패도 결과 줄과
