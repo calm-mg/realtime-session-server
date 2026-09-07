@@ -125,6 +125,10 @@ RSS_OBSERVABILITY_INTERVAL_SECONDS=10 \
 queue, 세션, 거절·종료·예외 누적값을 제공합니다. 사용자 이름, 방 이름,
 채팅 payload와 database URL은 운영 로그에 기록하지 않습니다.
 
+연결 종료는 `disconnect_*`, worker의 세션 실패 판정은 `worker_*_failures`로
+이유를 구분합니다. 부하 도구의 단계별 실패 분류와 함께 해석하는 방법은
+[벤치마크 가이드](docs/benchmark.md#실패-원인-해석)를 참고하세요.
+
 DB를 정지하되 데이터를 보존하려면 다음 명령을 사용합니다.
 
 ```bash

@@ -10,6 +10,8 @@
 #include <thread>
 
 #include "ScenarioRunner.h"
+#include "rss/net/ClientIoError.h"
+#include "rss/protocol/ProtocolError.h"
 
 TEST(ScenarioRunnerTest, BroadcastDeliversEveryMessageToEveryClient) {
   rss::tools::ScenarioOptions options;
@@ -216,6 +218,9 @@ TEST(ScenarioRunnerTest, DeadlineReportsMissingBroadcastsAfterSuccessfulSend) {
   EXPECT_EQ(result.received_broadcasts, 0U);
   EXPECT_EQ(result.missing_broadcasts, result.expected_broadcasts);
   EXPECT_FALSE(coordination_failed.load());
+  EXPECT_NE(rss::tools::formatRunResult(1, options.scenario, result)
+                .find("client_receive_timeout=2 "),
+            std::string::npos);
 }
 
 TEST(ScenarioRunnerTest, StartsElapsedTimeWhenFinalBarrierParticipantArrives) {
@@ -279,6 +284,9 @@ TEST(ScenarioRunnerTest, ExpectedBroadcastsTrackOnlySuccessfulSends) {
   EXPECT_EQ(result.duplicate_broadcasts, 0U);
   EXPECT_EQ(result.unexpected_broadcasts, 0U);
   EXPECT_EQ(result.failed_clients, 1U);
+  EXPECT_NE(rss::tools::formatRunResult(1, options.scenario, result)
+                .find("client_send_other=1 "),
+            std::string::npos);
 }
 
 TEST(ScenarioRunnerTest, ClientSetupFailureReturnsMeasurementFailureResult) {
@@ -305,6 +313,12 @@ TEST(ScenarioRunnerTest, ClientSetupFailureReturnsMeasurementFailureResult) {
   EXPECT_EQ(result.received_broadcasts, 0U);
   EXPECT_EQ(result.failed_clients, 2U);
   EXPECT_GE(result.overload.rejected_connections, 1U);
+  EXPECT_EQ(result.client_failures.setup.peer_closed +
+                result.client_failures.setup.socket_error,
+            1U);
+  EXPECT_EQ(result.client_failures.setup.other, 0U);
+  EXPECT_EQ(result.client_failures.send.other, 0U);
+  EXPECT_EQ(result.client_failures.receive.other, 0U);
 }
 
 TEST(ScenarioRunnerTestDeathTest,
@@ -346,4 +360,59 @@ TEST(ScenarioRunnerTestDeathTest, ReceiverCountOverflowIsCaptured) {
         std::_Exit(result.failed_clients == 2U ? EXIT_SUCCESS : EXIT_FAILURE);
       },
       ::testing::ExitedWithCode(EXIT_SUCCESS), "");
+}
+
+TEST(ScenarioRunnerTest, CountsBothFailingStagesWithoutCountingClientTwice) {
+  rss::tools::ScenarioOptions options;
+  options.clients = 1;
+  options.messages_per_sender = 1;
+  options.worker_count = 1;
+  rss::tools::ScenarioTuning tuning;
+  tuning.before_measurement_start = [] { throw 7; };
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  EXPECT_EQ(result.failed_clients, 1U);
+  const auto report = rss::tools::formatRunResult(1, options.scenario, result);
+  EXPECT_NE(report.find("client_send_other=1 "), std::string::npos);
+  EXPECT_NE(report.find("client_receive_other=1 "), std::string::npos);
+}
+
+TEST(ScenarioRunnerTest, ClassifiesReceiveHookAndSendHookIndependently) {
+  rss::tools::ScenarioOptions options;
+  options.clients = 1;
+  options.messages_per_sender = 1;
+  options.worker_count = 1;
+  rss::tools::ScenarioTuning tuning;
+  tuning.before_receive = [] {
+    throw rss::protocol::ProtocolError("private protocol detail");
+  };
+  tuning.before_send = [](std::size_t, std::size_t) {
+    throw rss::net::ClientIoError(rss::net::ClientIoFailure::SocketError,
+                                  "private socket detail");
+  };
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  EXPECT_EQ(result.failed_clients, 1U);
+  EXPECT_EQ(result.client_failures.send.socket_error, 1U);
+  EXPECT_EQ(result.client_failures.receive.protocol, 1U);
+  EXPECT_EQ(result.client_failures.send.other, 0U);
+  EXPECT_EQ(result.client_failures.receive.other, 0U);
+  EXPECT_EQ(
+      rss::tools::formatRunResult(1, options.scenario, result).find("private"),
+      std::string::npos);
+}
+
+TEST(ScenarioRunnerTest, SetupValidationFailureCountsOnlyObservedFailure) {
+  rss::tools::ScenarioOptions options;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  options.clients = 3;
+  options.slow_clients = 1;
+  options.messages_per_sender = 1;
+  options.worker_count = 1;
+  rss::tools::ScenarioTuning tuning;
+  tuning.socket_receive_buffer_bytes = 0;
+  const auto result = rss::tools::ScenarioRunner{tuning}.runOnce(options, 1);
+  EXPECT_EQ(result.failed_clients, 1U);
+  EXPECT_EQ(result.client_failures.setup.other, 1U);
+  EXPECT_EQ(result.client_failures.send.other, 0U);
+  EXPECT_EQ(result.client_failures.receive.other, 0U);
+  EXPECT_EQ(result.sent, 0U);
 }

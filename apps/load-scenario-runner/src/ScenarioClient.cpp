@@ -19,6 +19,7 @@
 #include <system_error>
 #include <utility>
 
+#include "rss/net/ClientIoError.h"
 #include "rss/net/ClientVersionNegotiation.h"
 #include "rss/protocol/ProtocolError.h"
 #include "rss/protocol/StructuredPayload.h"
@@ -26,12 +27,15 @@
 namespace rss::tools {
 namespace {
 
+using rss::net::ClientIoError;
+using rss::net::ClientIoFailure;
+
 using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
 
-std::runtime_error systemError(std::string_view operation, int error) {
-  return std::runtime_error(std::string(operation) + ": " +
-                            std::strerror(error));
+ClientIoError systemError(std::string_view operation, int error) {
+  return ClientIoError(ClientIoFailure::SocketError,
+                       std::string(operation) + ": " + std::strerror(error));
 }
 
 int remainingMilliseconds(Deadline deadline) {
@@ -57,7 +61,8 @@ bool waitForSocketReady(int fd, std::int16_t events, Deadline deadline,
     const auto result = ::poll(&descriptor, 1, remainingMilliseconds(deadline));
     if (result > 0) {
       if ((descriptor.revents & POLLNVAL) != 0) {
-        throw std::runtime_error(std::string(operation) + ": invalid socket");
+        throw ClientIoError(ClientIoFailure::SocketError,
+                            std::string(operation) + ": invalid socket");
       }
       return true;
     }
@@ -73,13 +78,15 @@ bool waitForSocketReady(int fd, std::int16_t events, Deadline deadline,
 void waitForSocket(int fd, std::int16_t events, Deadline deadline,
                    std::string_view operation) {
   if (!waitForSocketReady(fd, events, deadline, operation)) {
-    throw std::runtime_error(std::string(operation) + " timed out");
+    throw ClientIoError(ClientIoFailure::Timeout,
+                        std::string(operation) + " timed out");
   }
 }
 
 void ensureBeforeDeadline(Deadline deadline, std::string_view operation) {
   if (Clock::now() >= deadline) {
-    throw std::runtime_error(std::string(operation) + " timed out");
+    throw ClientIoError(ClientIoFailure::Timeout,
+                        std::string(operation) + " timed out");
   }
 }
 
@@ -221,7 +228,8 @@ std::uint32_t ScenarioClient::createRoom(std::string_view name,
   try {
     const auto structured = rss::protocol::StructuredPayload::parse(payload);
     if (structured.status() != "OK") {
-      throw std::runtime_error("create room response is not successful");
+      throw rss::protocol::ProtocolError(
+          "create room response is not successful");
     }
 
     const auto room_id_value = structured.requireField("room_id");
@@ -230,11 +238,12 @@ std::uint32_t ScenarioClient::createRoom(std::string_view name,
     const auto* end = begin + room_id_value.size();
     const auto [ptr, error] = std::from_chars(begin, end, room_id);
     if (error != std::errc{} || ptr != end || begin == end) {
-      throw std::runtime_error("create room response has invalid room_id");
+      throw rss::protocol::ProtocolError(
+          "create room response has invalid room_id");
     }
     return room_id;
   } catch (const rss::protocol::ProtocolError&) {
-    throw std::runtime_error("create room response is malformed");
+    throw rss::protocol::ProtocolError("create room response is malformed");
   }
 }
 
@@ -254,7 +263,7 @@ rss::protocol::Packet ScenarioClient::receivePacket(
     std::chrono::milliseconds timeout) {
   auto packet = tryReceivePacket(timeout);
   if (!packet.has_value()) {
-    throw std::runtime_error("receive timed out");
+    throw ClientIoError(ClientIoFailure::Timeout, "receive timed out");
   }
   return std::move(*packet);
 }
@@ -286,7 +295,8 @@ std::optional<rss::protocol::Packet> ScenarioClient::tryReceivePacket(
       continue;
     }
     if (received == 0) {
-      throw std::runtime_error("connection closed while receiving");
+      throw ClientIoError(ClientIoFailure::PeerClosed,
+                          "connection closed while receiving");
     }
     if (errno == EINTR) {
       continue;
@@ -328,7 +338,8 @@ void ScenarioClient::sendPacket(rss::protocol::PacketType type,
       continue;
     }
     if (sent == 0) {
-      throw std::runtime_error("connection closed while sending");
+      throw ClientIoError(ClientIoFailure::PeerClosed,
+                          "connection closed while sending");
     }
     if (errno == EINTR) {
       continue;
@@ -347,8 +358,7 @@ rss::protocol::Packet ScenarioClient::waitFor(
   while (true) {
     const auto packet = receivePacket(remainingTimeout(deadline));
     if (packet.type == rss::protocol::PacketType::Error) {
-      throw std::runtime_error("server error: " +
-                               rss::protocol::payloadToString(packet));
+      throw rss::protocol::ProtocolError("server returned an error response");
     }
     if (packet.type == expected) {
       return packet;

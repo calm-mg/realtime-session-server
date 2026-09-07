@@ -15,6 +15,10 @@ TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없�
 정리했습니다. 짧은 burst 측정이므로 최대 처리량이나 성능 합격선으로
 사용하지 않습니다.
 
+큰 burst의 종료 원인과 함께 발견한 세션 정리 결함은
+[연결 종료 진단](performance/2026-09-07-disconnect-diagnostics/README.md)에
+후속 재현 결과를 기록했습니다.
+
 ## 마이크로벤치마크
 
 Google Benchmark 기반 실행 파일은 다음 세 코드 경로를 측정합니다.
@@ -239,12 +243,15 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 | `expected`, `received` | 방별 실제 성공 전송 수에 reader 수를 곱한 기대 broadcast 수와 실제 수신 수 |
 | `missing`, `duplicates`, `unexpected` | 누락, 중복, 예상하지 않은 broadcast 수 |
 | `failed_clients` | setup, 송신 또는 수신이 실패한 클라이언트 수; 첫 setup 실패 뒤 미시도 client도 포함 |
+| `client_setup_*`, `client_send_*`, `client_receive_*` | 실제 관측한 단계별 실패 원인 수. 접미사는 `peer_closed`, `socket_error`, `timeout`, `protocol`, `other` |
 | `elapsed_sec` | 마지막 barrier 참여자 도착부터 끝까지의 측정 경과 시간(초) |
 | `throughput_broadcasts_per_sec` | `received / elapsed_sec`로 계산한 초당 수신 broadcast 수 |
 | `p50_ms`, `p95_ms`, `p99_ms` | 수신한 broadcast 지연 시간의 백분위 값(ms) |
 | `read_pauses`, `inbound_queue_full`, `outbound_budget_rejections` | 읽기 일시정지, 입력 queue 포화, 출력 예산 거절 횟수 |
 | `handler_exceptions` | worker handler에서 빠져나와 해당 세션을 종료한 예외 횟수 |
 | `slow_client_disconnects`, `rejected_connections` | 느린 클라이언트 종료와 연결 거절 횟수 |
+| `disconnect_*` | I/O 스레드가 실제로 제거한 연결의 이유별 누적 수. 아래 분류 참고 |
+| `worker_parked_limit_failures`, `worker_invalid_sequence_failures`, `worker_deferred_failures` | worker가 세션을 처음 실패 상태로 바꾼 이유별 누적 수 |
 | `max_inbound_queue_size`, `max_outbound_queue_size`, `max_session_pending_write_bytes` | 측정 중 관찰한 입력 queue, 출력 queue, 세션별 미전송 byte의 최대값 |
 
 종료 코드 `0`은 모든 측정 반복이 시나리오 성공 조건을 만족했음을 뜻합니다.
@@ -254,6 +261,29 @@ client connect, login, 방 생성·참가 같은 setup 실패도 `run` 줄을 �
 종료 코드 `1`을 반환합니다. 첫 실패 뒤 미시도 client는 `failed_clients`에
 포함됩니다. `2`는 잘못된 인자이며 사용법을 함께 출력합니다. `3`은 서버
 시작·설정 검증이나 실행기 내부 오류가 발생했음을 뜻합니다.
+
+### 실패 원인 해석
+
+클라이언트 원인은 상대의 정상 EOF인 `peer_closed`, 시스템 호출 오류인
+`socket_error`, 제한 시간 초과인 `timeout`, 프로토콜/서버 오류 응답인
+`protocol`, 그 밖의 예외인 `other`로 구분합니다. 예외 메시지나 채팅 본문은
+원인 필드에 출력하지 않습니다. 미시도 클라이언트는 원인별 수에 포함하지
+않습니다. 한 클라이언트가 송신과 수신 양쪽에서 실패할 수 있으므로 단계별
+합계는 `failed_clients`와 다를 수 있습니다.
+
+서버의 `disconnect_` 접미사는 `peer_closed`, `socket_error`, `protocol_error`,
+`idle_timeout`, `worker_requested`, `pending_write_limit`, `close_after_flush`,
+`shutdown`입니다. 각각 상대 EOF, 소켓 오류, 패킷 해석 오류, 유휴 시간 초과,
+worker 종료 명령, 미전송 byte 상한, 오류 응답 송신 후 종료, 서버 정리 중
+종료를 뜻합니다. 연결 하나의 실제 종료는 한 이유에만 기록합니다.
+
+worker의 실패 판정과 I/O의 종료는 서로 다른 단계입니다. 예를 들어
+`worker_parked_limit_failures`와 `disconnect_worker_requested`가 함께 증가하면
+세션별 대기 이벤트 상한 거절 후 종료 명령이 처리된 것입니다. 두 수를
+더해서 종료 연결 수로 해석하지 않습니다. `slow_client_disconnects`는 기존
+호환 필드로 `disconnect_pending_write_limit`과 같은 종료를 가리킵니다.
+snapshot은 실행 중 누적 관측값이며, 부하 결과는 측정 종료 시점에 수집해
+이후 서버 정리로 인한 종료를 포함하지 않습니다.
 
 ### 비교 제약
 

@@ -4,10 +4,23 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 #include "rss/tools/LatencyStats.h"
 
 namespace rss::tools {
+namespace {
+
+void formatClientFailures(std::ostream& output, std::string_view stage,
+                          const ClientFailureCounts& counts) {
+  output << " client_" << stage << "_peer_closed=" << counts.peer_closed
+         << " client_" << stage << "_socket_error=" << counts.socket_error
+         << " client_" << stage << "_timeout=" << counts.timeout << " client_"
+         << stage << "_protocol=" << counts.protocol << " client_" << stage
+         << "_other=" << counts.other;
+}
+
+}  // namespace
 
 std::uint64_t expectedBroadcasts(
     std::span<const std::size_t> room_sizes,
@@ -72,25 +85,45 @@ std::string formatRunResult(std::size_t run, ScenarioKind kind,
          << " missing=" << result.missing_broadcasts
          << " duplicates=" << result.duplicate_broadcasts
          << " unexpected=" << result.unexpected_broadcasts
-         << " failed_clients=" << result.failed_clients
-         << " elapsed_sec=" << elapsed_seconds
-         << " throughput_broadcasts_per_sec=" << throughput
-         << " p50_ms=" << latency.p50_us / 1000.0
-         << " p95_ms=" << latency.p95_us / 1000.0
-         << " p99_ms=" << latency.p99_us / 1000.0
-         << " read_pauses=" << result.overload.read_pauses
-         << " inbound_queue_full=" << result.overload.inbound_queue_full
-         << " outbound_budget_rejections="
-         << result.overload.outbound_budget_rejections
-         << " handler_exceptions=" << result.overload.handler_exceptions
-         << " slow_client_disconnects="
-         << result.overload.slow_client_disconnects
-         << " rejected_connections=" << result.overload.rejected_connections
-         << " max_inbound_queue_size=" << result.overload.max_inbound_queue_size
-         << " max_outbound_queue_size="
-         << result.overload.max_outbound_queue_size
-         << " max_session_pending_write_bytes="
-         << result.overload.max_session_pending_write_bytes;
+         << " failed_clients=" << result.failed_clients;
+  formatClientFailures(output, "setup", result.client_failures.setup);
+  formatClientFailures(output, "send", result.client_failures.send);
+  formatClientFailures(output, "receive", result.client_failures.receive);
+  output
+      << " elapsed_sec=" << elapsed_seconds
+      << " throughput_broadcasts_per_sec=" << throughput
+      << " p50_ms=" << latency.p50_us / 1000.0
+      << " p95_ms=" << latency.p95_us / 1000.0
+      << " p99_ms=" << latency.p99_us / 1000.0
+      << " read_pauses=" << result.overload.read_pauses
+      << " inbound_queue_full=" << result.overload.inbound_queue_full
+      << " outbound_budget_rejections="
+      << result.overload.outbound_budget_rejections
+      << " handler_exceptions=" << result.overload.handler_exceptions
+      << " slow_client_disconnects=" << result.overload.slow_client_disconnects
+      << " rejected_connections=" << result.overload.rejected_connections
+      << " max_inbound_queue_size=" << result.overload.max_inbound_queue_size
+      << " max_outbound_queue_size=" << result.overload.max_outbound_queue_size
+      << " max_session_pending_write_bytes="
+      << result.overload.max_session_pending_write_bytes
+      << " disconnect_peer_closed=" << result.overload.disconnect_peer_closed
+      << " disconnect_socket_error=" << result.overload.disconnect_socket_error
+      << " disconnect_protocol_error="
+      << result.overload.disconnect_protocol_error
+      << " disconnect_idle_timeout=" << result.overload.disconnect_idle_timeout
+      << " disconnect_worker_requested="
+      << result.overload.disconnect_worker_requested
+      << " disconnect_pending_write_limit="
+      << result.overload.disconnect_pending_write_limit
+      << " disconnect_close_after_flush="
+      << result.overload.disconnect_close_after_flush
+      << " disconnect_shutdown=" << result.overload.disconnect_shutdown
+      << " worker_parked_limit_failures="
+      << result.overload.worker_parked_limit_failures
+      << " worker_invalid_sequence_failures="
+      << result.overload.worker_invalid_sequence_failures
+      << " worker_deferred_failures="
+      << result.overload.worker_deferred_failures;
   return output.str();
 }
 

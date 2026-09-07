@@ -31,6 +31,33 @@ class RecordingNotifier final : public rss::net::CompletionNotifier {
   std::atomic<int> notifications{0};
 };
 
+class PausingNotifier final : public rss::net::CompletionNotifier {
+ public:
+  void notify() noexcept override {
+    if (!armed.exchange(false)) {
+      return;
+    }
+    std::unique_lock lock(mutex_);
+    entered = true;
+    changed_.notify_all();
+    changed_.wait(lock, [this] { return released_; });
+  }
+
+  void release() {
+    std::lock_guard lock(mutex_);
+    released_ = true;
+    changed_.notify_all();
+  }
+
+  std::atomic<bool> armed{false};
+  std::atomic<bool> entered{false};
+
+ private:
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  bool released_{false};
+};
+
 class RecordingSessionEventHandler final
     : public rss::service::SessionEventHandler {
  public:
@@ -89,6 +116,81 @@ class DeferredFirstHandler final : public rss::service::SessionEventHandler {
   std::condition_variable changed_;
   std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
   std::atomic<bool> handled_second_session_{false};
+};
+
+class DeferredCleanupHandler final : public rss::service::SessionEventHandler {
+ public:
+  explicit DeferredCleanupHandler(rss::service::RoomService& rooms)
+      : router_(rooms, users_) {
+    rss::test::FakeSessionEventContext version_context;
+    const std::string version = "min_version=1|max_version=1";
+    router_.handle({rss::service::SessionEventKind::Packet,
+                    1,
+                    {rss::protocol::PacketType::VersionReq,
+                     {version.begin(), version.end()}}},
+                   version_context);
+    rss::test::FakeSessionEventContext login_context;
+    router_.handle({rss::service::SessionEventKind::Packet,
+                    1,
+                    {rss::protocol::PacketType::LoginReq, {'a'}}},
+                   login_context);
+  }
+
+  void handle(const rss::service::SessionEvent& event,
+              rss::service::SessionEventContext& context) override {
+    if (event.session_id != 1) {
+      static_cast<void>(context.emit({event.session_id, {0xAAU}}));
+      return;
+    }
+    if (event.kind == rss::service::SessionEventKind::Disconnected) {
+      router_.handle(event, context);
+      if (defer_disconnect) {
+        std::lock_guard lock(mutex_);
+        completion_ = context.defer();
+      }
+      disconnects.fetch_add(1);
+      return;
+    }
+    packet_calls.fetch_add(1);
+    std::lock_guard lock(mutex_);
+    completion_ = context.defer();
+  }
+
+  bool hasCompletion() {
+    std::lock_guard lock(mutex_);
+    return completion_ != nullptr;
+  }
+
+  bool complete() {
+    std::shared_ptr<rss::service::DeferredSessionCompletion> completion;
+    {
+      std::lock_guard lock(mutex_);
+      completion = completion_;
+    }
+    return completion != nullptr && completion->succeed({});
+  }
+
+  bool negotiationWasCleared() {
+    rss::test::FakeSessionEventContext context;
+    router_.handle({rss::service::SessionEventKind::Packet,
+                    1,
+                    {rss::protocol::PacketType::Ping, {}}},
+                   context);
+    const auto output = context.releaseMessages();
+    return output.size() == 1 &&
+           output.front().kind ==
+               rss::service::OutboundMessageKind::SendBytesAndDisconnect;
+  }
+
+  bool defer_disconnect{false};
+  std::atomic<unsigned> disconnects{0};
+  std::atomic<unsigned> packet_calls{0};
+
+ private:
+  rss::persistence::InMemoryUserRepository users_;
+  rss::service::MessageRouter router_;
+  std::mutex mutex_;
+  std::shared_ptr<rss::service::DeferredSessionCompletion> completion_;
 };
 
 class OrderedDeferredHandler final : public rss::service::SessionEventHandler {
@@ -546,7 +648,9 @@ TEST(WorkerPoolNotificationTest, DeferredFailureDisconnectsOnlyOwningSession) {
   rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
   rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
   FailingDeferredHandler handler;
-  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
+  rss::net::OverloadStats stats;
+  rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig(), nullptr,
+                               nullptr, &stats);
 
   workers.start(1);
   ASSERT_TRUE(
@@ -560,6 +664,8 @@ TEST(WorkerPoolNotificationTest, DeferredFailureDisconnectsOnlyOwningSession) {
   const auto healthy_session_processed = handler.waitForHealthySession();
   workers.beginStop();
   workers.join();
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_deferred_failures, 1U);
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_invalid_sequence_failures, 0U);
 
   ASSERT_TRUE(disconnect.has_value());
   EXPECT_EQ(disconnect->kind, OutboundMessageKind::DisconnectSession);
@@ -577,7 +683,9 @@ TEST(WorkerPoolNotificationTest, ParkedEventLimitDisconnectsOnlyOwningSession) {
   DeferredFirstHandler handler;
   auto config = workerConfig();
   config.max_parked_events_per_session = 1;
-  rss::net::WorkerPool workers(inbox, outbox, handler, config);
+  rss::net::OverloadStats stats;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config, nullptr, nullptr,
+                               &stats);
 
   workers.start(1);
   ASSERT_TRUE(
@@ -588,6 +696,9 @@ TEST(WorkerPoolNotificationTest, ParkedEventLimitDisconnectsOnlyOwningSession) {
   ASSERT_TRUE(
       inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 2}).succeeded);
 
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 3}).succeeded);
+
   const auto disconnect = waitForOutbound(outbox);
   if (!disconnect.has_value()) {
     workers.forceStop();
@@ -596,10 +707,278 @@ TEST(WorkerPoolNotificationTest, ParkedEventLimitDisconnectsOnlyOwningSession) {
     workers.beginStop();
   }
   workers.join();
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_parked_limit_failures, 1U);
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_invalid_sequence_failures, 0U);
 
   ASSERT_TRUE(disconnect.has_value());
   EXPECT_EQ(disconnect->kind, OutboundMessageKind::DisconnectSession);
   EXPECT_EQ(disconnect->session_id, 1U);
+}
+
+TEST(WorkerPoolNotificationTest, DuplicateSequenceCountsOneFailurePerSession) {
+  using rss::service::OutboundMessageKind;
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(2);
+  DeferredFirstHandler handler;
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 8;
+  rss::net::OverloadStats stats;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config, nullptr, nullptr,
+                               &stats);
+
+  workers.start(1);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(handler.waitForDeferredSession());
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 1}).succeeded);
+
+  ASSERT_TRUE(
+      inbox.push(SessionEvent{SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  const auto disconnect = waitForOutbound(outbox);
+  if (!disconnect.has_value()) {
+    workers.forceStop();
+  } else {
+    static_cast<void>(handler.completeDeferredSession());
+    workers.beginStop();
+  }
+  workers.join();
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_parked_limit_failures, 0U);
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_invalid_sequence_failures, 1U);
+
+  ASSERT_TRUE(disconnect.has_value());
+  EXPECT_EQ(disconnect->kind, OutboundMessageKind::DisconnectSession);
+  EXPECT_EQ(disconnect->session_id, 1U);
+}
+
+class FailedSessionCleanupTest : public testing::TestWithParam<int> {};
+
+TEST_P(FailedSessionCleanupTest,
+       CleansRoomAndNegotiationAcrossRejectedSequence) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  rss::service::RoomService rooms;
+  DeferredCleanupHandler handler(rooms);
+  ASSERT_TRUE(rooms.userOf(1).has_value());
+  ASSERT_TRUE(rooms.createRoom(1, "room").ok);
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(16);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(16);
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 1;
+  rss::net::OverloadStats stats;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config, nullptr, nullptr,
+                               &stats);
+  workers.start(1);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(waitUntil([&] { return handler.hasCompletion(); }));
+  if (GetParam() == 3) {
+    ASSERT_TRUE(
+        inbox.push({SessionEventKind::Disconnected, 1, {}, 2}).succeeded);
+    ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  } else {
+    ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+    const auto kind = GetParam() == 2 ? SessionEventKind::Disconnected
+                                      : SessionEventKind::Packet;
+    ASSERT_TRUE(inbox.push({kind, 1, {}, 2}).succeeded);
+  }
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  if (GetParam() != 0) {
+    if (GetParam() == 1) {
+      ASSERT_TRUE(
+          inbox.push({SessionEventKind::Disconnected, 1, {}, 3}).succeeded);
+    }
+    ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 2, {}, 0}).succeeded);
+    ASSERT_TRUE(waitForOutbound(outbox).has_value());
+    EXPECT_EQ(handler.disconnects.load(), 0U);
+    EXPECT_TRUE(rooms.userOf(1).has_value());
+  }
+  ASSERT_TRUE(handler.complete());
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 3, {}, 0}).succeeded);
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  if (GetParam() == 0) {
+    ASSERT_TRUE(
+        inbox.push({SessionEventKind::Disconnected, 1, {}, 3}).succeeded);
+    ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 4, {}, 0}).succeeded);
+    ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  }
+  EXPECT_EQ(handler.disconnects.load(), 1U);
+  EXPECT_EQ(handler.packet_calls.load(), 1U);
+  EXPECT_FALSE(rooms.userOf(1).has_value());
+  EXPECT_FALSE(rooms.chat(1).ok);
+  EXPECT_TRUE(handler.negotiationWasCleared());
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_parked_limit_failures, 1U);
+  workers.beginStop();
+  EXPECT_TRUE(waitUntil([&] { return workers.finished(); }));
+  workers.forceStop();
+  workers.join();
+}
+
+INSTANTIATE_TEST_SUITE_P(DisconnectBeforeOrAfterCompletion,
+                         FailedSessionCleanupTest, testing::Values(0, 1, 2, 3));
+
+TEST(WorkerPoolNotificationTest,
+     FailureCleansAlreadyParkedDisconnectWithoutActiveTurn) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  rss::service::RoomService rooms;
+  DeferredCleanupHandler handler(rooms);
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(8);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(8);
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 2;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config);
+  workers.start(1);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Disconnected, 1, {}, 2}).succeeded);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 2, {}, 0}).succeeded);
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  EXPECT_EQ(handler.disconnects.load(), 1U);
+  EXPECT_FALSE(rooms.userOf(1).has_value());
+  workers.beginStop();
+  EXPECT_TRUE(waitUntil([&] { return workers.finished(); }));
+  workers.forceStop();
+  workers.join();
+}
+
+TEST(WorkerPoolNotificationTest, FailedSessionDrainWaitsForDeferredDisconnect) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  rss::service::RoomService rooms;
+  DeferredCleanupHandler handler(rooms);
+  handler.defer_disconnect = true;
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(8);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(8);
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 1;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config);
+  workers.start(1);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(waitUntil([&] { return handler.hasCompletion(); }));
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Disconnected, 1, {}, 2}).succeeded);
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  workers.beginStop();
+  ASSERT_TRUE(handler.complete());
+  ASSERT_TRUE(waitUntil([&] { return handler.disconnects.load() == 1; }));
+  EXPECT_FALSE(workers.finished());
+  EXPECT_TRUE(handler.complete());
+  EXPECT_TRUE(waitUntil([&] { return workers.finished(); }));
+  workers.forceStop();
+  workers.join();
+  EXPECT_FALSE(rooms.userOf(1).has_value());
+}
+
+TEST(WorkerPoolNotificationTest,
+     DeferredDisconnectReleasesSequenceStateForNextLifecycle) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  rss::service::RoomService rooms;
+  DeferredCleanupHandler handler(rooms);
+  handler.defer_disconnect = true;
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(8);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(8);
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 1;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config);
+  workers.start(1);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(waitUntil([&] { return handler.hasCompletion(); }));
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Disconnected, 1, {}, 2}).succeeded);
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  ASSERT_TRUE(handler.complete());
+  ASSERT_TRUE(waitUntil([&] { return handler.disconnects.load() == 1; }));
+  EXPECT_FALSE(workers.finished());
+  EXPECT_TRUE(handler.complete());
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 2, {}, 0}).succeeded);
+  ASSERT_TRUE(waitForOutbound(outbox).has_value());
+  // TCP는 ID를 재사용하지 않지만 WorkerPool은 종료 시 순서 상태를 제거한다.
+  // 동기 종료와 같은 계약을 새 lifecycle의 sequence 0으로 확인한다.
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  EXPECT_TRUE(waitUntil([&] { return handler.packet_calls.load() == 2; }));
+  static_cast<void>(handler.complete());
+  workers.beginStop();
+  EXPECT_TRUE(waitUntil([&] { return workers.finished(); }));
+  workers.forceStop();
+  workers.join();
+  EXPECT_FALSE(rooms.userOf(1).has_value());
+}
+
+TEST(WorkerPoolNotificationTest,
+     DrainFinishesAfterLastFailedPacketIsDiscarded) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(8);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(8);
+  RecordingSessionEventHandler handler;
+  PausingNotifier notifier;
+  notifier.armed = true;
+  auto config = workerConfig();
+  config.max_parked_events_per_session = 1;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config, &notifier);
+  workers.start(1);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 2}).succeeded);
+  const bool paused = waitUntil([&] { return notifier.entered.load(); });
+  EXPECT_TRUE(paused);
+  if (paused) {
+    // 최초 거절의 outbound 통지에서 멈춰 마지막 실패 패킷을 큐에 남긴다.
+    EXPECT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 3}).succeeded);
+    workers.beginStop();
+    EXPECT_FALSE(workers.finished());
+  }
+  notifier.release();
+  EXPECT_TRUE(waitUntil([&] { return workers.finished(); }));
+  workers.forceStop();
+  workers.join();
+  EXPECT_EQ(handler.handled_session_id.load(), 0U);
+}
+
+TEST(WorkerPoolNotificationTest, LatePoppedPacketCannotRecreateClosedSession) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  rss::service::RoomService rooms;
+  DeferredCleanupHandler handler(rooms);
+  rss::util::BoundedBlockingQueue<SessionEvent> inbox(16);
+  rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(16);
+  auto config = workerConfig(1);
+  config.max_parked_events_per_session = 1;
+  PausingNotifier notifier;
+  rss::net::OverloadStats stats;
+  rss::net::WorkerPool workers(inbox, outbox, handler, config, nullptr,
+                               &notifier, &stats);
+  notifier.armed = true;
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 0}).succeeded);
+  ASSERT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 1}).succeeded);
+  workers.start(2);
+  const bool paused = waitUntil([&] { return notifier.entered.load(); });
+  EXPECT_TRUE(paused);
+  if (paused) {
+    EXPECT_TRUE(inbox.push({SessionEventKind::Packet, 1, {}, 2}).succeeded);
+    EXPECT_TRUE(waitForOutbound(outbox).has_value());
+    EXPECT_TRUE(
+        inbox.push({SessionEventKind::Disconnected, 1, {}, 3}).succeeded);
+    EXPECT_TRUE(waitUntil([&] { return handler.disconnects.load() == 1; }));
+  }
+  notifier.release();
+  EXPECT_TRUE(inbox.push({SessionEventKind::Packet, 2, {}, 0}).succeeded);
+  EXPECT_TRUE(waitForOutbound(outbox).has_value());
+  workers.beginStop();
+  EXPECT_TRUE(waitUntil([&] { return workers.finished(); }));
+  workers.forceStop();
+  workers.join();
+  EXPECT_EQ(handler.packet_calls.load(), 0U);
+  EXPECT_EQ(handler.disconnects.load(), 1U);
+  EXPECT_FALSE(rooms.userOf(1).has_value());
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_parked_limit_failures, 1U);
+  EXPECT_EQ(stats.snapshot(0, 0, 0).worker_invalid_sequence_failures, 0U);
 }
 
 TEST(WorkerPoolNotificationTest, GracefulStopWaitsForDeferredCompletion) {
@@ -781,7 +1160,7 @@ TEST(WorkerPoolNotificationTest, TracksActiveWorkersUntilTheyExit) {
   rss::net::WorkerPool workers(inbox, outbox, handler, workerConfig());
 
   workers.start(2);
-  ASSERT_TRUE(waitUntil([&] { return inbox.waiterCounts().consumers == 2; }));
+  ASSERT_TRUE(waitUntil([&] { return inbox.waiterCounts().consumers == 1; }));
   EXPECT_FALSE(workers.finished());
 
   workers.beginStop();

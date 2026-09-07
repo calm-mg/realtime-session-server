@@ -56,7 +56,7 @@ class TcpServer {
   void readSession(int fd, bool drain_after_peer_close = false,
                    std::size_t* remaining_work = nullptr);
   void flushSession(int fd);
-  void disconnect(int fd);
+  void disconnect(int fd, DisconnectReason reason);
   void drainOutbound();
   void updateInterest(Session& session);
   void expireIdleSessions();

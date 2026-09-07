@@ -193,7 +193,7 @@ Linux 네트워크 계층이 listener를 열 때 검사합니다.
 
 `SessionEventHandler::handle()`에서 예외가 빠져나오면 worker는 서버 전체를
 종료하지 않고 해당 세션을 실패 상태로 격리합니다. 이미 입력 queue에 들어온
-후속 패킷은 handler에 전달하지 않되 세션 순서 번호는 계속 진행합니다.
+후속 패킷은 handler에 전달하지 않습니다.
 이벤트 하나에서 만든 출력은 handler가 정상 반환할 때까지 worker에 보관하므로
 예외 전에 만든 부분 응답이나 broadcast도 게시되지 않습니다. worker는 출력
 queue에 `DisconnectSession` 제어 명령을 넣고, I/O 스레드가 소켓을 닫습니다.
@@ -203,6 +203,19 @@ worker는 소켓을 직접 조작하지 않습니다.
 따라서 기본 `MessageRouter`는 `RoomService`의 사용자와 방 참가 상태를 기존
 연결 종료 경로로 정리할 수 있습니다. handler 예외 횟수는
 `handler_exceptions` 통계에 누적합니다.
+
+세션 대기 이벤트 상한 초과, 순서 검증 거절, deferred completion 실패는
+`worker_parked_limit_failures`, `worker_invalid_sequence_failures`,
+`worker_deferred_failures`로 구분하고 세션의 첫 실패 전이에서만 누적합니다.
+실제 소켓 종료는 I/O 계층의 `disconnect_*`에 별도로 기록합니다. worker
+판정과 실제 종료는 다른 단계이므로 두 종류의 카운터를 합산하지 않습니다.
+
+실패한 세션의 `Disconnected` 이벤트는 별도 한 칸에 보존해, 이미 실행 중인
+handler와 deferred completion이 끝나면 빠진 순서 번호나 parked 상한과
+무관하게 처리합니다. 종료 이벤트 자체가 거절을 유발했거나 이미 parked에
+들어간 경우에도 보존합니다. 종료 처리가 끝나면 사용자·방·협상 상태와 worker
+순서 상태를 정리합니다. inbox에서 꺼내는 순서대로 세션 상태 참조를 확보해
+늦게 실행되는 이벤트가 정리된 상태를 다시 만드는 경합을 차단합니다.
 
 ## 과부하 통계
 

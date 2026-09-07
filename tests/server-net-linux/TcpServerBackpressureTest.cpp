@@ -105,6 +105,8 @@ class ClientSocket {
   [[nodiscard]] bool valid() const { return fd_ >= 0; }
   [[nodiscard]] int get() const { return fd_; }
 
+  int release() { return std::exchange(fd_, -1); }
+
   bool shutdownWrite() { return ::shutdown(fd_, SHUT_WR) == 0; }
 
   void reset() noexcept {
@@ -627,6 +629,77 @@ class TcpServerBackpressureTest : public testing::Test {
   SlowClientIsolationHandler slow_client_handler_;
 };
 
+TEST_F(TcpServerBackpressureTest, CountsPeerCloseOnceWithoutShutdownOverlap) {
+  handler_.release();
+  ASSERT_TRUE(startServer(loopbackConfig()));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+  client.reset();
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  stopAndJoin(true);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_peer_closed, 1U);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_shutdown, 0U);
+}
+
+TEST_F(TcpServerBackpressureTest, CountsResetAsSocketError) {
+  handler_.release();
+  ASSERT_TRUE(startServer(loopbackConfig()));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+  const linger reset{1, 0};
+  ASSERT_EQ(
+      ::setsockopt(client.get(), SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)),
+      0);
+  ::close(client.release());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_socket_error, 1U);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_peer_closed, 0U);
+}
+
+TEST_F(TcpServerBackpressureTest, CountsMalformedFrameAsProtocolError) {
+  handler_.release();
+  ASSERT_TRUE(startServer(loopbackConfig()));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(sendSingleWrite(client.get(), {0, 0, 0, 0}));
+  EXPECT_TRUE(waitForPeerClose(client.get()));
+  stopAndJoin(true);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_protocol_error, 1U);
+}
+
+TEST_F(TcpServerBackpressureTest, CountsIdleTimeout) {
+  handler_.release();
+  auto config = loopbackConfig();
+  config.idle_timeout = 1s;
+  ASSERT_TRUE(startServer(config));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] {
+        return server_->overloadSnapshot().disconnect_idle_timeout == 1;
+      },
+      3s));
+  EXPECT_TRUE(waitForPeerClose(client.get()));
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_peer_closed, 0U);
+}
+
+TEST_F(TcpServerBackpressureTest, CountsLiveSessionsClosedByShutdown) {
+  handler_.release();
+  ASSERT_TRUE(startServer(loopbackConfig()));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  ASSERT_TRUE(waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+  stopAndJoin(true);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_shutdown, 1U);
+}
+
 TEST_F(TcpServerBackpressureTest,
        RejectsOnlyNewConnectionAtMaximumSessionCount) {
   auto config = loopbackConfig();
@@ -1011,6 +1084,7 @@ TEST_F(TcpServerBackpressureTest,
 
   const auto snapshot = server_->overloadSnapshot();
   EXPECT_EQ(snapshot.slow_client_disconnects, 1U);
+  EXPECT_EQ(snapshot.disconnect_pending_write_limit, 1U);
   EXPECT_EQ(snapshot.max_session_pending_write_bytes,
             SlowClientIsolationHandler::kLargeResponseBytes);
 
@@ -1252,6 +1326,7 @@ TEST_F(TcpServerBackpressureTest, NegotiationFailureSendsErrorBeforeClosing) {
   EXPECT_TRUE(waitForPeerClose(client.get()));
   EXPECT_FALSE(negotiation_rooms_.userOf(1).has_value());
   stopAndJoin(true);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_close_after_flush, 1U);
 }
 
 TEST_F(TcpServerBackpressureTest, FragmentedNegotiationEnablesPing) {
@@ -1285,6 +1360,8 @@ TEST_F(TcpServerBackpressureTest, NegotiationBudgetFailureClosesConnection) {
         client.get(), PacketCodec::encode(PacketType::VersionReq, payload)));
     EXPECT_TRUE(waitForPeerClose(client.get()));
   }
+  stopAndJoin(true);
+  EXPECT_EQ(server_->overloadSnapshot().disconnect_worker_requested, 2U);
 }
 
 }  // namespace
