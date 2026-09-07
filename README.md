@@ -315,6 +315,9 @@ Linux ASan·UBSan 실행 방법은 [기여 가이드](CONTRIBUTING.md#linux-sani
 `p50`/`p95`/`p99` 응답 시간이 포함됩니다. 자세한 측정 방법은
 [벤치마크 가이드](docs/benchmark.md)를 참고하세요.
 
+마이크로벤치마크는 검증 실패 시 종료 코드 1을 반환합니다. 실패 반복을
+숨기는 aggregate-only 출력 옵션은 지원하지 않습니다.
+
 실제 서버의 방 broadcast, 다중 방, 느린 클라이언트 격리 측정은 Linux에서
 `rss_load_scenario_runner`를 사용합니다. 이 도구는 warm-up 1회를 버린 뒤
 같은 설정으로 반복 측정합니다. 서로 다른 commit의 결과는 CPU, 운영체제,

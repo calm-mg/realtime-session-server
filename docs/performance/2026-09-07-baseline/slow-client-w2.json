@@ -1,0 +1,24 @@
+{
+  "command": [
+    "/build/rss_load_scenario_runner",
+    "--scenario",
+    "slow-client",
+    "--clients",
+    "3",
+    "--slow-clients",
+    "1",
+    "--messages",
+    "2000",
+    "--payload-bytes",
+    "1291",
+    "--workers",
+    "2",
+    "--repeat",
+    "5"
+  ],
+  "started_utc": "2026-09-07T03:31:34.504314+00:00",
+  "ended_utc": "2026-09-07T03:31:37.866501+00:00",
+  "exit_code": 0,
+  "stdout": "environment commit=3d97432 os=Linux kernel=5.15.49-linuxkit-pr cpu=implementer_0x61_architecture_8_part_0x000 compiler=GNU_13.3.0 build_type=Release workers=2 requested_slow_receive_buffer_bytes=1024\nrun=1 scenario=slow-client clients=3 rooms=1 messages_per_sender=2000 payload_bytes=1291 slow_clients=1 repeats=5 sent=4000 expected=8000 received=8000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=0.290 throughput_broadcasts_per_sec=27599.626 p50_ms=0.227 p95_ms=0.388 p99_ms=0.523 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=1 rejected_connections=0 max_inbound_queue_size=5 max_outbound_queue_size=15 max_session_pending_write_bytes=32499\nrun=2 scenario=slow-client clients=3 rooms=1 messages_per_sender=2000 payload_bytes=1291 slow_clients=1 repeats=5 sent=4000 expected=8000 received=8000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=0.693 throughput_broadcasts_per_sec=11547.761 p50_ms=0.253 p95_ms=0.559 p99_ms=41.459 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=1 rejected_connections=0 max_inbound_queue_size=6 max_outbound_queue_size=18 max_session_pending_write_bytes=32499\nrun=3 scenario=slow-client clients=3 rooms=1 messages_per_sender=2000 payload_bytes=1291 slow_clients=1 repeats=5 sent=4000 expected=8000 received=8000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=0.599 throughput_broadcasts_per_sec=13360.834 p50_ms=0.249 p95_ms=0.607 p99_ms=41.140 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=1 rejected_connections=0 max_inbound_queue_size=6 max_outbound_queue_size=18 max_session_pending_write_bytes=32499\nrun=4 scenario=slow-client clients=3 rooms=1 messages_per_sender=2000 payload_bytes=1291 slow_clients=1 repeats=5 sent=4000 expected=8000 received=8000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=0.531 throughput_broadcasts_per_sec=15058.257 p50_ms=0.244 p95_ms=0.494 p99_ms=5.899 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=1 rejected_connections=0 max_inbound_queue_size=6 max_outbound_queue_size=15 max_session_pending_write_bytes=32499\nrun=5 scenario=slow-client clients=3 rooms=1 messages_per_sender=2000 payload_bytes=1291 slow_clients=1 repeats=5 sent=4000 expected=8000 received=8000 missing=0 duplicates=0 unexpected=0 failed_clients=0 elapsed_sec=0.498 throughput_broadcasts_per_sec=16071.841 p50_ms=0.261 p95_ms=0.549 p99_ms=5.161 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=1 rejected_connections=0 max_inbound_queue_size=6 max_outbound_queue_size=15 max_session_pending_write_bytes=32499\n",
+  "stderr": ""
+}

@@ -1,0 +1,24 @@
+{
+  "command": [
+    "/build/rss_load_scenario_runner",
+    "--scenario",
+    "multi-room",
+    "--clients",
+    "20",
+    "--rooms",
+    "4",
+    "--messages",
+    "1000",
+    "--payload-bytes",
+    "256",
+    "--workers",
+    "2",
+    "--repeat",
+    "1"
+  ],
+  "started_utc": "2026-09-07T03:29:55.706331+00:00",
+  "ended_utc": "2026-09-07T03:30:05.873627+00:00",
+  "exit_code": 1,
+  "stdout": "environment commit=3d97432 os=Linux kernel=5.15.49-linuxkit-pr cpu=implementer_0x61_architecture_8_part_0x000 compiler=GNU_13.3.0 build_type=Release workers=2 requested_slow_receive_buffer_bytes=1024\nrun=1 scenario=multi-room clients=20 rooms=4 messages_per_sender=1000 payload_bytes=256 slow_clients=1 repeats=1 sent=20000 expected=100000 received=1256 missing=98744 duplicates=0 unexpected=0 failed_clients=20 elapsed_sec=0.036 throughput_broadcasts_per_sec=35241.302 p50_ms=33.100 p95_ms=34.684 p99_ms=34.719 read_pauses=0 inbound_queue_full=0 outbound_budget_rejections=0 handler_exceptions=0 slow_client_disconnects=0 rejected_connections=0 max_inbound_queue_size=2624 max_outbound_queue_size=1237 max_session_pending_write_bytes=38934\n",
+  "stderr": ""
+}

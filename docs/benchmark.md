@@ -1,6 +1,6 @@
 # 벤치마크 실행과 해석
 
-성능 검사는 목적이 다른 두 도구로 나뉩니다.
+성능 검사는 목적이 다른 세 도구로 나뉩니다.
 
 - `rss_microbenchmarks`: 네트워크 없이 작은 코드 경로의 실행 시간을 측정
 - `rss_load_test_client`: 실제 TCP 연결과 `PING`/`PONG` 왕복 시간을 측정
@@ -9,6 +9,11 @@
 
 마이크로벤치마크 숫자는 서버의 동시 접속 처리량이 아닙니다. 반대로
 TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없습니다.
+
+첫 측정의 조건과 성공·실패 원시 결과는
+[Linux 컨테이너 예비 기준값](performance/2026-09-07-baseline/README.md)에
+정리했습니다. 짧은 burst 측정이므로 최대 처리량이나 성능 합격선으로
+사용하지 않습니다.
 
 ## 마이크로벤치마크
 
@@ -36,6 +41,14 @@ cmake --build --preset benchmark --target rss_microbenchmarks --parallel
 결과의 `Time`은 실제 경과 시간, `CPU`는 해당 작업에 사용된 CPU
 시간입니다. `bytes_per_second`와 `items_per_second`는 한 번의 반복에서
 처리했다고 표시한 데이터 양을 기준으로 계산됩니다.
+
+채팅 측정은 준비 단계에서 버전 협상과 실제 broadcast의 수신자·본문을
+검증합니다. 검증 실패는 종료 코드 1로 보고합니다. 실패한 반복이 통계에서
+숨겨지는 것을 방지하기 위해 `--benchmark_report_aggregates_only`와
+`--benchmark_display_aggregates_only`의 활성화는 거절합니다. 같은 이름의
+`BENCHMARK_REPORT_AGGREGATES_ONLY`, `BENCHMARK_DISPLAY_AGGREGATES_ONLY`
+환경변수도 해제하거나 `false`로 설정해야 합니다. 일반 반복 결과와 JSON
+파일에는 개별 값과 집계 값이 함께 기록됩니다.
 
 다른 프로세스, CPU 절전 상태, 가상화 환경에 따라 결과가 달라지므로
 한 번의 숫자나 서로 다른 PC의 숫자를 그대로 비교하지 않습니다.
