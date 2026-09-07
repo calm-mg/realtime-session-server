@@ -19,6 +19,10 @@ TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없�
 [연결 종료 진단](performance/2026-09-07-disconnect-diagnostics/README.md)에
 후속 재현 결과를 기록했습니다.
 
+송신 속도·방별 응답 대기 상한을 적용한 약 30초 반복 측정은
+[지속 부하 기준값](performance/2026-09-07-sustained-load/README.md)에
+정상·다중 방·느린 client 결과와 함께 기록했습니다.
+
 ## 마이크로벤치마크
 
 Google Benchmark 기반 실행 파일은 다음 세 코드 경로를 측정합니다.
