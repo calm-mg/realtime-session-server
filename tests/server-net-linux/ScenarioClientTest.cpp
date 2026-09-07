@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -91,6 +92,35 @@ class RawLoopbackPeer {
         throw std::runtime_error("accept timed out");
       }
     }
+  }
+
+  rss::protocol::Packet receivePacket(std::chrono::milliseconds timeout) {
+    rss::protocol::PacketCodec codec;
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+      waitFor(peer_fd_, POLLIN, deadline, "receive");
+      std::uint8_t bytes[4096];
+      const auto received = ::recv(peer_fd_, bytes, sizeof(bytes), 0);
+      if (received <= 0) {
+        throw std::runtime_error("peer receive failed");
+      }
+      codec.feed(bytes, static_cast<std::size_t>(received));
+      if (auto packet = codec.peekPacket()) {
+        return *packet;
+      }
+    }
+  }
+
+  void connectClient(rss::tools::ScenarioClient& client) {
+    auto responder = std::async(std::launch::async, [&] {
+      acceptClient(2s);
+      sendSingleWrite(
+          rss::protocol::PacketCodec::encode(
+              rss::protocol::PacketType::VersionRes, "OK|version=1"),
+          2s);
+    });
+    client.connect("127.0.0.1", port(), 2s);
+    responder.get();
   }
 
   void sendSingleWrite(std::span<const std::uint8_t> bytes,
@@ -180,6 +210,99 @@ std::unique_ptr<rss::tools::EmbeddedServer> startTestServer() {
   return server;
 }
 
+TEST(ScenarioClientTest, NegotiatesBeforeReturningAndPreservesFollowingFrame) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  auto responder = std::async(std::launch::async, [&] {
+    peer.acceptClient(2s);
+    auto response = rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionRes, "OK|version=1");
+    const auto next = rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::Pong, "after-negotiation");
+    response.insert(response.end(), next.begin(), next.end());
+    peer.sendSingleWrite(response, 2s);
+  });
+  client.connect("127.0.0.1", peer.port(), 2s);
+  responder.get();
+  const auto packet = client.receivePacket(2s);
+  EXPECT_EQ(packet.type, rss::protocol::PacketType::Pong);
+  EXPECT_EQ(rss::protocol::payloadToString(packet), "after-negotiation");
+  const auto request = peer.receivePacket(2s);
+  EXPECT_EQ(request.type, rss::protocol::PacketType::VersionReq);
+  EXPECT_EQ(rss::protocol::payloadToString(request),
+            "min_version=1|max_version=1");
+}
+
+TEST(ScenarioClientTest, RejectsSilentPeerWithinConnectTimeoutAndCloses) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 100ms),
+               std::runtime_error);
+  EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
+  EXPECT_THROW(client.login("alice", 100ms), std::logic_error);
+}
+
+TEST(ScenarioClientTest, PartialVersionResponseDoesNotExtendDeadline) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  auto responder = std::async(std::launch::async, [&] {
+    peer.acceptClient(2s);
+    const auto response = rss::protocol::PacketCodec::encode(
+        rss::protocol::PacketType::VersionRes, "OK|version=1");
+    try {
+      for (const auto& byte : response) {
+        peer.sendSingleWrite(std::span(&byte, 1), 1s);
+        std::this_thread::sleep_for(40ms);
+      }
+    } catch (const std::runtime_error&) {
+      // 협상 기한을 넘으면 클라이언트가 소켓을 닫는다.
+    }
+  });
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 100ms),
+               std::runtime_error);
+  EXPECT_LT(std::chrono::steady_clock::now() - started, 400ms);
+  responder.get();
+}
+
+TEST(ScenarioClientTest, LimitsNegotiationToFiveSeconds) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  const auto started = std::chrono::steady_clock::now();
+  EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 10s),
+               std::runtime_error);
+  const auto elapsed = std::chrono::steady_clock::now() - started;
+  EXPECT_GE(elapsed, 4900ms);
+  EXPECT_LT(elapsed, 7s);
+}
+
+TEST(ScenarioClientTest, RejectsInvalidVersionResponsesAndCloses) {
+  using rss::protocol::PacketType;
+  const std::pair<PacketType, std::string_view> responses[] = {
+      {PacketType::VersionRes, "OK|version=2"},
+      {PacketType::VersionRes, "OK|version=0"},
+      {PacketType::VersionRes, "OK|version=1|extra=1"},
+      {PacketType::VersionRes, "OK|version=abc"},
+      {PacketType::Pong, ""},
+      {PacketType::Error, "unsupported protocol version"},
+  };
+  for (const auto& [type, payload] : responses) {
+    RawLoopbackPeer peer;
+    rss::tools::ScenarioClient client;
+    auto responder = std::async(std::launch::async, [&] {
+      peer.acceptClient(2s);
+      peer.sendSingleWrite(rss::protocol::PacketCodec::encode(type, payload),
+                           2s);
+    });
+    EXPECT_THROW(client.connect("127.0.0.1", peer.port(), 2s),
+                 std::runtime_error)
+        << payload;
+    responder.get();
+    EXPECT_THROW(client.login("alice", 100ms), std::logic_error);
+  }
+}
+
 TEST(ScenarioClientTest, LogsInCreatesRoomAndReceivesOwnChat) {
   auto server = startTestServer();
   rss::tools::ScenarioClient client;
@@ -227,8 +350,7 @@ TEST(ScenarioClientTest, ReturnsRealServerJoinAndChatPacketsInOrder) {
 TEST(ScenarioClientTest, ParsesReorderedStructuredCreateRoomResponse) {
   RawLoopbackPeer peer;
   rss::tools::ScenarioClient client;
-  client.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
+  peer.connectClient(client);
   const auto response = rss::protocol::PacketCodec::encode(
       rss::protocol::PacketType::CreateRoomRes,
       "OK|event=CREATE_ROOM|name=a%7Cb|room_id=42|"
@@ -250,8 +372,7 @@ TEST(ScenarioClientTest, RejectsMalformedStructuredCreateRoomResponse) {
   for (const auto payload : malformed) {
     RawLoopbackPeer peer;
     rss::tools::ScenarioClient client;
-    client.connect("127.0.0.1", peer.port(), 2s);
-    peer.acceptClient(2s);
+    peer.connectClient(client);
     const auto response = rss::protocol::PacketCodec::encode(
         rss::protocol::PacketType::CreateRoomRes, payload);
     peer.sendSingleWrite(response, 2s);
@@ -298,8 +419,7 @@ TEST(ScenarioClientTest, WaitsForRemainderOfSplitFrame) {
         }
         return received;
       });
-  client.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
+  peer.connectClient(client);
 
   peer.sendSingleWrite(std::span(frame).first(split), 2s);
   auto packet_future =
@@ -343,8 +463,7 @@ TEST(ScenarioClientTest, ReturnsTwoFramesFromOneWriteInOrder) {
         }
         return received;
       });
-  client.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
+  peer.connectClient(client);
 
   peer.sendSingleWrite(batch, 2s);
 
@@ -364,8 +483,7 @@ TEST(ScenarioClientTest, MoveConstructionLeavesSourceReconnectable) {
   rss::tools::ScenarioClient moved_to(std::move(source));
   static_cast<void>(moved_to);
 
-  source.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
+  peer.connectClient(source);
   const auto frame = rss::protocol::PacketCodec::encode(
       rss::protocol::PacketType::Pong, "after-move-construction");
   peer.sendSingleWrite(frame, 2s);
@@ -381,8 +499,7 @@ TEST(ScenarioClientTest, MoveAssignmentLeavesSourceReconnectable) {
   rss::tools::ScenarioClient moved_to;
   moved_to = std::move(source);
 
-  source.connect("127.0.0.1", peer.port(), 2s);
-  peer.acceptClient(2s);
+  peer.connectClient(source);
   const auto frame = rss::protocol::PacketCodec::encode(
       rss::protocol::PacketType::Pong, "after-move-assignment");
   peer.sendSingleWrite(frame, 2s);

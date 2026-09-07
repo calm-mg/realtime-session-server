@@ -187,6 +187,14 @@ std::string loginUserId(std::uint16_t port, std::string_view name) {
   }
   try {
     sendAll(fd, rss::protocol::PacketCodec::encode(
+                    rss::protocol::PacketType::VersionReq,
+                    "min_version=1|max_version=1"));
+    const auto version = receivePacket(fd, 5s);
+    if (version.type != rss::protocol::PacketType::VersionRes ||
+        rss::protocol::payloadToString(version) != "OK|version=1") {
+      throw std::runtime_error("version negotiation failed");
+    }
+    sendAll(fd, rss::protocol::PacketCodec::encode(
                     rss::protocol::PacketType::LoginReq, name));
     const auto response = receivePacket(fd, 5s);
     if (response.type != rss::protocol::PacketType::LoginRes) {

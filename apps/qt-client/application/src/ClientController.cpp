@@ -10,6 +10,7 @@
 
 #include "rss/protocol/PacketCodec.h"
 #include "rss/protocol/ProtocolError.h"
+#include "rss/protocol/ProtocolVersion.h"
 #include "rss/protocol/StructuredPayload.h"
 #include "rss/protocol/TextValidation.h"
 
@@ -128,6 +129,10 @@ void validateBroadcast(const protocol::StructuredPayload& payload) {
 
 ClientController::ClientController(SessionTransport& transport, QObject* parent)
     : QObject(parent), transport_(transport) {
+  negotiation_timer_.setSingleShot(true);
+  connect(&negotiation_timer_, &QTimer::timeout, this, [this] {
+    failNegotiation("Protocol version negotiation timed out.");
+  });
   connect(&transport_, &SessionTransport::connected, this,
           &ClientController::onConnected);
   connect(&transport_, &SessionTransport::disconnected, this,
@@ -267,20 +272,63 @@ void ClientController::onConnected() {
   if (state_ != ClientState::Connecting) {
     return;
   }
-  setState(ClientState::Connected);
-  emit logEntryAdded(logEntry(LogKind::System, "Connected to the server."));
+  negotiating_ = true;
+  negotiation_timer_.start(protocol::kVersionNegotiationTimeout);
+  if (!sendTextPacket(
+          protocol::PacketType::VersionReq,
+          protocol::encodeVersionRequest({protocol::kMinProtocolVersion,
+                                          protocol::kMaxProtocolVersion}))) {
+    failNegotiation("Protocol version request could not be sent.");
+  }
+}
+
+void ClientController::failNegotiation(const QString& message) {
+  if (!negotiating_) {
+    return;
+  }
+  negotiation_timer_.stop();
+  negotiating_ = false;
+  emit logEntryAdded(logEntry(LogKind::Error, message));
+  transport_.disconnectFromHost();
 }
 
 void ClientController::onDisconnected() {
-  setState(ClientState::Disconnected);
+  negotiation_timer_.stop();
+  negotiating_ = false;
   setPendingRequest(PendingRequest::None);
   session_id_.reset();
+  setState(ClientState::Disconnected);
   emit logEntryAdded(
       logEntry(LogKind::System, "Disconnected from the server."));
 }
 
 void ClientController::onPacketReceived(const protocol::Packet& packet) {
+  if (state_ == ClientState::Disconnected) {
+    return;
+  }
+  if (state_ == ClientState::Connecting && !negotiating_) {
+    return;
+  }
   const auto raw_payload = protocol::payloadToString(packet);
+  if (negotiating_) {
+    try {
+      if (packet.type != protocol::PacketType::VersionRes) {
+        throw protocol::ProtocolError("unexpected version negotiation packet");
+      }
+      const auto version = protocol::decodeVersionResponse(raw_payload);
+      if (version < protocol::kMinProtocolVersion ||
+          version > protocol::kMaxProtocolVersion) {
+        throw protocol::ProtocolError("unsupported protocol version");
+      }
+      negotiation_timer_.stop();
+      negotiating_ = false;
+      setState(ClientState::Connected);
+      emit logEntryAdded(logEntry(LogKind::System, "Connected to the server."));
+    } catch (const protocol::ProtocolError&) {
+      failNegotiation("Protocol version negotiation failed.");
+    }
+    return;
+  }
 
   try {
     switch (packet.type) {
@@ -370,9 +418,11 @@ void ClientController::onTransportError(TransportErrorKind kind,
                                         const QString& message) {
   emit logEntryAdded(logEntry(LogKind::Error, message));
   if (kind == TransportErrorKind::Fatal) {
+    negotiation_timer_.stop();
+    negotiating_ = false;
     session_id_.reset();
-    setState(ClientState::Disconnected);
     setPendingRequest(PendingRequest::None);
+    setState(ClientState::Disconnected);
   }
 }
 

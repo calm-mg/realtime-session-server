@@ -19,6 +19,7 @@
 #include <system_error>
 #include <utility>
 
+#include "rss/net/ClientVersionNegotiation.h"
 #include "rss/protocol/ProtocolError.h"
 #include "rss/protocol/StructuredPayload.h"
 
@@ -161,7 +162,7 @@ void ScenarioClient::connect(std::string_view host, std::uint16_t port,
       const auto result = ::connect(fd_, reinterpret_cast<sockaddr*>(&address),
                                     sizeof(address));
       if (result == 0 || (result == -1 && errno == EISCONN)) {
-        return;
+        break;
       }
       if (errno == EINTR) {
         continue;
@@ -186,6 +187,7 @@ void ScenarioClient::connect(std::string_view host, std::uint16_t port,
     if (socket_error != 0) {
       throw systemError("connect", socket_error);
     }
+    static_cast<void>(rss::net::negotiateClientVersion(fd_, deadline));
   } catch (...) {
     close();
     throw;

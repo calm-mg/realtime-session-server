@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -38,6 +39,7 @@ class ClientController final : public QObject {
 
  private:
   void onConnected();
+  void failNegotiation(const QString& message);
   void onDisconnected();
   void onPacketReceived(const protocol::Packet& packet);
   void onTransportError(TransportErrorKind kind, const QString& message);
@@ -52,6 +54,8 @@ class ClientController final : public QObject {
       protocol::PacketType type) const noexcept;
 
   SessionTransport& transport_;
+  QTimer negotiation_timer_;
+  bool negotiating_{false};
   ClientState state_{ClientState::Disconnected};
   PendingRequest pending_request_{PendingRequest::None};
   std::optional<qulonglong> session_id_;

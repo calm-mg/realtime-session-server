@@ -53,12 +53,66 @@ class ClientControllerTest final : public QObject {
     qRegisterMetaType<rss::qt_client::TransportErrorKind>();
   }
 
+  void negotiatesBeforeLoginAndCanReconnectAfterFailure() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    controller.connectToServer("localhost", 7777);
+    transport.completeConnection();
+    QCOMPARE(controller.state(), ClientState::Connecting);
+    QVERIFY(transport.lastType() == PacketType::VersionReq);
+    QCOMPARE(transport.lastPayload(),
+             std::string("min_version=1|max_version=1"));
+    controller.login("alice");
+    QCOMPARE(transport.sentCount(), 1);
+    transport.receive(packet(PacketType::VersionRes, "OK|version=2"));
+    QCOMPARE(controller.state(), ClientState::Disconnected);
+    QCOMPARE(controller.pendingRequest(), PendingRequest::None);
+    controller.connectToServer("localhost", 7777);
+    transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
+    QCOMPARE(controller.state(), ClientState::Connected);
+  }
+
+  void rejectsInvalidNegotiationPackets() {
+    for (auto response : {packet(PacketType::Error, "unsupported version"),
+                          packet(PacketType::Pong, ""),
+                          packet(PacketType::VersionRes, "OK|version=x")}) {
+      FakeSessionTransport transport;
+      ClientController controller(transport);
+      QSignalSpy errors(&controller, &ClientController::logEntryAdded);
+      controller.connectToServer("localhost", 7777);
+      transport.completeConnection();
+      transport.receive(response);
+      QCOMPARE(controller.state(), ClientState::Disconnected);
+      QVERIFY(!errors.empty());
+    }
+  }
+
+  void disconnectsWhenNegotiationTimesOut() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    controller.connectToServer("localhost", 7777);
+    transport.completeConnection();
+    QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ClientState::Disconnected,
+                              6000);
+  }
+
+  void disconnectsWhenNegotiationCannotBeSent() {
+    FakeSessionTransport transport;
+    ClientController controller(transport);
+    transport.setSendSucceeds(false);
+    controller.connectToServer("localhost", 7777);
+    transport.completeConnection();
+    QCOMPARE(controller.state(), ClientState::Disconnected);
+  }
+
   void waitsForLoginResponseBeforeChangingState() {
     FakeSessionTransport transport;
     ClientController controller(transport);
 
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     QCOMPARE(controller.state(), ClientState::Connected);
 
     controller.login("alice");
@@ -79,6 +133,7 @@ class ClientControllerTest final : public QObject {
     QSignalSpy validation_spy(&controller, &ClientController::validationFailed);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
 
     controller.login("alice");
 
@@ -104,6 +159,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     transport.setSendSucceeds(false);
 
     controller.login("alice");
@@ -137,6 +193,7 @@ class ClientControllerTest final : public QObject {
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
 
     transport.receive(
@@ -156,6 +213,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
     QCOMPARE(controller.pendingRequest(), PendingRequest::Login);
 
@@ -170,6 +228,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
 
     transport.failFatally("Connection reset");
@@ -183,6 +242,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
 
     transport.completeDisconnection();
 
@@ -319,6 +379,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
 
     controller.login(QString::fromUtf8("가가가가가가가가가가"));
     QCOMPARE(transport.lastPayload(), std::string("가가가가가가가가가가"));
@@ -327,12 +388,13 @@ class ClientControllerTest final : public QObject {
     ClientController invalid_controller(invalid_transport);
     invalid_controller.connectToServer("127.0.0.1", 7777);
     invalid_transport.completeConnection();
+    invalid_transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     QSignalSpy validation_spy(&invalid_controller,
                               &ClientController::validationFailed);
 
     invalid_controller.login(QString::fromUtf8("가가가가가가가가가가가"));
 
-    QCOMPARE(invalid_transport.sentCount(), 0);
+    QCOMPARE(invalid_transport.sentCount(), 1);
     QCOMPARE(validation_spy.count(), 1);
     QCOMPARE(invalid_controller.state(), ClientState::Connected);
   }
@@ -364,6 +426,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
     transport.receive(packet(PacketType::LoginRes, loginResponse()));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
@@ -388,6 +451,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
     transport.receive(packet(PacketType::LoginRes, loginResponse()));
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
@@ -409,6 +473,7 @@ class ClientControllerTest final : public QObject {
     ClientController controller(transport);
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
     QSignalSpy log_spy(&controller, &ClientController::logEntryAdded);
 
@@ -474,6 +539,7 @@ class ClientControllerTest final : public QObject {
                     FakeSessionTransport& transport) {
     controller.connectToServer("127.0.0.1", 7777);
     transport.completeConnection();
+    transport.receive(packet(PacketType::VersionRes, "OK|version=1"));
     controller.login("alice");
     transport.receive(packet(PacketType::LoginRes, loginResponse()));
   }

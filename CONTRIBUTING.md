@@ -265,6 +265,37 @@ QT_QPA_PLATFORM=offscreen ctest --preset qt-client-dev
 관리합니다. 생성 파일인
 `ui_MainWindow.h`는 빌드 디렉터리에만 두며 커밋하지 않습니다.
 
+## Linux sanitizer 검증
+
+Clang 18의 ASan·UBSan 검증은 다음과 같이 실행할 수 있습니다. 디버그 정보를
+유지하면서 `-O1`을 적용해 계측 비용이 부하 시나리오의 시간 제한을 지배하지
+않도록 합니다. 테스트의 메시지 수, 검증 조건과 시간 제한은 그대로 유지합니다.
+
+```bash
+cmake -S . -B build/sanitizers-clang -G Ninja \
+  -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_BUILD_TYPE=Debug \
+  -DRSS_BUILD_NETWORK_TARGETS=ON -DRSS_BUILD_POSTGRES=ON \
+  -DCMAKE_CXX_FLAGS="-O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+cmake --build build/sanitizers-clang --parallel
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir build/sanitizers-clang --output-on-failure
+```
+
+DB 통합 테스트에는 앞에서 설명한 테스트용 PostgreSQL과
+`RSS_TEST_DATABASE_URL` 설정을 함께 사용합니다. 성능 수치 비교는 계측을 끈
+동일한 Release 빌드와 실행 환경에서 수행합니다.
+
+## 프로토콜 호환성 검증
+
+새 TCP 연결은 `VERSION_REQ`와 `VERSION_RES` 협상에 성공한 뒤 업무 요청을
+보내야 합니다. 테스트의 정상 연결 준비에도 협상을 포함하며, 협상 없이
+로그인·PING을 보내는 테스트는 구버전 거절을 검증할 때만 사용합니다.
+서버·Qt·콘솔·부하 도구를 같은 변경에서 갱신하고 버전 불일치, 잘못된 응답,
+timeout 및 재접속을 확인합니다. 상세 wire 계약은
+[프로토콜 문서](docs/protocol.md#연결-시-버전-협상)를 따릅니다.
+
 ## 변경 전 확인 사항
 
 코드를 공유하기 전에 다음 명령이 모두 통과하는지 확인합니다.

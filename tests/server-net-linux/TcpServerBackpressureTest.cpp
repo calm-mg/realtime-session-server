@@ -27,7 +27,9 @@
 #include "rss/net/ServerConfig.h"
 #include "rss/net/TcpServer.h"
 #include "rss/net/detail/AcceptBatchLimiter.h"
+#include "rss/persistence/InMemoryUserRepository.h"
 #include "rss/protocol/PacketCodec.h"
+#include "rss/service/MessageRouter.h"
 #include "rss/service/SessionEventHandler.h"
 
 namespace {
@@ -606,6 +608,10 @@ class TcpServerBackpressureTest : public testing::Test {
 
   [[nodiscard]] std::uint16_t boundPort() const { return server_->boundPort(); }
 
+  rss::persistence::InMemoryUserRepository negotiation_users_;
+  rss::service::RoomService negotiation_rooms_;
+  rss::service::MessageRouter negotiation_router_{negotiation_rooms_,
+                                                  negotiation_users_};
   BlockingPongHandler handler_;
   std::unique_ptr<rss::net::TcpServer> server_;
   std::thread server_thread_;
@@ -1229,6 +1235,56 @@ TEST_F(TcpServerBackpressureTest,
 
   server_->stop();
   EXPECT_EQ(waitForServerFinishedFuture(1500ms), std::future_status::ready);
+}
+
+TEST_F(TcpServerBackpressureTest, NegotiationFailureSendsErrorBeforeClosing) {
+  ASSERT_TRUE(startServer(loopbackConfig(), &negotiation_router_));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  auto bytes = PacketCodec::encode(PacketType::VersionReq,
+                                   "min_version=2|max_version=3");
+  const auto login = PacketCodec::encode(PacketType::LoginReq, "alice");
+  bytes.insert(bytes.end(), login.begin(), login.end());
+  ASSERT_TRUE(sendSingleWrite(client.get(), bytes));
+  const auto packets = receivePackets(client.get(), 2);
+  ASSERT_EQ(packets.size(), 1U);
+  EXPECT_EQ(packets.front().type, PacketType::Error);
+  EXPECT_TRUE(waitForPeerClose(client.get()));
+  EXPECT_FALSE(negotiation_rooms_.userOf(1).has_value());
+  stopAndJoin(true);
+}
+
+TEST_F(TcpServerBackpressureTest, FragmentedNegotiationEnablesPing) {
+  ASSERT_TRUE(startServer(loopbackConfig(), &negotiation_router_));
+  auto client = connectClient(boundPort());
+  ASSERT_TRUE(client.valid());
+  const auto bytes = PacketCodec::encode(PacketType::VersionReq,
+                                         "min_version=1|max_version=1");
+  for (const auto byte : bytes) {
+    ASSERT_TRUE(sendSingleWrite(client.get(), {byte}));
+  }
+  ASSERT_TRUE(
+      sendSingleWrite(client.get(), PacketCodec::encode(PacketType::Ping, "")));
+  const auto packets = receivePackets(client.get(), 2);
+  ASSERT_EQ(packets.size(), 2U);
+  EXPECT_EQ(packets[0].type, PacketType::VersionRes);
+  EXPECT_EQ(rss::protocol::payloadToString(packets[0]), "OK|version=1");
+  EXPECT_EQ(packets[1].type, PacketType::Pong);
+  stopAndJoin(true);
+}
+
+TEST_F(TcpServerBackpressureTest, NegotiationBudgetFailureClosesConnection) {
+  auto config = loopbackConfig();
+  config.max_outbound_bytes_per_event = 4;
+  ASSERT_TRUE(startServer(config, &negotiation_router_));
+  for (const auto payload :
+       {"min_version=1|max_version=1", "min_version=2|max_version=2"}) {
+    auto client = connectClient(boundPort());
+    ASSERT_TRUE(client.valid());
+    ASSERT_TRUE(sendSingleWrite(
+        client.get(), PacketCodec::encode(PacketType::VersionReq, payload)));
+    EXPECT_TRUE(waitForPeerClose(client.get()));
+  }
 }
 
 }  // namespace

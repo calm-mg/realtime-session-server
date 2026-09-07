@@ -14,6 +14,7 @@ target_link_libraries(rss_load_scenario_runtime
         rss_load_test_support
     PRIVATE
         rss_server_net
+        rss_client_net_linux
 )
 execute_process(
     COMMAND git rev-parse --short HEAD

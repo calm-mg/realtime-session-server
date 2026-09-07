@@ -1,4 +1,5 @@
 add_executable(rss_protocol_tests
+    ProtocolVersionTest.cpp
     PacketCodecTest.cpp
     StructuredPayloadTest.cpp
     TextValidationTest.cpp

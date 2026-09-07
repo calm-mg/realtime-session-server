@@ -10,6 +10,7 @@
 #include <thread>
 #include <utility>
 
+#include "FakeSessionEventContext.h"
 #include "rss/net/CompletionNotifier.h"
 #include "rss/net/OverloadStats.h"
 #include "rss/net/WorkerPool.h"
@@ -266,7 +267,15 @@ class FailingDeferredHandler final : public rss::service::SessionEventHandler {
 class DelayedLoginHandler final : public rss::service::SessionEventHandler {
  public:
   explicit DelayedLoginHandler(rss::service::RoomService& room_service)
-      : router_(room_service, users_) {}
+      : router_(room_service, users_) {
+    rss::test::FakeSessionEventContext context;
+    const std::string payload = "min_version=1|max_version=1";
+    router_.handle({rss::service::SessionEventKind::Packet,
+                    42,
+                    {rss::protocol::PacketType::VersionReq,
+                     {payload.begin(), payload.end()}}},
+                   context);
+  }
 
   void handle(const rss::service::SessionEvent& event,
               rss::service::SessionEventContext& context) override {
@@ -982,6 +991,95 @@ TEST(WorkerPoolNotificationTest, DestructorClosesQueuesAndJoinsWorkers) {
   EXPECT_TRUE(destroyed.get());
   EXPECT_TRUE(inbox.closed());
   EXPECT_TRUE(outbox.closed());
+}
+
+TEST(WorkerPoolNotificationTest, NegotiationBudgetFailureRequestsDisconnect) {
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  for (const std::string payload :
+       {"min_version=1|max_version=1", "min_version=2|max_version=2"}) {
+    rss::util::BoundedBlockingQueue<SessionEvent> inbox(4);
+    rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(4);
+    rss::persistence::InMemoryUserRepository users;
+    rss::service::RoomService rooms;
+    rss::service::MessageRouter router(rooms, users);
+    rss::net::WorkerPool workers(
+        inbox, outbox, router,
+        rss::net::WorkerPoolConfig{.inbound_low_watermark = 1,
+                                   .max_outbound_messages_per_event = 1,
+                                   .max_outbound_bytes_per_event = 4});
+    workers.start(1);
+    ASSERT_TRUE(inbox
+                    .push(SessionEvent{SessionEventKind::Packet,
+                                       1,
+                                       {rss::protocol::PacketType::VersionReq,
+                                        {payload.begin(), payload.end()}},
+                                       0})
+                    .succeeded);
+    ASSERT_TRUE(inbox
+                    .push(SessionEvent{SessionEventKind::Packet,
+                                       1,
+                                       {rss::protocol::PacketType::LoginReq,
+                                        {'a', 'l', 'i', 'c', 'e'}},
+                                       1})
+                    .succeeded);
+    workers.beginStop();
+    workers.join();
+    EXPECT_FALSE(rooms.userOf(1).has_value());
+    ASSERT_EQ(outbox.size(), 1U);
+    const auto output = outbox.tryPop();
+    ASSERT_TRUE(output.value.has_value());
+    EXPECT_EQ(output.value->session_id, 1U);
+    EXPECT_EQ(output.value->kind,
+              rss::service::OutboundMessageKind::DisconnectSession);
+    EXPECT_TRUE(output.value->bytes.empty());
+  }
+}
+
+TEST(WorkerPoolNotificationTest,
+     BoundsDisconnectControlIndependentlyOfOutputBudget) {
+  using rss::service::OutboundMessageKind;
+  using rss::service::SessionEvent;
+  using rss::service::SessionEventKind;
+  class DisconnectHandler final : public rss::service::SessionEventHandler {
+   public:
+    void handle(const SessionEvent& event,
+                rss::service::SessionEventContext& context) override {
+      EXPECT_TRUE(context.emit({event.session_id, {1}}));
+      EXPECT_FALSE(context.emit(
+          {event.session_id + 1, {}, OutboundMessageKind::DisconnectSession}));
+      EXPECT_FALSE(context.emit(
+          {event.session_id, {2}, OutboundMessageKind::DisconnectSession}));
+      EXPECT_TRUE(context.emit(
+          {event.session_id, {}, OutboundMessageKind::DisconnectSession}));
+      EXPECT_FALSE(context.emit(
+          {event.session_id, {}, OutboundMessageKind::DisconnectSession}));
+      EXPECT_FALSE(context.emit({event.session_id, {3}}));
+    }
+  } handler;
+  for (const auto budget : {1U, 3U}) {
+    rss::util::BoundedBlockingQueue<SessionEvent> inbox(2);
+    rss::util::BoundedBlockingQueue<rss::service::OutboundMessage> outbox(4);
+    rss::net::WorkerPool workers(
+        inbox, outbox, handler,
+        rss::net::WorkerPoolConfig{.inbound_low_watermark = 1,
+                                   .max_outbound_messages_per_event = budget,
+                                   .max_outbound_bytes_per_event = budget});
+    workers.start(1);
+    ASSERT_TRUE(
+        inbox.push(SessionEvent{SessionEventKind::Packet, 42, {}}).succeeded);
+    workers.beginStop();
+    workers.join();
+    ASSERT_EQ(outbox.size(), 2U);
+    const auto bytes = outbox.tryPop();
+    ASSERT_TRUE(bytes.value.has_value());
+    EXPECT_EQ(bytes.value->bytes, std::vector<std::uint8_t>{1});
+    const auto close = outbox.tryPop();
+    ASSERT_TRUE(close.value.has_value());
+    EXPECT_EQ(close.value->session_id, 42U);
+    EXPECT_EQ(close.value->kind, OutboundMessageKind::DisconnectSession);
+    EXPECT_TRUE(close.value->bytes.empty());
+  }
 }
 
 }  // namespace

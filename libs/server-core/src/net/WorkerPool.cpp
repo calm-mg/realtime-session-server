@@ -102,6 +102,17 @@ class WorkerSessionEventContext final : public service::SessionEventContext {
     if (force_stop_requested_->load(std::memory_order_acquire)) {
       return false;
     }
+    if (disconnect_requested_) {
+      return false;
+    }
+    if (message.kind == service::OutboundMessageKind::DisconnectSession) {
+      if (message.session_id != event_.session_id || byte_count != 0) {
+        return false;
+      }
+      messages_.push_back(std::move(message));
+      disconnect_requested_ = true;
+      return true;
+    }
     if (byte_count == 0 ||
         emitted_messages_ >= config_.max_outbound_messages_per_event ||
         byte_count > config_.max_outbound_bytes_per_event - emitted_bytes_) {
@@ -164,6 +175,7 @@ class WorkerSessionEventContext final : public service::SessionEventContext {
   std::vector<service::OutboundMessage> messages_;
   std::size_t emitted_messages_{};
   std::size_t emitted_bytes_{};
+  bool disconnect_requested_{false};
   bool deferred_{false};
   std::shared_ptr<DeferredCompletionState> deferred_state_;
 };

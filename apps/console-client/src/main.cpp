@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 
+#include "rss/net/ClientVersionNegotiation.h"
 #include "rss/protocol/Packet.h"
 #include "rss/protocol/PacketCodec.h"
 #include "rss/protocol/PacketTypes.h"
@@ -45,6 +46,12 @@ int connectTo(const std::string& host, std::uint16_t port) {
                              std::strerror(errno));
   }
 
+  try {
+    static_cast<void>(rss::net::negotiateClientVersion(fd));
+  } catch (...) {
+    ::close(fd);
+    throw;
+  }
   return fd;
 }
 

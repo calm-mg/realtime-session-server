@@ -1,7 +1,9 @@
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include "rss/persistence/UserRepository.h"
 #include "rss/service/Command.h"
@@ -18,6 +20,9 @@ class MessageRouter final : public SessionEventHandler {
   void handle(const SessionEvent& event, SessionEventContext& context) override;
 
  private:
+  bool handleNegotiation(std::uint64_t session_id,
+                         const protocol::Packet& packet,
+                         SessionEventContext& context);
   void handlePacket(std::uint64_t session_id, const protocol::Packet& packet,
                     SessionEventContext& context);
   [[nodiscard]] OutboundMessage make(std::uint64_t session_id,
@@ -26,6 +31,8 @@ class MessageRouter final : public SessionEventHandler {
   [[nodiscard]] OutboundMessage error(std::uint64_t session_id,
                                       std::string_view message) const;
 
+  std::mutex negotiation_mutex_;
+  std::unordered_map<std::uint64_t, std::uint16_t> negotiated_versions_;
   RoomService& room_service_;
   persistence::UserRepository& user_repository_;
 };

@@ -350,6 +350,9 @@ void TcpServer::readSession(int fd, bool drain_after_peer_close,
   }
 
   auto& session = *it->second;
+  if (session.closingAfterFlush()) {
+    return;
+  }
   std::uint8_t buffer[4096];
 
   while (true) {
@@ -463,6 +466,10 @@ void TcpServer::flushSession(int fd) {
     sent_bytes += static_cast<std::size_t>(n);
   }
 
+  if (session.closingAfterFlush() && !session.hasPendingWrite()) {
+    disconnect(fd);
+    return;
+  }
   updateInterest(session);
 }
 
@@ -531,12 +538,18 @@ void TcpServer::drainOutbound() {
     }
 
     auto& session = *session_it->second;
+    if (session.closingAfterFlush()) {
+      continue;
+    }
     if (!session.tryEnqueue(std::move(message->bytes))) {
       overload_stats_.recordSlowClientDisconnect();
       disconnect(session.fd());
       continue;
     }
 
+    if (message->kind == service::OutboundMessageKind::SendBytesAndDisconnect) {
+      session.closeAfterFlush();
+    }
     overload_stats_.observeSessionPendingWriteBytes(
         session.pendingWriteBytes());
     updateInterest(session);
@@ -548,7 +561,8 @@ void TcpServer::drainOutbound() {
 
 void TcpServer::updateInterest(Session& session) {
   auto events = static_cast<std::uint32_t>(EPOLLRDHUP);
-  if (shutdown_phase_ == ShutdownPhase::Running && !reads_paused_) {
+  if (shutdown_phase_ == ShutdownPhase::Running && !reads_paused_ &&
+      !session.closingAfterFlush()) {
     events |= EPOLLIN;
   }
   if (session.hasPendingWrite()) {

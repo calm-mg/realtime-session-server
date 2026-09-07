@@ -24,6 +24,12 @@ void Session::markPeerReadClosed() noexcept { peer_read_closed_ = true; }
 
 bool Session::peerReadClosed() const noexcept { return peer_read_closed_; }
 
+void Session::closeAfterFlush() noexcept { closing_after_flush_ = true; }
+
+bool Session::closingAfterFlush() const noexcept {
+  return closing_after_flush_;
+}
+
 void Session::touch() { last_seen_ = std::chrono::steady_clock::now(); }
 
 std::chrono::steady_clock::time_point Session::lastSeen() const {

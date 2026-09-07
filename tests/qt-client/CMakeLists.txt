@@ -39,6 +39,7 @@ target_link_libraries(rss_qt_session_client_tests
 )
 
 foreach(test_case
+        negotiatesOverSocketAndRejectsUnsupportedVersion
         emitsConnectedAndDisconnected
         receivesPacketSplitAcrossWrites
         receivesMultiplePacketsFromOneWrite

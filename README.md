@@ -224,6 +224,13 @@ UUID를 받습니다. 현재 이름 로그인은 인증이 아니므로 이름�
 클라이언트도 같은 사용자로 식별될 수 있습니다. 방, 참가 상태와 채팅
 메시지는 아직 메모리에만 있으며 서버 재시작 시 복구되지 않습니다.
 
+서버 연결 시 모든 클라이언트와 부하 도구는 먼저 프로토콜 버전을 자동으로
+협상합니다. 현재 버전은 1이며, 협상 성공 후 로그인과 `PING`을 사용할 수
+있습니다. 협상 실패 또는 5초 응답 제한 시간 초과 시 연결을 종료합니다.
+협상 기능이 없는 기존 클라이언트와 서버는 함께 사용할 수 없으므로 양쪽을
+같은 변경으로 갱신해야 합니다. 상세 계약은 [프로토콜 문서](docs/protocol.md)를
+참고합니다.
+
 ## Qt 데스크톱 클라이언트
 
 Qt 클라이언트는 Linux, macOS, Windows에서 같은 소스로 빌드됩니다. 서버
@@ -282,6 +289,9 @@ ctest --preset qt-client-dev
 Qt 정적 분석은 `cmake --build --preset qt-client-dev --target tidy-check`로
 실행합니다. macOS에서 LLVM이 표준 헤더를 찾지 못하는 경우의 SDK 설정은
 [기여 가이드](CONTRIBUTING.md)를 참고합니다.
+
+Linux ASan·UBSan 실행 방법은 [기여 가이드](CONTRIBUTING.md#linux-sanitizer-검증)를
+참고합니다. 성능 비교용 결과는 sanitizer를 끈 Release 빌드에서 측정합니다.
 
 ## 부하 측정 도구
 
@@ -355,6 +365,7 @@ libs/protocol/          패킷 종류와 인코딩 규칙
 libs/server-core/       플랫폼 독립 도메인, 서비스, session, worker
 libs/server-persistence-postgres/ PostgreSQL 사용자 저장소와 migration
 libs/server-net-linux/  Linux epoll, eventfd, TCP 서버 구현
+libs/client-net-linux/ Linux 클라이언트의 공용 버전 협상
 libs/load-test-support/ 부하 테스트 통계 지원 코드
 tests/                  라이브러리별 GoogleTest 자동 테스트
 benchmarks/             Google Benchmark 마이크로벤치마크
