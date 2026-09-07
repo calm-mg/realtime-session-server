@@ -17,8 +17,12 @@ struct ScenarioOptions {
   std::size_t slow_clients{1};
   std::size_t repeats{5};
   std::size_t worker_count{4};
+  std::size_t rate_per_client{0};
+  std::size_t max_in_flight{0};
+  std::size_t timeout_seconds{30};
 };
 
+void validateScenarioOptions(const ScenarioOptions& options);
 ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args);
 std::string_view scenarioName(ScenarioKind kind) noexcept;
 

@@ -14,7 +14,8 @@ constexpr std::string_view kUsage =
     "Usage: rss_load_scenario_runner "
     "[--scenario <broadcast|multi-room|slow-client>] "
     "[--clients N] [--rooms N] [--messages N] [--payload-bytes N] "
-    "[--slow-clients N] [--repeat N] [--workers N]";
+    "[--slow-clients N] [--repeat N] [--workers N] "
+    "[--rate-per-client N] [--max-in-flight N] [--timeout-seconds N]";
 
 }  // namespace
 

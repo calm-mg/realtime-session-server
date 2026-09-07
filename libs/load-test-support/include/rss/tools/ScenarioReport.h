@@ -54,6 +54,8 @@ struct ClientFailureReport {
 struct ScenarioRunResult {
   ScenarioOptions requested;
   std::size_t effective_rooms{1};
+  std::size_t effective_max_in_flight{};
+  std::uint64_t effective_timeout_ms{};
   std::uint64_t sent{};
   std::uint64_t expected_broadcasts{};
   std::uint64_t received_broadcasts{};

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -24,7 +25,7 @@ struct ScenarioTuning {
   std::size_t slow_client_max_pending_write_bytes{32U * 1024U};
   int socket_receive_buffer_bytes{1024};
   std::size_t max_sessions{10000};
-  std::chrono::milliseconds scenario_timeout{std::chrono::seconds{30}};
+  std::optional<std::chrono::milliseconds> scenario_timeout;
   std::function<void()> before_measurement_start;
   std::function<void()> before_receive;
   std::function<void(std::size_t, std::size_t)> before_send;

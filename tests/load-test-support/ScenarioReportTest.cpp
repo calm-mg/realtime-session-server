@@ -58,10 +58,15 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
   options.payload_bytes = 512;
   options.slow_clients = 1;
   options.repeats = 4;
+  options.rate_per_client = 25;
+  options.max_in_flight = 4;
+  options.timeout_seconds = 90;
 
   rss::tools::ScenarioRunResult result;
   result.requested = options;
   result.effective_rooms = 1;
+  result.effective_max_in_flight = 4;
+  result.effective_timeout_ms = 90000;
   result.sent = 2;
   result.expected_broadcasts = 4;
   result.received_broadcasts = 4;
@@ -101,6 +106,8 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
       rss::tools::formatRunResult(2, options.scenario, result),
       "run=2 scenario=slow-client clients=3 rooms=1 "
       "messages_per_sender=11 payload_bytes=512 slow_clients=1 repeats=4 "
+      "rate_per_client=25 max_in_flight=4 effective_max_in_flight=4 "
+      "timeout_seconds=90 effective_timeout_ms=90000 "
       "sent=2 expected=4 received=4 missing=0 duplicates=0 unexpected=0 "
       "failed_clients=0 "
       "client_setup_peer_closed=1 client_setup_socket_error=2 "
