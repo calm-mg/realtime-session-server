@@ -9,6 +9,9 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 1차 버전은 `v0.1.0`입니다. 구현·검증·데모 범위와 이후 선택할 확장 과제는
 [프로젝트 상태](docs/project-status.md#1차-완료-범위)에 정리했습니다.
 
+처음 살펴본다면 [프로젝트 소개](docs/project-overview.md)에서 구조·설계 선택,
+문제 해결 사례와 성능 개선 결과를 먼저 확인할 수 있습니다.
+
 ## 주요 기능
 
 - non-blocking TCP 연결
@@ -33,6 +36,7 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 
 | 목적 | 문서 |
 | --- | --- |
+| 핵심 구현·문제 해결·성과 빠르게 확인 | [프로젝트 소개](docs/project-overview.md) |
 | 직접 실행하고 채팅 확인 | [빠른 시작](#빠른-시작), [두 사용자 데모](docs/demo.md) |
 | I/O·worker 분리와 과부하 제어 이해 | [서버 구조](docs/architecture.md) |
 | 패킷·버전·문자열 계약 확인 | [프로토콜](docs/protocol.md) |
