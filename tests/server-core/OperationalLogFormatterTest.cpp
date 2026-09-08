@@ -40,6 +40,21 @@ TEST(OperationalLogFormatterTest, EscapesJsonControlCharactersInFailure) {
             "\\\\now\"}\n");
 }
 
+TEST(OperationalLogFormatterTest, FormatsSocketErrorWithoutLosingContext) {
+  const rss::observability::SocketErrorDiagnostic diagnostic{
+      .session_id = 42,
+      .fd = 9,
+      .operation = "send\"\n",
+      .error_code = 104,
+      .epoll_events = 25,
+      .pending_write_bytes = 321};
+  EXPECT_EQ(rss::observability::formatSocketError(123, diagnostic),
+            "{\"timestamp_unix_ms\":123,\"level\":\"warning\","
+            "\"event\":\"socket_error\",\"session_id\":42,\"fd\":9,"
+            "\"operation\":\"send\\\"\\n\",\"error_code\":104,"
+            "\"epoll_events\":25,\"pending_write_bytes\":321}\n");
+}
+
 TEST(OperationalLogFormatterTest, FormatsEveryOverloadFieldInStableOrder) {
   const OverloadSnapshot snapshot{
       .read_pauses = 1,

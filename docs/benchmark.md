@@ -25,7 +25,9 @@ TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없�
 
 운영 서버와 부하 생성기의 프로세스·CPU를 나눈 후속 결과는
 [외부 대상 분리 측정](performance/2026-09-08-external-target/README.md)에
-서버 로그와 함께 보관했습니다.
+서버 로그와 함께 보관했습니다. 소켓 오류 1건의 후속 시도와 최소 계측은
+[동일 조건 재현 조사](performance/2026-09-08-socket-error-investigation/README.md)에
+기록합니다.
 
 ## 마이크로벤치마크
 
@@ -382,6 +384,24 @@ client connect, login, 방 생성·참가 같은 setup 실패도 `run` 줄을 �
 `shutdown`입니다. 각각 상대 EOF, 소켓 오류, 패킷 해석 오류, 유휴 시간 초과,
 worker 종료 명령, 미전송 byte 상한, 오류 응답 송신 후 종료, 서버 정리 중
 종료를 뜻합니다. 연결 하나의 실제 종료는 한 이유에만 기록합니다.
+
+소켓 오류가 있으면 서버 표준 오류의 `socket_error` NDJSON을 함께 수집합니다.
+`timestamp_unix_ms`, `session_id`, `fd`, `operation`, `error_code`,
+`epoll_events`, `pending_write_bytes`로 발생 시점과 경로를 구분합니다.
+`session_id`는 서버 수명 안에서만 고유하며 fd는 재사용될 수 있습니다.
+
+- `epoll_error`: `EPOLLERR`에서 읽은 `SO_ERROR`. `error_code=0`도 그대로 기록
+- `getsockopt_so_error`: `SO_ERROR` 조회 자체의 실패 errno
+- `recv`, `send`: 실패한 시스템 호출의 errno
+- `send_zero`: 양수 길이 송신의 0 반환. errno가 정의되지 않아 `error_code=0`
+
+`epoll_events`는 epoll 오류 경로에서만 실제 이벤트 마스크이며 나머지는 0입니다.
+`pending_write_bytes`는 사용자 공간 송신 queue 잔량이며 커널 미전송량이나
+상대의 미수신량이 아닙니다. 진단 출력 실패 시에도 기존 연결 정리와 누적
+카운터 갱신은 계속합니다. 로그는 오류 때 동기 출력하므로 오류가 몰리거나
+표준 오류 수집이 느리면 I/O 스레드 타이밍에 영향을 줄 수 있습니다.
+`RSS_OBSERVABILITY_INTERVAL_SECONDS=0`도 이 오류 로그를 끄지 않습니다.
+오류 번호만으로 상대가 reset을 보낸 이유까지 확정할 수는 없습니다.
 
 worker의 실패 판정과 I/O의 종료는 서로 다른 단계입니다. 예를 들어
 `worker_parked_limit_failures`와 `disconnect_worker_requested`가 함께 증가하면

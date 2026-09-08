@@ -172,7 +172,16 @@ void TcpServer::run() {
         }
 
         if ((event.events & EPOLLERR) != 0U) {
-          disconnect(fd, DisconnectReason::SocketError);
+          int socket_error{};
+          socklen_t error_size = sizeof(socket_error);
+          if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &socket_error,
+                           &error_size) < 0) {
+            disconnectSocketError(fd, "getsockopt_so_error", errno,
+                                  event.events);
+          } else {
+            disconnectSocketError(fd, "epoll_error", socket_error,
+                                  event.events);
+          }
           continue;
         }
 
@@ -370,7 +379,7 @@ void TcpServer::readSession(int fd, bool drain_after_peer_close,
       if (wouldBlock()) {
         break;
       }
-      disconnect(fd, DisconnectReason::SocketError);
+      disconnectSocketError(fd, "recv", errno);
       return;
     }
 
@@ -449,7 +458,7 @@ void TcpServer::flushSession(int fd) {
     const auto n = ::send(fd, data, send_size, MSG_NOSIGNAL);
 
     if (n == 0) {
-      disconnect(fd, DisconnectReason::SocketError);
+      disconnectSocketError(fd, "send_zero", 0);
       return;
     }
 
@@ -458,7 +467,7 @@ void TcpServer::flushSession(int fd) {
         updateInterest(session);
         return;
       }
-      disconnect(fd, DisconnectReason::SocketError);
+      disconnectSocketError(fd, "send", errno);
       return;
     }
 
@@ -471,6 +480,30 @@ void TcpServer::flushSession(int fd) {
     return;
   }
   updateInterest(session);
+}
+
+void TcpServer::disconnectSocketError(int fd, const char* operation,
+                                      int error_code,
+                                      std::uint32_t epoll_events) {
+  const auto it = sessions_by_fd_.find(fd);
+  if (it == sessions_by_fd_.end()) {
+    return;
+  }
+  try {
+    // Capture the syscall error before formatting or output can change errno.
+    // Error-only stderr output does not interleave with periodic stdout logs.
+    std::cerr << observability::formatSocketError(
+        observability::currentUnixTimeMilliseconds(),
+        {.session_id = it->second->id(),
+         .fd = fd,
+         .operation = operation,
+         .error_code = error_code,
+         .epoll_events = epoll_events,
+         .pending_write_bytes = it->second->pendingWriteBytes()});
+  } catch (...) {
+    // Diagnostics must not prevent connection cleanup or counter updates.
+  }
+  disconnect(fd, DisconnectReason::SocketError);
 }
 
 void TcpServer::disconnect(int fd, DisconnectReason reason) {

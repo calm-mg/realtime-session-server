@@ -241,6 +241,9 @@ snapshot의 각 항목은 동시 갱신 중에도 독립적으로 읽을 수 있
 - `overload_snapshot`의 `final` phase: network drain 완료 뒤 최종값 기록
 - `server_stopped`: 최종 통계 다음에 정상 종료 완료를 기록
 - `server_failed`: 시작 또는 실행 실패 원인을 표준 오류에 기록
+- `socket_error`: 연결을 소켓 오류로 제거하기 직전에 I/O 스레드가 표준
+  오류에 시각, 세션 ID, fd, 오류 경로, 오류 번호, epoll 이벤트와 대기 송신
+  byte를 기록. 정상 송수신 경로에서는 추가 로그나 시스템 호출을 하지 않음
 
 모든 이벤트에는 Unix epoch 밀리초 `timestamp_unix_ms`, `level`, `event`가
 있습니다. 정보 이벤트는 표준 출력, 실패 이벤트는 표준 오류를 사용합니다.
