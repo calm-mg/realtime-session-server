@@ -311,6 +311,45 @@ std::optional<rss::protocol::Packet> ScenarioClient::tryReceivePacket(
   }
 }
 
+void ScenarioClient::closeGracefully(Deadline deadline) {
+  if (fd_ == -1) {
+    return;
+  }
+  try {
+    while (true) {
+      ensureBeforeDeadline(deadline, "cleanup");
+      if (::shutdown(fd_, SHUT_WR) == 0) {
+        break;
+      }
+      if (errno != EINTR) {
+        throw systemError("shutdown", errno);
+      }
+    }
+
+    std::array<std::uint8_t, rss::protocol::kMaxPacketSize> buffer{};
+    while (true) {
+      ensureBeforeDeadline(deadline, "cleanup");
+      const auto received =
+          receive_operation_(fd_, buffer.data(), buffer.size());
+      if (received == 0) {
+        break;
+      }
+      if (received > 0 || errno == EINTR) {
+        continue;
+      }
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        waitForSocket(fd_, POLLIN, deadline, "cleanup");
+        continue;
+      }
+      throw systemError("cleanup recv", errno);
+    }
+  } catch (...) {
+    close();
+    throw;
+  }
+  close();
+}
+
 void ScenarioClient::close() noexcept {
   if (fd_ != -1) {
     static_cast<void>(::close(fd_));

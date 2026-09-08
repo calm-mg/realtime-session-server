@@ -24,6 +24,7 @@
 
 #include "EmbeddedServer.h"
 #include "ScenarioClient.h"
+#include "ScenarioRunner.h"
 #include "rss/net/ClientIoError.h"
 #include "rss/net/ServerConfig.h"
 #include "rss/protocol/PacketCodec.h"
@@ -124,6 +125,15 @@ class RawLoopbackPeer {
     });
     client.connect("127.0.0.1", port(), 2s);
     responder.get();
+  }
+
+  void waitForReadEof(std::chrono::milliseconds timeout) {
+    waitFor(peer_fd_, POLLIN, std::chrono::steady_clock::now() + timeout,
+            "client FIN");
+    std::uint8_t byte{};
+    if (::recv(peer_fd_, &byte, 1, 0) != 0) {
+      throw std::runtime_error("expected client FIN");
+    }
   }
 
   void finishSending() {
@@ -229,6 +239,106 @@ std::unique_ptr<rss::tools::EmbeddedServer> startTestServer() {
   auto server = std::make_unique<rss::tools::EmbeddedServer>(config);
   server->start(2s);
   return server;
+}
+
+TEST(ScenarioRunnerCleanupTest, ReportsSilentPeerAfterSuccessfulMeasurement) {
+  RawLoopbackPeer peer;
+  std::promise<void> release_peer;
+  auto released = release_peer.get_future();
+  auto responder = std::async(std::launch::async, [&] {
+    using rss::protocol::PacketCodec;
+    using rss::protocol::PacketType;
+    peer.acceptClient(2s);
+    static_cast<void>(peer.receivePacket(2s));
+    peer.sendSingleWrite(
+        PacketCodec::encode(PacketType::VersionRes, "OK|version=1"), 2s);
+    static_cast<void>(peer.receivePacket(2s));
+    peer.sendSingleWrite(PacketCodec::encode(PacketType::LoginRes, "OK"), 2s);
+    static_cast<void>(peer.receivePacket(2s));
+    peer.sendSingleWrite(
+        PacketCodec::encode(PacketType::CreateRoomRes, "OK|room_id=1"), 2s);
+    const auto chat = peer.receivePacket(2s);
+    const auto payload =
+        rss::protocol::StructuredPayloadBuilder("OK")
+            .addField("event", "CHAT")
+            .addField("message", rss::protocol::payloadToString(chat))
+            .build();
+    peer.sendSingleWrite(
+        PacketCodec::encode(PacketType::RoomBroadcast, payload), 2s);
+    peer.waitForReadEof(2s);
+    // Keep the peer open until the runner's cleanup deadline expires.
+    static_cast<void>(released.wait_for(5s));
+  });
+  rss::tools::ScenarioOptions options;
+  options.host = "127.0.0.1";
+  options.port = peer.port();
+  options.clients = 1;
+  options.messages_per_sender = 1;
+  const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
+  release_peer.set_value();
+  EXPECT_NO_THROW(responder.get());
+  EXPECT_EQ(result.sent, 1U);
+  EXPECT_EQ(result.received_broadcasts, 1U);
+  EXPECT_EQ(result.missing_broadcasts, 0U);
+  EXPECT_EQ(result.failed_clients, 1U);
+  EXPECT_EQ(result.client_failures.cleanup.timeout, 1U);
+  EXPECT_EQ(result.client_failures.send.timeout, 0U);
+  EXPECT_EQ(result.client_failures.receive.timeout, 0U);
+  EXPECT_FALSE(rss::tools::isSuccessful(options.scenario, result, 0));
+  EXPECT_LT(result.elapsed, 1s);
+}
+
+TEST(ScenarioClientTest, GracefulCloseDrainsBroadcastSentAfterClientFin) {
+  RawLoopbackPeer peer;
+  std::size_t drained{};
+  rss::tools::ScenarioClient client(
+      [&](int fd, std::uint8_t* bytes, std::size_t capacity) {
+        const auto received = ::recv(fd, bytes, capacity, 0);
+        if (received > 0) {
+          drained += static_cast<std::size_t>(received);
+        }
+        return received;
+      });
+  peer.connectClient(client);
+  static_cast<void>(peer.receivePacket(2s));
+  const auto late_leave = rss::protocol::PacketCodec::encode(
+      rss::protocol::PacketType::RoomBroadcast, "OK|event=LEAVE|room_id=1");
+  auto responder = std::async(std::launch::async, [&] {
+    peer.waitForReadEof(2s);
+    peer.sendSingleWrite(late_leave, 2s);
+    peer.finishSending();
+  });
+
+  EXPECT_NO_THROW(
+      client.closeGracefully(std::chrono::steady_clock::now() + 2s));
+  EXPECT_NO_THROW(responder.get());
+  EXPECT_EQ(drained, late_leave.size());
+  EXPECT_THROW(client.sendChat("closed", 100ms), std::logic_error);
+  EXPECT_NO_THROW(client.closeGracefully(std::chrono::steady_clock::now()));
+}
+
+TEST(ScenarioClientTest, GracefulCloseTimesOutAndReleasesSocket) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client;
+  peer.connectClient(client);
+  const auto started = std::chrono::steady_clock::now();
+  expectIoFailure([&] { client.closeGracefully(started + 50ms); },
+                  rss::net::ClientIoFailure::Timeout);
+  EXPECT_LT(std::chrono::steady_clock::now() - started, 1s);
+  EXPECT_THROW(client.sendChat("closed", 100ms), std::logic_error);
+}
+
+TEST(ScenarioClientTest, GracefulClosePreservesReceiveErrorAndReleasesSocket) {
+  RawLoopbackPeer peer;
+  rss::tools::ScenarioClient client([](int, std::uint8_t*, std::size_t) {
+    errno = ECONNRESET;
+    return -1;
+  });
+  peer.connectClient(client);
+  expectIoFailure(
+      [&] { client.closeGracefully(std::chrono::steady_clock::now() + 1s); },
+      rss::net::ClientIoFailure::SocketError);
+  EXPECT_THROW(client.sendChat("closed", 100ms), std::logic_error);
 }
 
 TEST(ScenarioClientTest, NegotiatesBeforeReturningAndPreservesFollowingFrame) {
