@@ -35,6 +35,8 @@ class ScenarioClient {
   std::optional<rss::protocol::Packet> tryReceivePacket(
       std::chrono::milliseconds timeout);
   rss::protocol::Packet receivePacket(std::chrono::milliseconds timeout);
+  // 송신을 half-close하고 EOF까지 읽는다. 성공과 실패 모두 fd를 닫는다.
+  void closeGracefully(std::chrono::steady_clock::time_point deadline);
   void close() noexcept;
 
  private:

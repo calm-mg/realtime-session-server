@@ -96,6 +96,7 @@ std::string formatRunResult(std::size_t run, ScenarioKind kind,
   formatClientFailures(output, "setup", result.client_failures.setup);
   formatClientFailures(output, "send", result.client_failures.send);
   formatClientFailures(output, "receive", result.client_failures.receive);
+  formatClientFailures(output, "cleanup", result.client_failures.cleanup);
   output << " elapsed_sec=" << elapsed_seconds
          << " throughput_broadcasts_per_sec=" << throughput
          << " p50_ms=" << latency.p50_us / 1000.0

@@ -116,7 +116,11 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
       "client_send_timeout=8 client_send_protocol=9 client_send_other=10 "
       "client_receive_peer_closed=11 client_receive_socket_error=12 "
       "client_receive_timeout=13 client_receive_protocol=14 "
-      "client_receive_other=15 elapsed_sec=2.000 "
+      "client_receive_other=15 "
+      "client_cleanup_peer_closed=0 client_cleanup_socket_error=0 "
+      "client_cleanup_timeout=0 client_cleanup_protocol=0 "
+      "client_cleanup_other=0 "
+      "elapsed_sec=2.000 "
       "throughput_broadcasts_per_sec=2.000 p50_ms=2.000 p95_ms=4.000 "
       "p99_ms=4.000 server_stats=available read_pauses=5 inbound_queue_full=6 "
       "outbound_budget_rejections=7 handler_exceptions=8 "
@@ -163,6 +167,19 @@ TEST(ScenarioReportTest,
         "worker_deferred_failures="}) {
     EXPECT_EQ(output.find(field), std::string::npos) << field;
   }
+}
+
+TEST(ScenarioReportTest, ReportsCleanupFailureEvenWhenAllMessagesArrived) {
+  rss::tools::ScenarioRunResult result;
+  result.expected_broadcasts = 7;
+  result.received_broadcasts = 7;
+  result.failed_clients = 1;
+  result.client_failures.cleanup.timeout = 1;
+  EXPECT_FALSE(
+      rss::tools::isSuccessful(rss::tools::ScenarioKind::MultiRoom, result, 0));
+  const auto output = rss::tools::formatRunResult(
+      1, rss::tools::ScenarioKind::MultiRoom, result);
+  EXPECT_NE(output.find("client_cleanup_timeout=1"), std::string::npos);
 }
 
 TEST(ScenarioReportTest, UnavailableServerStatsCannotProveSlowClientSuccess) {

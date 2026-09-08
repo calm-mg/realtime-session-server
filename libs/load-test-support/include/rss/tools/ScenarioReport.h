@@ -45,10 +45,12 @@ struct ClientFailureCounts {
 
 struct ClientFailureReport {
   // 관측한 단계별 실패다. 같은 클라이언트가 send와 receive에 모두 포함될 수
-  // 있다. setup 중단 후 미시도 클라이언트는 failed_clients에만 포함한다.
+  // 있다. cleanup은 앞 단계에 실패하지 않은 외부 client의 종료 실패다.
+  // setup 중단 후 미시도 클라이언트는 failed_clients에만 포함한다.
   ClientFailureCounts setup;
   ClientFailureCounts send;
   ClientFailureCounts receive;
+  ClientFailureCounts cleanup;
 };
 
 struct ScenarioRunResult {

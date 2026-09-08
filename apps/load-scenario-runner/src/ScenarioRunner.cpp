@@ -69,6 +69,7 @@ void recordClientFailure(ClientFailureCounts& counts,
 }
 
 constexpr auto kSetupTimeout = std::chrono::seconds(30);
+constexpr auto kCleanupTimeout = std::chrono::seconds(2);
 constexpr auto kReceiverPollInterval = std::chrono::milliseconds(10);
 
 struct ParsedIdentity {
@@ -753,6 +754,23 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
         snapshot = server->snapshot();
       }
       result.overload = makeOverloadReport(snapshot);
+    }
+    if (!server) {
+      const auto cleanup_deadline = Clock::now() + kCleanupTimeout;
+      for (std::size_t index = 0; index < clients.size(); ++index) {
+        if (send_states[index].failure != nullptr ||
+            receive_states[index].failure != nullptr) {
+          clients[index].close();
+          continue;
+        }
+        try {
+          clients[index].closeGracefully(cleanup_deadline);
+        } catch (...) {
+          ++result.failed_clients;
+          recordClientFailure(result.client_failures.cleanup,
+                              std::current_exception());
+        }
+      }
     }
     stop_server();
     return result;

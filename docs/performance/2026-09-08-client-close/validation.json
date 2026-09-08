@@ -1,0 +1,71 @@
+{
+  "checks": [
+    {
+      "name": "변경 전 GCC 13.3 Release Linux 전체 테스트",
+      "tests": 283,
+      "failed": 0,
+      "log": "baseline-tests.log"
+    },
+    {
+      "name": "변경 후 GCC 13.3 Release Linux 전체 build/test (벤치마크 포함)",
+      "tests": 288,
+      "failed": 0,
+      "command": "cmake --build /build/release -j4 && ctest --test-dir /build/release --output-on-failure",
+      "log": "final-release-tests.log"
+    },
+    {
+      "name": "macOS core-dev build/test",
+      "tests": 175,
+      "failed": 0,
+      "command": "cmake --preset core-dev && cmake --build --preset core-dev -j4 && ctest --preset core-dev --parallel 4",
+      "log": "macos-core-tests.log"
+    },
+    {
+      "name": "Clang 18 Debug ASan/UBSan Linux build/test (벤치마크 제외)",
+      "tests": 281,
+      "failed": 0,
+      "flags": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+        "UBSAN_OPTIONS": "halt_on_error=1"
+      },
+      "command": "cmake --build /build/sanitizers -j4 && ctest --test-dir /build/sanitizers --output-on-failure",
+      "log": "final-sanitizer-tests.log"
+    },
+    {
+      "name": "clang-format 18",
+      "command": "cmake --build /build/release --target format-check",
+      "exit_code": 0,
+      "log": "final-format.log"
+    },
+    {
+      "name": "clang-tidy 18",
+      "command": "cmake --build /build/release --target tidy-check -j4",
+      "exit_code": 0,
+      "log": "final-tidy.log"
+    }
+  ],
+  "notes": [
+    "Linux 테스트는 임시 PostgreSQL 16.15 연결을 RSS_TEST_DATABASE_URL로 제공했다. 접속 문자열은 기록하지 않는다.",
+    "macOS와 sanitizer configure는 이미 받은 GoogleTest 소스의 FETCHCONTENT_SOURCE_DIR_GOOGLETEST 경로를 지정했다.",
+    "이전 조사에서 GCC sanitizer의 기존 slow-client 테스트 실패가 있었으므로 이번 sanitizer 검증은 Clang 18을 명시한다. GCC sanitizer 문제까지 해결했다고 주장하지 않는다.",
+    "전체 원시 로그는 로컬 build/close-trace/validation에 보관하며 아래 해시로 식별한다."
+  ],
+  "log_sha256": {
+    "baseline-tests.log": "101f103582ba0f1fd004974054606b344b9bc32e19eacfc30b01e41cb2b9423a",
+    "final-format.log": "aad367c17b07f0b494c4fa399e057f8096e0c88c0e73690300b63dfd0e6f0472",
+    "final-release-tests.log": "03f6d9d150b18e2a5864184311c2e44d877f37ddfcda4150b161e05cf9d428df",
+    "final-sanitizer-build.log": "e8d323ba56c85e53c3679e042e938178d61e21dc993d5b6a5a5c6ebcf6b2c62e",
+    "final-sanitizer-config.log": "edae98a6849283af09d91bbd66c60fe04c1116cfcaa0a24b6f6e673a37b80c1d",
+    "final-sanitizer-tests.log": "44b1557d7af541f002fc53ef4a659520667754023a88f4846e0f9aafbdebc050",
+    "final-tidy.log": "ea3f1bb47cbb5712f2b2c35caa97a3fc5cae07cc8906a0eecf944825f5996d02",
+    "fix-targeted.log": "8ed4bf07af3730ce227848dee725827af33948f1c421ae506142f761500cc707",
+    "macos-core-build.log": "28658d7d1336e8ee24954e3588cae774af815ee8a7b97e10db59d890a9fe4f39",
+    "macos-core-config.log": "d8d81cc5acb75073064666e33335da2a8d4644e93ec10a50565c6d38c0aa9414",
+    "macos-core-tests.log": "1aaec4cbf80bab1b3f55c65f4041132959b149b1adaf4efaf544ee46461a9cd8",
+    "red-test.log": "135a3eaff50ea0deb1fc7a2f64b6851092803e8a25024d532476addc814d2d9e",
+    "report-green.log": "ab95332375ef812314ccd8a4f6f1a579aa221f47d810de7d46fd5461b0ca7690",
+    "report-red.log": "ba4c5c9e61d95c53dc0328b3598e3fb6cdd42d09790aaed2b14c28bfe03acf98",
+    "runner-red.log": "6fad4fccf1b7c67fea07e90e9dc7f657a17ba5fb3e1511b4aeeb7106827f8809"
+  }
+}

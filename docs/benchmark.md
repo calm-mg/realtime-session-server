@@ -316,6 +316,16 @@ commit·빌드·CPU·worker 설정과 DB 조건은 따로 기록해야 합니다
 누적 통계에는 warm-up·준비·모든 반복·연결 정리가 포함될 수 있어 단일 run의
 통계와 같지 않습니다.
 
+정상 송수신을 마친 외부 연결은 `shutdown(SHUT_WR)` 뒤 EOF까지 읽고 닫습니다.
+연결들을 순서대로 정리하며 전체에 공통 2초 deadline을 적용합니다. 이때 도착한
+퇴장 알림 등은 측정 메시지 수에 넣지 않고, 정리 시간도 `elapsed_sec`와 지연
+표본에서 제외합니다. 실행의 실제 소요 시간에는 반복별 정리 시간이 추가됩니다.
+정리 중 오류나 timeout은 `client_cleanup_*`와 `failed_clients`에 반영해
+메시지가 전부 도착했더라도 해당 run을 실패로 판정합니다. 앞서 송수신에
+실패한 연결은 즉시 닫고 정리 실패를 중복 집계하지 않습니다.
+[종료 패킷 분석과 수정 전후 비교](performance/2026-09-08-client-close/README.md)를
+참고합니다.
+
 `slow-client` 성공 판정에는 실제 pending write 종료 수가 필요합니다.
 외부 서버 통계를 자동 수집하지 않는 현재 외부 모드에서는 이 시나리오를
 거절하고 내장 모드를 사용합니다. 별도 프로세스와 CPU affinity만으로 물리
@@ -350,8 +360,8 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 | `sent` | 실제 전송에 성공한 채팅 요청 수 |
 | `expected`, `received` | 방별 실제 성공 전송 수에 reader 수를 곱한 기대 broadcast 수와 실제 수신 수 |
 | `missing`, `duplicates`, `unexpected` | 누락, 중복, 예상하지 않은 broadcast 수 |
-| `failed_clients` | setup, 송신 또는 수신이 실패한 클라이언트 수; 첫 setup 실패 뒤 미시도 client도 포함 |
-| `client_setup_*`, `client_send_*`, `client_receive_*` | 실제 관측한 단계별 실패 원인 수. 접미사는 `peer_closed`, `socket_error`, `timeout`, `protocol`, `other` |
+| `failed_clients` | setup, 송신, 수신 또는 정리가 실패한 클라이언트 수; 첫 setup 실패 뒤 미시도 client도 포함 |
+| `client_setup_*`, `client_send_*`, `client_receive_*`, `client_cleanup_*` | 실제 관측한 단계별 실패 원인 수. 접미사는 `peer_closed`, `socket_error`, `timeout`, `protocol`, `other` |
 | `elapsed_sec` | 마지막 barrier 참여자 도착부터 끝까지의 측정 경과 시간(초) |
 | `throughput_broadcasts_per_sec` | `received / elapsed_sec`로 계산한 초당 수신 broadcast 수 |
 | `p50_ms`, `p95_ms`, `p99_ms` | 수신한 broadcast 지연 시간의 백분위 값(ms) |
