@@ -4,13 +4,6 @@
   "attempts": [
     {
       "trace_scope": "server and client",
-      "trace_options": [
-        "-ff",
-        "-ttt",
-        "-yy",
-        "-e",
-        "trace=network,epoll_wait,close"
-      ],
       "server_start": {
         "timestamp_unix_ms": 1788839774949,
         "level": "info",
@@ -67,17 +60,24 @@
         "worker_parked_limit_failures": 0,
         "worker_invalid_sequence_failures": 0,
         "worker_deferred_failures": 0
-      }
-    },
-    {
-      "trace_scope": "server",
-      "trace_options": [
+      },
+      "server_trace_options": [
         "-ff",
         "-ttt",
         "-yy",
         "-e",
         "trace=network,epoll_wait,close"
       ],
+      "client_trace_options": [
+        "-ff",
+        "-ttt",
+        "-yy",
+        "-e",
+        "trace=network,close"
+      ]
+    },
+    {
+      "trace_scope": "server",
       "server_start": {
         "timestamp_unix_ms": 1788839815992,
         "level": "info",
@@ -134,7 +134,14 @@
         "worker_parked_limit_failures": 0,
         "worker_invalid_sequence_failures": 0,
         "worker_deferred_failures": 0
-      }
+      },
+      "server_trace_options": [
+        "-ff",
+        "-ttt",
+        "-yy",
+        "-e",
+        "trace=network,epoll_wait,close"
+      ]
     }
   ]
 }
