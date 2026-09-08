@@ -655,9 +655,20 @@ TEST_F(TcpServerBackpressureTest, CountsResetAsSocketError) {
   ASSERT_EQ(
       ::setsockopt(client.get(), SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)),
       0);
+  testing::internal::CaptureStderr();
   ::close(client.release());
-  ASSERT_TRUE(waitUntil(
-      [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  const auto disconnected = waitUntil(
+      [this] { return server_->overloadSnapshot().current_sessions == 0; });
+  stopAndJoin(true);
+  const auto diagnostic = testing::internal::GetCapturedStderr();
+  EXPECT_TRUE(disconnected);
+  EXPECT_NE(diagnostic.find("\"event\":\"socket_error\""), std::string::npos);
+  EXPECT_NE(diagnostic.find("\"error_code\":" + std::to_string(ECONNRESET)),
+            std::string::npos);
+  EXPECT_NE(diagnostic.find("\"session_id\":1,"), std::string::npos);
+  EXPECT_NE(diagnostic.find("\"operation\":\"epoll_error\""),
+            std::string::npos);
+  EXPECT_EQ(std::count(diagnostic.begin(), diagnostic.end(), '\n'), 1);
   EXPECT_EQ(server_->overloadSnapshot().disconnect_socket_error, 1U);
   EXPECT_EQ(server_->overloadSnapshot().disconnect_peer_closed, 0U);
 }

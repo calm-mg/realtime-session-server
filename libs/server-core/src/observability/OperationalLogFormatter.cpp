@@ -121,6 +121,20 @@ std::string formatOverloadSnapshot(std::int64_t timestamp_unix_ms,
   return output.str();
 }
 
+std::string formatSocketError(std::int64_t timestamp_unix_ms,
+                              const SocketErrorDiagnostic& diagnostic) {
+  std::ostringstream output;
+  output << "{\"timestamp_unix_ms\":" << timestamp_unix_ms
+         << ",\"level\":\"warning\",\"event\":\"socket_error\",\"session_id\":"
+         << diagnostic.session_id << ",\"fd\":" << diagnostic.fd
+         << ",\"operation\":\"" << escapeJson(diagnostic.operation)
+         << "\",\"error_code\":" << diagnostic.error_code
+         << ",\"epoll_events\":" << diagnostic.epoll_events
+         << ",\"pending_write_bytes\":" << diagnostic.pending_write_bytes
+         << "}\n";
+  return output.str();
+}
+
 std::string formatServerStopped(std::int64_t timestamp_unix_ms) {
   return "{\"timestamp_unix_ms\":" + std::to_string(timestamp_unix_ms) +
          ",\"level\":\"info\",\"event\":\"server_stopped\"}\n";

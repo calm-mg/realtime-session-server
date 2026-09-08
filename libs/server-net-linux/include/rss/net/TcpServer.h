@@ -57,6 +57,8 @@ class TcpServer {
                    std::size_t* remaining_work = nullptr);
   void flushSession(int fd);
   void disconnect(int fd, DisconnectReason reason);
+  void disconnectSocketError(int fd, const char* operation, int error_code,
+                             std::uint32_t epoll_events = 0);
   void drainOutbound();
   void updateInterest(Session& session);
   void expireIdleSessions();

@@ -9,6 +9,18 @@
 
 namespace rss::observability {
 
+struct SocketErrorDiagnostic {
+  std::uint64_t session_id{};
+  int fd{-1};
+  std::string_view operation;
+  int error_code{};
+  std::uint32_t epoll_events{};
+  std::size_t pending_write_bytes{};
+};
+
+[[nodiscard]] std::string formatSocketError(
+    std::int64_t timestamp_unix_ms, const SocketErrorDiagnostic& diagnostic);
+
 enum class SnapshotPhase { Periodic, Final };
 
 [[nodiscard]] std::int64_t currentUnixTimeMilliseconds() noexcept;
