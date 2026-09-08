@@ -1,0 +1,55 @@
+{
+  "base_commit": "cd0cf652f6b43bb42f331ed713181ea9cad11567",
+  "product_code_changed": false,
+  "checks": [
+    {
+      "name": "GCC 13.3 Release Linux build/test",
+      "tests": 288,
+      "failed": 0,
+      "command": "cmake -S /src -B /build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DRSS_BUILD_BENCHMARKS=ON && cmake --build /build/release -j4 && ctest --test-dir /build/release --output-on-failure"
+    },
+    {
+      "name": "clang-format 18",
+      "exit_code": 0,
+      "command": "cmake --build /build/release --target format-check"
+    },
+    {
+      "name": "clang-tidy 18",
+      "exit_code": 0,
+      "command": "cmake --build /build/release --target tidy-check -j4"
+    },
+    {
+      "name": "측정 결과 검산",
+      "conditions": 6,
+      "measured_runs": 18,
+      "sent_per_run": 6000,
+      "received_per_run": 30000,
+      "missing": 0,
+      "duplicates": 0,
+      "unexpected": 0,
+      "failed_clients": 0,
+      "server_peer_closed_per_condition": 80,
+      "server_socket_error_per_condition": 0,
+      "chat_mutex_samples": 24000,
+      "mutex_sample_drops": 0
+    },
+    {
+      "name": "pcap 추출 검증",
+      "command": "tcpdump -nn -tt -S -r delayed-ack.pcap",
+      "matched_sequence_ack_and_timestamps": true
+    }
+  ],
+  "notes": [
+    "Linux 테스트는 임시 PostgreSQL 16.15 연결을 RSS_TEST_DATABASE_URL로 제공했다. 접속 문자열은 기록하지 않는다.",
+    "로컬 sanitizer를 이번 문서 변경에서 재실행하지 않았다. PR CI의 sanitizer와 플랫폼별 build/test를 별도로 확인한다."
+  ],
+  "log_sha256": {
+    "baseline-tests.log": "4a9057a3de81fc5352f7c1f1baa366b0f64a3484a00acb30fb0abaa969811e00",
+    "build.log": "2a833e5731bf3edf841984ea7ea90d8ba6d32334bcfae7098b37c1b4f34b3754",
+    "config.log": "17e4181a728b4c7b31508763ff7ed4599a3cd5c1dd4dde6b67fdaaa019937102",
+    "format.log": "aad367c17b07f0b494c4fa399e057f8096e0c88c0e73690300b63dfd0e6f0472",
+    "mutex-build.log": "2865a305ccf9c9ed363135db887d2dbb0b04bc2b1df94546d681dafa890fefe8",
+    "mutex-config.log": "79f54b23be570da14726cd8d2cacb46b3d42031f4991162c5bbbf5fb930c52e0",
+    "tidy.log": "ef4c1e296011a3205e70f70ed2bc79e452cff491168faaf11397ffdbddaa94f7"
+  }
+}

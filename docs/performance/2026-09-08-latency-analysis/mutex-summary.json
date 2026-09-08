@@ -1,0 +1,112 @@
+{
+  "operations": {
+    "createRoom": {
+      "wait_ns": {
+        "count": 16,
+        "p50_ns": 41,
+        "p95_ns": 125,
+        "p99_ns": 125,
+        "max_ns": 125,
+        "sum_ns": 791
+      },
+      "hold_ns": {
+        "count": 16,
+        "p50_ns": 1417,
+        "p95_ns": 12209,
+        "p99_ns": 12209,
+        "max_ns": 12209,
+        "sum_ns": 51835
+      }
+    },
+    "joinRoom": {
+      "wait_ns": {
+        "count": 64,
+        "p50_ns": 42,
+        "p95_ns": 125,
+        "p99_ns": 125,
+        "max_ns": 125,
+        "sum_ns": 3246
+      },
+      "hold_ns": {
+        "count": 64,
+        "p50_ns": 625,
+        "p95_ns": 1125,
+        "p99_ns": 15458,
+        "max_ns": 15458,
+        "sum_ns": 57669
+      }
+    },
+    "chat": {
+      "wait_ns": {
+        "count": 24000,
+        "p50_ns": 42,
+        "p95_ns": 209,
+        "p99_ns": 333,
+        "max_ns": 601292,
+        "sum_ns": 6646346
+      },
+      "hold_ns": {
+        "count": 24000,
+        "p50_ns": 375,
+        "p95_ns": 1541,
+        "p99_ns": 3000,
+        "max_ns": 612833,
+        "sum_ns": 14412136
+      }
+    },
+    "disconnect": {
+      "wait_ns": {
+        "count": 80,
+        "p50_ns": 42,
+        "p95_ns": 167,
+        "p99_ns": 250,
+        "max_ns": 250,
+        "sum_ns": 5835
+      },
+      "hold_ns": {
+        "count": 80,
+        "p50_ns": 1208,
+        "p95_ns": 10750,
+        "p99_ns": 23833,
+        "max_ns": 23833,
+        "sum_ns": 206124
+      }
+    },
+    "attachUser": {
+      "wait_ns": {
+        "count": 80,
+        "p50_ns": 125,
+        "p95_ns": 209,
+        "p99_ns": 13000,
+        "max_ns": 13000,
+        "sum_ns": 23338
+      },
+      "hold_ns": {
+        "count": 80,
+        "p50_ns": 333,
+        "p95_ns": 542,
+        "p99_ns": 791,
+        "max_ns": 791,
+        "sum_ns": 26792
+      }
+    }
+  },
+  "end_events": [
+    {
+      "event": "room_mutex_end",
+      "dropped": 0
+    },
+    {
+      "event": "room_mutex_end",
+      "dropped": 0
+    },
+    {
+      "event": "room_mutex_end",
+      "dropped": 0
+    },
+    {
+      "event": "room_mutex_end",
+      "dropped": 0
+    }
+  ]
+}
