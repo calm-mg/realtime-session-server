@@ -29,6 +29,26 @@ C++20과 Linux `epoll`로 만든 실시간 세션 서버입니다.
 - GoogleTest 기반 프로토콜, 서비스, 네트워크 구성 요소 테스트
 - Google Benchmark 기반 핵심 코드 경로 마이크로벤치마크
 
+## 프로젝트 살펴보기
+
+| 목적 | 문서 |
+| --- | --- |
+| 직접 실행하고 채팅 확인 | [빠른 시작](#빠른-시작), [두 사용자 데모](docs/demo.md) |
+| I/O·worker 분리와 과부하 제어 이해 | [서버 구조](docs/architecture.md) |
+| 패킷·버전·문자열 계약 확인 | [프로토콜](docs/protocol.md) |
+| 결함 재현과 해결 근거 확인 | [연결 종료 수정](docs/performance/2026-09-08-client-close/README.md), [과부하 정리 수정](docs/performance/2026-09-07-disconnect-diagnostics/README.md) |
+| 성능 측정과 해석 한계 확인 | [벤치마크 가이드](docs/benchmark.md), [TCP 개선 전후 결과](docs/performance/2026-09-08-tcp-nodelay/README.md) |
+| 완료 범위와 후속 과제 확인 | [프로젝트 상태](docs/project-status.md), [로드맵](docs/roadmap.md) |
+
+한 I/O 스레드가 소켓을 소유하고 worker는 도메인 작업과 응답 생성을 맡습니다.
+입력·출력 queue와 연결별 대기 바이트를 제한해 과부하를 전달하고 느린 연결을
+격리합니다. DB 작업도 별도 bounded executor로 넘겨 worker의 동기 DB 대기를
+피합니다. 구조를 더 나누는 결정은 부하 측정 근거가 생긴 뒤 진행합니다.
+
+현재 이름 로그인은 인증이 아니며 TLS, 영구 방·채팅 저장과 분산 배포는
+구현 범위 밖입니다. 측정 결과는 명시한 환경·부하의 결과이며 최대 처리량이나
+실서비스 규모의 보장값이 아닙니다.
+
 ## 필요한 환경
 
 전체 서버는 `epoll`과 `eventfd`를 사용하므로 Linux에서 빌드해야 합니다.

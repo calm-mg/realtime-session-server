@@ -570,6 +570,8 @@ TEST(ScenarioRunnerTest,
   EXPECT_FALSE(result.server_stats_available);
   EXPECT_EQ(result.failed_clients, 2U);
   EXPECT_EQ(result.sent, 0U);
+  // close가 먼저 관측돼도 I/O 스레드의 거절 통계 갱신까지 기다린다.
+  server.stop();
   EXPECT_GE(server.snapshot().rejected_connections, 1U);
 }
 

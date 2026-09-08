@@ -1,0 +1,98 @@
+{
+  "baseline_commit": "38c8faa4714bf3b37bbd5c116f496e547ac6845d",
+  "builds": {
+    "release": "GCC 13.3.0, Release, network·PostgreSQL·benchmark ON",
+    "sanitizer": "Clang 18.1.3, Debug, network·PostgreSQL ON, benchmark OFF, -fsanitize=address,undefined -fno-omit-frame-pointer",
+    "qt": "macOS 14.6 arm64, Qt 6.11.1, qt-client-dev preset, Debug"
+  },
+  "checks": [
+    {
+      "name": "GCC Release 전체",
+      "command": "ctest --test-dir /build/release --output-on-failure --timeout 30",
+      "passed": 289,
+      "failed": 0,
+      "log": "after-tests.log",
+      "log_sha256": "fff695ebfdae24225cfbaa7b9ccdc64a05af8e9f44c3ea243a261346b6b0e212"
+    },
+    {
+      "name": "수락 소켓 옵션·외부 거절 통계 회귀 30회 반복",
+      "command": "ctest --test-dir /build/release -R \"DisablesNagleOnEachAcceptedConnection|ExternalTargetUsesRequestedServerAndReportsNoSnapshot\" --repeat until-fail:30 --output-on-failure",
+      "passed": 60,
+      "failed": 0,
+      "log": "targeted-green.log",
+      "log_sha256": "b430a066ad0f83eb92be77dde3f913c938f5df498ace04486f2fc8eb7606369b"
+    },
+    {
+      "name": "C++ format",
+      "command": "cmake --build /build/release --target format-check",
+      "exit_code": 0,
+      "log": "final-format.log",
+      "log_sha256": "aad367c17b07f0b494c4fa399e057f8096e0c88c0e73690300b63dfd0e6f0472"
+    },
+    {
+      "name": "Clang 18 tidy",
+      "command": "cmake --build /build/release --target tidy-check -j2",
+      "exit_code": 0,
+      "log": "final-tidy.log",
+      "log_sha256": "18b621359e4122b61e7c9ad79d77ad4a101fcab0fbb67b7a7b8005c63961b075"
+    },
+    {
+      "name": "Clang 18.1.3 ASan·UBSan 전체",
+      "command": "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir /build/sanitizers --output-on-failure --timeout 60",
+      "passed": 282,
+      "failed": 0,
+      "log": "final-sanitizer-tests.log",
+      "log_sha256": "8193582597ca8256af45f05488a62057ea104cf45aab79dc3a1b36e06b598f87"
+    },
+    {
+      "name": "macOS 14.6 Qt 6.11.1 전체",
+      "command": "ctest --preset qt-client-dev",
+      "passed": 188,
+      "failed": 0,
+      "log": "nodelay-qt-tests-network.log",
+      "log_sha256": "a56a4f7cb7ef7cc398c529c397b4d0d209107fdcbed60834a98123e94db33a35"
+    }
+  ],
+  "initial_attempts": [
+    {
+      "name": "변경 전 전체 검사",
+      "result": "288개 중 기존 ExternalTargetUsesRequestedServerAndReportsNoSnapshot 1개 실패: close 관측과 거절 카운터 갱신 사이 경합. 단독 10회 재실행은 통과했으나 초기 실패를 무효화하지 않는다. 테스트에서 server.stop()으로 I/O 스레드 종료를 기다리도록 보강.",
+      "logs": [
+        "baseline-tests.log",
+        "baseline-targeted.log"
+      ],
+      "log_sha256": {
+        "baseline-tests.log": "77f8ec4f1c94e4d2f5ba61de0f00f494bb45b046516363a8a08dd9c0938dd7e4",
+        "baseline-targeted.log": "f4a11b41cb938a791642b621b081a5589d59bbeccdb815975226278c1dd68fc1"
+      }
+    },
+    {
+      "name": "TCP_NODELAY 회귀 RED",
+      "result": "생산 코드 변경 전 실제 수락 소켓 세 개 모두 옵션 0을 관측해 기대값 1 검사 실패. 설정 변경 후 GREEN.",
+      "logs": [
+        "nodelay-red.log"
+      ],
+      "log_sha256": {
+        "nodelay-red.log": "4d5f368cb41ccf570da196fa783dc3f50140c074e86ac0413e26a080eb3c1625"
+      }
+    },
+    {
+      "name": "Qt 최초 실행 환경 제한",
+      "result": "로컬 소켓 listen 권한이 제한된 환경에서 Qt 네트워크 검사 9개 실패. 네트워크 사용이 가능한 같은 호스트에서 코드 변경 없이 전체 188개 재실행 통과.",
+      "logs": [
+        "nodelay-qt-tests.log",
+        "nodelay-qt-tests-network.log"
+      ],
+      "log_sha256": {
+        "nodelay-qt-tests.log": "893e39e2874830415e62ac929249fb24453f057c2926973739f268bffdeb9547",
+        "nodelay-qt-tests-network.log": "a56a4f7cb7ef7cc398c529c397b4d0d209107fdcbed60834a98123e94db33a35"
+      }
+    }
+  ],
+  "sanitizer_setup_script": "set -eu\ncmake --build /build/release --target format-check > /tmp/final-format.log 2>&1\ncmake --build /build/release --target tidy-check -j2 > /tmp/final-tidy.log 2>&1 &\ntidy_pid=$!\ncmake -S /src -B /build/sanitizers -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++-18 -DRSS_BUILD_NETWORK_TARGETS=ON -DRSS_BUILD_POSTGRES=ON -DRSS_BUILD_BENCHMARKS=OFF -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/build/release/_deps/googletest-src '-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer' '-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined' > /tmp/final-sanitizer-config.log 2>&1\ncmake --build /build/sanitizers -j2 > /tmp/final-sanitizer-build.log 2>&1\nwait \"$tidy_pid\"\nASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --test-dir /build/sanitizers --output-on-failure --timeout 60 > /tmp/final-sanitizer-tests.log 2>&1\nprintf 'format, tidy, sanitizer passed\\n'\ntail -n 4 /tmp/final-sanitizer-tests.log\n",
+  "notes": [
+    "모든 DB 테스트에 migration이 적용된 임시 PostgreSQL의 RSS_TEST_DATABASE_URL을 환경으로 전달",
+    "빌드 구성과 원시 검증 로그는 해시로 식별; CI는 저장소 workflow에서 재검증",
+    "tidy 출력의 외부 헤더 경고와 NOLINT 억제 항목은 검사 실패가 아님"
+  ]
+}

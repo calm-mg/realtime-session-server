@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -329,7 +330,10 @@ void TcpServer::acceptLoop() {
       continue;
     }
 
-    if (setNonBlocking(fd) < 0) {
+    const int no_delay = 1;
+    if (setNonBlocking(fd) < 0 ||
+        ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &no_delay,
+                     sizeof(no_delay)) < 0) {
       ::close(fd);
       continue;
     }
