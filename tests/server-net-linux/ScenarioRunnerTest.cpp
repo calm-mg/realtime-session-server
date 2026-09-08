@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+#include "EmbeddedServer.h"
+#include "ScenarioClient.h"
 #include "ScenarioRunner.h"
 #include "rss/net/ClientIoError.h"
 #include "rss/protocol/ProtocolError.h"
@@ -549,4 +551,51 @@ TEST(ScenarioRunnerTest, FailedRoomDoesNotCancelOtherRoomsWindow) {
   EXPECT_EQ(result.sent, 6U);
   EXPECT_EQ(result.received_broadcasts, 12U);
   EXPECT_EQ(result.failed_clients, 2U);
+}
+
+TEST(ScenarioRunnerTest,
+     ExternalTargetUsesRequestedServerAndReportsNoSnapshot) {
+  rss::net::ServerConfig config;
+  config.host = "127.0.0.1";
+  config.port = 0;
+  config.max_sessions = 1;
+  rss::tools::EmbeddedServer server(config);
+  server.start(std::chrono::seconds{2});
+  rss::tools::ScenarioOptions options;
+  options.host = "127.0.0.1";
+  options.port = server.port();
+  options.clients = 2;
+  options.messages_per_sender = 1;
+  const auto result = rss::tools::ScenarioRunner{}.runOnce(options, 1);
+  EXPECT_FALSE(result.server_stats_available);
+  EXPECT_EQ(result.failed_clients, 2U);
+  EXPECT_EQ(result.sent, 0U);
+  EXPECT_GE(server.snapshot().rejected_connections, 1U);
+}
+
+TEST(ScenarioRunnerTest,
+     ExternalTargetSupportsRepeatedUnevenRoomsAndStaysAlive) {
+  rss::net::ServerConfig config;
+  config.host = "127.0.0.1";
+  config.port = 0;
+  rss::tools::EmbeddedServer server(config);
+  server.start(std::chrono::seconds{2});
+  rss::tools::ScenarioOptions options;
+  options.host = "127.0.0.1";
+  options.port = server.port();
+  options.scenario = rss::tools::ScenarioKind::MultiRoom;
+  options.clients = 3;
+  options.rooms = 2;
+  options.messages_per_sender = 3;
+  options.max_in_flight = 2;
+  for (std::size_t run = 0; run < 3; ++run) {
+    const auto result = rss::tools::ScenarioRunner{}.runOnce(options, run);
+    EXPECT_FALSE(result.server_stats_available);
+    EXPECT_TRUE(rss::tools::isSuccessful(options.scenario, result, 0));
+    EXPECT_EQ(result.sent, 9U);
+    EXPECT_EQ(result.received_broadcasts, 15U);
+  }
+  rss::tools::ScenarioClient probe;
+  EXPECT_NO_THROW(
+      probe.connect("127.0.0.1", server.port(), std::chrono::seconds{2}));
 }

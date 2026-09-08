@@ -118,7 +118,7 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
       "client_receive_timeout=13 client_receive_protocol=14 "
       "client_receive_other=15 elapsed_sec=2.000 "
       "throughput_broadcasts_per_sec=2.000 p50_ms=2.000 p95_ms=4.000 "
-      "p99_ms=4.000 read_pauses=5 inbound_queue_full=6 "
+      "p99_ms=4.000 server_stats=available read_pauses=5 inbound_queue_full=6 "
       "outbound_budget_rejections=7 handler_exceptions=8 "
       "slow_client_disconnects=9 rejected_connections=10 "
       "max_inbound_queue_size=11 max_outbound_queue_size=12 "
@@ -133,7 +133,53 @@ TEST(ScenarioReportTest, FormatsEveryReproducibilityInputInStableOrder) {
       "disconnect_shutdown=21 "
       "worker_parked_limit_failures=22 "
       "worker_invalid_sequence_failures=23 "
-      "worker_deferred_failures=24");
+      "worker_deferred_failures=24 target=embedded host=127.0.0.1 port=0");
+}
+
+TEST(ScenarioReportTest,
+     ExternalReportsKeepClientMetricsAndOmitAllServerCounters) {
+  rss::tools::ScenarioRunResult result;
+  result.requested.host = "192.0.2.10";
+  result.requested.port = 9000;
+  result.server_stats_available = false;
+  result.expected_broadcasts = 7;
+  result.received_broadcasts = 7;
+  result.client_failures.send.timeout = 2;
+  result.overload.slow_client_disconnects = 42;
+  const auto output = rss::tools::formatRunResult(
+      1, rss::tools::ScenarioKind::Broadcast, result);
+  EXPECT_NE(output.find("expected=7 received=7"), std::string::npos);
+  EXPECT_NE(output.find("client_send_timeout=2"), std::string::npos);
+  EXPECT_TRUE(
+      output.ends_with("p99_ms=0.000 server_stats=unavailable target=external "
+                       "host=192.0.2.10 port=9000"));
+  for (const auto field :
+       {"read_pauses=", "read_resumes=", "inbound_queue_full=",
+        "outbound_budget_rejections=", "handler_exceptions=",
+        "slow_client_disconnects=", "rejected_connections=",
+        "max_inbound_queue_size=", "max_outbound_queue_size=",
+        "max_session_pending_write_bytes=", "disconnect_",
+        "worker_parked_limit_failures=", "worker_invalid_sequence_failures=",
+        "worker_deferred_failures="}) {
+    EXPECT_EQ(output.find(field), std::string::npos) << field;
+  }
+}
+
+TEST(ScenarioReportTest, UnavailableServerStatsCannotProveSlowClientSuccess) {
+  rss::tools::ScenarioRunResult result;
+  result.server_stats_available = false;
+  result.expected_broadcasts = 7;
+  result.received_broadcasts = 7;
+  result.overload.slow_client_disconnects = 42;
+  EXPECT_FALSE(rss::tools::isSuccessful(rss::tools::ScenarioKind::SlowClient,
+                                        result, 1));
+  EXPECT_TRUE(
+      rss::tools::isSuccessful(rss::tools::ScenarioKind::Broadcast, result, 0));
+  EXPECT_TRUE(
+      rss::tools::isSuccessful(rss::tools::ScenarioKind::MultiRoom, result, 0));
+  result.failed_clients = 1;
+  EXPECT_FALSE(
+      rss::tools::isSuccessful(rss::tools::ScenarioKind::Broadcast, result, 0));
 }
 
 }  // namespace

@@ -21,6 +21,32 @@ std::size_t parseNumber(std::string_view value, std::string_view option,
   return result;
 }
 
+bool isIpv4Address(std::string_view host) {
+  for (int index = 0; index < 4; ++index) {
+    const auto separator = host.find('.');
+    const auto octet = host.substr(0, separator);
+    if (octet.empty() || octet.size() > 3 ||
+        (octet.size() > 1 && octet.front() == '0')) {
+      return false;
+    }
+    unsigned value{};
+    const auto [position, error] =
+        std::from_chars(octet.data(), octet.data() + octet.size(), value);
+    if (error != std::errc{} || position != octet.data() + octet.size() ||
+        value > 255) {
+      return false;
+    }
+    if (index == 3) {
+      return separator == std::string_view::npos;
+    }
+    if (separator == std::string_view::npos) {
+      return false;
+    }
+    host.remove_prefix(separator + 1);
+  }
+  return false;
+}
+
 ScenarioKind parseScenario(std::string_view value) {
   if (value == "broadcast") {
     return ScenarioKind::Broadcast;
@@ -38,6 +64,7 @@ ScenarioKind parseScenario(std::string_view value) {
 
 ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args) {
   ScenarioOptions options;
+  bool worker_count_explicit = false;
   for (std::size_t index = 0; index < args.size(); index += 2) {
     if (index + 1 >= args.size()) {
       throw std::invalid_argument("missing option value");
@@ -45,7 +72,18 @@ ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args) {
 
     const auto option = args[index];
     const auto value = args[index + 1];
-    if (option == "--scenario") {
+    if (option == "--host") {
+      if (value.empty()) {
+        throw std::invalid_argument("host must be a numeric IPv4 address");
+      }
+      options.host = value;
+    } else if (option == "--port") {
+      const auto port = parseNumber(value, option);
+      if (port > 65535) {
+        throw std::invalid_argument("port must be between 1 and 65535");
+      }
+      options.port = static_cast<std::uint16_t>(port);
+    } else if (option == "--scenario") {
       options.scenario = parseScenario(value);
     } else if (option == "--clients") {
       options.clients = parseNumber(value, option);
@@ -61,6 +99,7 @@ ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args) {
       options.repeats = parseNumber(value, option);
     } else if (option == "--workers") {
       options.worker_count = parseNumber(value, option);
+      worker_count_explicit = true;
     } else if (option == "--rate-per-client") {
       options.rate_per_client = parseNumber(value, option, true);
     } else if (option == "--max-in-flight") {
@@ -72,11 +111,27 @@ ScenarioOptions parseScenarioOptions(std::span<const std::string_view> args) {
     }
   }
 
+  if (!options.host.empty() && worker_count_explicit) {
+    throw std::invalid_argument(
+        "workers cannot be configured for an external server");
+  }
   validateScenarioOptions(options);
   return options;
 }
 
 void validateScenarioOptions(const ScenarioOptions& options) {
+  if (options.host.empty() != (options.port == 0)) {
+    throw std::invalid_argument("host and port must be provided together");
+  }
+  if (!options.host.empty()) {
+    if (!isIpv4Address(options.host)) {
+      throw std::invalid_argument("host must be a numeric IPv4 address");
+    }
+    if (options.scenario == ScenarioKind::SlowClient) {
+      throw std::invalid_argument(
+          "slow-client requires embedded server statistics");
+    }
+  }
   if (options.clients == 0 || options.clients > 1000 ||
       options.worker_count == 0 || options.worker_count > 1000) {
     throw std::invalid_argument(

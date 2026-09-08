@@ -114,4 +114,82 @@ TEST(ScenarioOptionsTest,
                std::invalid_argument);
 }
 
+TEST(ScenarioOptionsTest, ParsesExternalTargetsAndPortBoundaries) {
+  for (const auto scenario : {"broadcast", "multi-room"}) {
+    for (const auto port : {"1", "65535"}) {
+      const std::array<std::string_view, 6> args{
+          "--host", "192.0.2.10", "--port", port, "--scenario", scenario};
+      const auto options = rss::tools::parseScenarioOptions(args);
+      EXPECT_EQ(options.host, "192.0.2.10");
+      EXPECT_EQ(options.port, port == std::string_view{"1"} ? 1 : 65535);
+    }
+  }
+}
+
+TEST(ScenarioOptionsTest, RequiresHostAndPortTogether) {
+  const std::array<std::string_view, 2> empty_host{"--host", ""};
+  EXPECT_THROW(rss::tools::parseScenarioOptions(empty_host),
+               std::invalid_argument);
+  for (const auto option : {"--host", "--port"}) {
+    const std::array<std::string_view, 2> args{
+        option, option == std::string_view{"--host"} ? "192.0.2.10" : "9000"};
+    EXPECT_THROW(rss::tools::parseScenarioOptions(args), std::invalid_argument);
+  }
+  rss::tools::ScenarioOptions options;
+  options.host = "192.0.2.10";
+  EXPECT_THROW(rss::tools::validateScenarioOptions(options),
+               std::invalid_argument);
+  options.host.clear();
+  options.port = 9000;
+  EXPECT_THROW(rss::tools::validateScenarioOptions(options),
+               std::invalid_argument);
+}
+
+TEST(ScenarioOptionsTest, RejectsPortOverflowBeforeNarrowing) {
+  for (const auto port :
+       {"0", "65536", "65537", "18446744073709551616", "-1", "1x"}) {
+    const std::array<std::string_view, 4> args{"--host", "192.0.2.10", "--port",
+                                               port};
+    EXPECT_THROW(rss::tools::parseScenarioOptions(args), std::invalid_argument)
+        << port;
+  }
+}
+
+TEST(ScenarioOptionsTest, RejectsNonCanonicalIpv4AndUnsafeReportValues) {
+  using namespace std::string_view_literals;
+  for (const auto host :
+       {""sv, "localhost"sv, "::1"sv, "127.1"sv, "256.0.0.1"sv, "1.2.3.4.5"sv,
+        "1..3.4"sv, "01.2.3.4"sv, "1.2.3.004"sv, "1.2.3.-4"sv, " 1.2.3.4"sv,
+        "1.2.3.4 "sv, "1.2.3.4\n"sv, "1.2.3.4\tforged=1"sv,
+        "1.2.3.4\0suffix"sv}) {
+    const std::array<std::string_view, 4> args{"--host", host, "--port",
+                                               "9000"};
+    EXPECT_THROW(rss::tools::parseScenarioOptions(args), std::invalid_argument);
+    rss::tools::ScenarioOptions options;
+    options.host = host;
+    options.port = 9000;
+    EXPECT_THROW(rss::tools::validateScenarioOptions(options),
+                 std::invalid_argument);
+  }
+}
+
+TEST(ScenarioOptionsTest, RejectsExternalSlowClientAndExplicitWorkers) {
+  for (const auto option : {"--scenario", "--workers"}) {
+    const std::array<std::string_view, 6> args{
+        "--host",
+        "192.0.2.10",
+        "--port",
+        "9000",
+        option,
+        option == std::string_view{"--scenario"} ? "slow-client" : "4"};
+    EXPECT_THROW(rss::tools::parseScenarioOptions(args), std::invalid_argument);
+  }
+  rss::tools::ScenarioOptions options;
+  options.host = "192.0.2.10";
+  options.port = 9000;
+  options.scenario = rss::tools::ScenarioKind::SlowClient;
+  EXPECT_THROW(rss::tools::validateScenarioOptions(options),
+               std::invalid_argument);
+}
+
 }  // namespace

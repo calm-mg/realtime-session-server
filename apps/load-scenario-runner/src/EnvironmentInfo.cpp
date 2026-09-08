@@ -126,10 +126,13 @@ std::string formatEnvironment(const EnvironmentInfo& info) {
          << " os=" << safeValue(info.os) << " kernel=" << safeValue(info.kernel)
          << " cpu=" << safeValue(info.cpu)
          << " compiler=" << safeValue(info.compiler)
-         << " build_type=" << safeValue(info.build_type)
-         << " workers=" << info.workers
+         << " build_type=" << safeValue(info.build_type) << " workers="
+         << (info.external_target ? "unknown" : std::to_string(info.workers))
          << " requested_slow_receive_buffer_bytes="
          << info.requested_slow_receive_buffer_bytes;
+  if (info.external_target) {
+    output << " environment_scope=load-generator";
+  }
   return output.str();
 }
 

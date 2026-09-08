@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -34,6 +35,12 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 using Deadline = Clock::time_point;
+
+std::string externalNamePrefix() {
+  std::random_device random;
+  const auto nonce = (static_cast<std::uint64_t>(random()) << 32U) | random();
+  return "load-" + std::to_string(nonce) + "-";
+}
 
 void recordClientFailure(ClientFailureCounts& counts,
                          const std::exception_ptr& failure) {
@@ -497,6 +504,7 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
 
   ScenarioRunResult result;
   result.requested = options;
+  result.server_stats_available = options.host.empty();
   result.effective_rooms = room_count;
   const auto pending_write_limit =
       options.scenario == ScenarioKind::SlowClient
@@ -530,10 +538,23 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
   config.max_pending_write_bytes = pending_write_limit;
   config.max_sessions = tuning_.max_sessions;
 
-  EmbeddedServer server(config);
-  server.start(kSetupTimeout);
+  std::unique_ptr<EmbeddedServer> server;
+  auto port = options.port;
+  const auto host =
+      options.host.empty() ? std::string{"127.0.0.1"} : options.host;
+  if (options.host.empty()) {
+    server = std::make_unique<EmbeddedServer>(config);
+    server->start(kSetupTimeout);
+    port = server->port();
+  }
+  const auto stop_server = [&] {
+    if (server) {
+      server->stop();
+    }
+  };
 
   try {
+    const auto name_prefix = server ? std::string{} : externalNamePrefix();
     std::vector<ScenarioClient> clients;
     clients.reserve(options.clients);
     std::size_t completed_setup_clients{};
@@ -548,16 +569,20 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       result.failed_clients = options.clients - completed_setup_clients;
       recordClientFailure(result.client_failures.setup,
                           std::current_exception());
-      result.overload = makeOverloadReport(server.snapshot());
-      server.stop();
+      if (server) {
+        result.overload = makeOverloadReport(server->snapshot());
+      }
+      stop_server();
       return result;
     };
 
     for (std::size_t index = 0; index < options.clients; ++index) {
       auto& client = clients.emplace_back();
       try {
-        client.connect("127.0.0.1", server.port(), kSetupTimeout);
-        client.login("scenario-client-" + std::to_string(index), kSetupTimeout);
+        client.connect(host, port, kSetupTimeout);
+        client.login(
+            (server ? "scenario-client-" : name_prefix) + std::to_string(index),
+            kSetupTimeout);
       } catch (...) {
         return setupFailureResult();
       }
@@ -571,7 +596,9 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
       try {
         if (index < room_count) {
           room_ids[room_index] = clients[index].createRoom(
-              "scenario-room-" + std::to_string(room_index), kSetupTimeout);
+              (server ? "scenario-room-" : name_prefix) +
+                  std::to_string(room_index),
+              kSetupTimeout);
         } else {
           clients[index].joinRoom(room_ids[room_index], kSetupTimeout);
         }
@@ -717,20 +744,22 @@ ScenarioRunResult ScenarioRunner::runOnce(const ScenarioOptions& options,
         result.received_broadcasts < result.expected_broadcasts
             ? result.expected_broadcasts - result.received_broadcasts
             : 0;
-    auto snapshot = server.snapshot();
-    while (options.scenario == ScenarioKind::SlowClient &&
-           snapshot.slow_client_disconnects < options.slow_clients &&
-           Clock::now() < scenario_deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds{1});
-      snapshot = server.snapshot();
+    if (server) {
+      auto snapshot = server->snapshot();
+      while (options.scenario == ScenarioKind::SlowClient &&
+             snapshot.slow_client_disconnects < options.slow_clients &&
+             Clock::now() < scenario_deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        snapshot = server->snapshot();
+      }
+      result.overload = makeOverloadReport(snapshot);
     }
-    result.overload = makeOverloadReport(snapshot);
-    server.stop();
+    stop_server();
     return result;
   } catch (...) {
     const auto failure = std::current_exception();
     try {
-      server.stop();
+      stop_server();
     } catch (...) {
     }
     std::rethrow_exception(failure);
