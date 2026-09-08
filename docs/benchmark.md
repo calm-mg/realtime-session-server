@@ -433,3 +433,9 @@ compiler, build type, `--workers`, 모든 시나리오 인자를 같게 유지�
 한 실행기에서 외부 IPv4 서버로 접속할 수 있지만, 여러 부하 생성기의 분산
 조정이나 원격 서버 내부 통계 조회, TLS, WAN 지연·패킷 손실 주입은 지원하지
 않습니다.
+
+## TCP 지연과 RoomService 잠금 분석
+
+[외부 다중 방 지연 분석](performance/2026-09-08-latency-analysis/README.md)은
+서버·클라이언트 TCP_NODELAY를 나눠 적용한 대조 실험과 잠금 획득 대기·보유
+시간을 기록합니다. 진단 설정의 결과이며 운영 기본값의 개선 결과는 아닙니다.

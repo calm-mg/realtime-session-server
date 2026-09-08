@@ -1,0 +1,2620 @@
+{
+  "baseline-1": {
+    "requests": 24000,
+    "responses": 119974,
+    "anomalies": {
+      "overlap_segments": 1
+    },
+    "request_to_response_wire": {
+      "0": {
+        "count": 30000,
+        "p50_us": 337,
+        "p95_us": 1435,
+        "p99_us": 41663,
+        "max_us": 55449
+      },
+      "1": {
+        "count": 30000,
+        "p50_us": 458,
+        "p95_us": 1992,
+        "p99_us": 41816,
+        "max_us": 45839
+      },
+      "2": {
+        "count": 30000,
+        "p50_us": 231,
+        "p95_us": 40376,
+        "p99_us": 48694,
+        "max_us": 241967
+      },
+      "3": {
+        "count": 29974,
+        "p50_us": 387,
+        "p95_us": 1486,
+        "p99_us": 41864,
+        "max_us": 53679
+      }
+    },
+    "request_to_first_response_wire": {
+      "0": {
+        "count": 6000,
+        "p50_us": 252,
+        "p95_us": 595,
+        "p99_us": 1010,
+        "max_us": 4589
+      },
+      "1": {
+        "count": 6000,
+        "p50_us": 349,
+        "p95_us": 872,
+        "p99_us": 2427,
+        "max_us": 40054
+      },
+      "2": {
+        "count": 6000,
+        "p50_us": 176,
+        "p95_us": 621,
+        "p99_us": 40140,
+        "max_us": 241873
+      },
+      "3": {
+        "count": 5996,
+        "p50_us": 296,
+        "p95_us": 715,
+        "p99_us": 3243,
+        "max_us": 41424
+      }
+    },
+    "response_fanout_counts": {
+      "5": 23993,
+      "4": 2,
+      "1": 1
+    },
+    "examples": [
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            1,
+            941840811656
+          ],
+          "unix_us": 1788845789146075,
+          "source_port": 57650,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            1,
+            941840811656
+          ],
+          "unix_us": 1788845789186495,
+          "source_port": 19090,
+          "destination_port": 57650
+        },
+        "wire_delay_us": 40420
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            1,
+            941840812464
+          ],
+          "unix_us": 1788845789146880,
+          "source_port": 57676,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            1,
+            941840812464
+          ],
+          "unix_us": 1788845789186495,
+          "source_port": 19090,
+          "destination_port": 57650
+        },
+        "wire_delay_us": 39615
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            1,
+            941840811857
+          ],
+          "unix_us": 1788845789146275,
+          "source_port": 57690,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            1,
+            941840811857
+          ],
+          "unix_us": 1788845789186501,
+          "source_port": 19090,
+          "destination_port": 57662
+        },
+        "wire_delay_us": 40226
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            9,
+            1,
+            941840812207
+          ],
+          "unix_us": 1788845789146627,
+          "source_port": 57632,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            9,
+            1,
+            941840812207
+          ],
+          "unix_us": 1788845789186506,
+          "source_port": 19090,
+          "destination_port": 57596
+        },
+        "wire_delay_us": 39879
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            13,
+            1,
+            941840812211
+          ],
+          "unix_us": 1788845789146631,
+          "source_port": 57656,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            13,
+            1,
+            941840812211
+          ],
+          "unix_us": 1788845789186506,
+          "source_port": 19090,
+          "destination_port": 57596
+        },
+        "wire_delay_us": 39875
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            1,
+            941840812239
+          ],
+          "unix_us": 1788845789146655,
+          "source_port": 57682,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            1,
+            941840812239
+          ],
+          "unix_us": 1788845789186506,
+          "source_port": 19090,
+          "destination_port": 57596
+        },
+        "wire_delay_us": 39851
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            10,
+            1,
+            941840811282
+          ],
+          "unix_us": 1788845789145700,
+          "source_port": 57634,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            10,
+            1,
+            941840811282
+          ],
+          "unix_us": 1788845789186508,
+          "source_port": 19090,
+          "destination_port": 57634
+        },
+        "wire_delay_us": 40808
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            14,
+            1,
+            941840811533
+          ],
+          "unix_us": 1788845789145950,
+          "source_port": 57662,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            14,
+            1,
+            941840811533
+          ],
+          "unix_us": 1788845789186508,
+          "source_port": 19090,
+          "destination_port": 57634
+        },
+        "wire_delay_us": 40558
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            1,
+            941840811857
+          ],
+          "unix_us": 1788845789146275,
+          "source_port": 57690,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            1,
+            941840811857
+          ],
+          "unix_us": 1788845789186508,
+          "source_port": 19090,
+          "destination_port": 57634
+        },
+        "wire_delay_us": 40233
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            2,
+            941840912028
+          ],
+          "unix_us": 1788845789246445,
+          "source_port": 57690,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            2,
+            941840912028
+          ],
+          "unix_us": 1788845789286472,
+          "source_port": 19090,
+          "destination_port": 57560
+        },
+        "wire_delay_us": 40027
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            2,
+            941840912028
+          ],
+          "unix_us": 1788845789246445,
+          "source_port": 57690,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            2,
+            941840912028
+          ],
+          "unix_us": 1788845789286479,
+          "source_port": 19090,
+          "destination_port": 57602
+        },
+        "wire_delay_us": 40034
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            15,
+            2,
+            941840911746
+          ],
+          "unix_us": 1788845789246165,
+          "source_port": 57672,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            15,
+            2,
+            941840911746
+          ],
+          "unix_us": 1788845789286481,
+          "source_port": 19090,
+          "destination_port": 57672
+        },
+        "wire_delay_us": 40316
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            2,
+            941840912375
+          ],
+          "unix_us": 1788845789246792,
+          "source_port": 57706,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            2,
+            941840912375
+          ],
+          "unix_us": 1788845789286481,
+          "source_port": 19090,
+          "destination_port": 57672
+        },
+        "wire_delay_us": 39689
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            13,
+            2,
+            941840912546
+          ],
+          "unix_us": 1788845789246965,
+          "source_port": 57656,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            13,
+            2,
+            941840912546
+          ],
+          "unix_us": 1788845789287698,
+          "source_port": 19090,
+          "destination_port": 57656
+        },
+        "wire_delay_us": 40733
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            2,
+            941840912577
+          ],
+          "unix_us": 1788845789246995,
+          "source_port": 57682,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            2,
+            941840912577
+          ],
+          "unix_us": 1788845789287698,
+          "source_port": 19090,
+          "destination_port": 57656
+        },
+        "wire_delay_us": 40703
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            2,
+            941840912577
+          ],
+          "unix_us": 1788845789246995,
+          "source_port": 57682,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            2,
+            941840912577
+          ],
+          "unix_us": 1788845789287701,
+          "source_port": 19090,
+          "destination_port": 57682
+        },
+        "wire_delay_us": 40706
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            2,
+            941840912354
+          ],
+          "unix_us": 1788845789246774,
+          "source_port": 57650,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            2,
+            941840912354
+          ],
+          "unix_us": 1788845789287703,
+          "source_port": 19090,
+          "destination_port": 57630
+        },
+        "wire_delay_us": 40929
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            2,
+            941840912792
+          ],
+          "unix_us": 1788845789247208,
+          "source_port": 57676,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            2,
+            941840912792
+          ],
+          "unix_us": 1788845789287703,
+          "source_port": 19090,
+          "destination_port": 57630
+        },
+        "wire_delay_us": 40495
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            13,
+            2,
+            941840912546
+          ],
+          "unix_us": 1788845789246965,
+          "source_port": 57656,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            13,
+            2,
+            941840912546
+          ],
+          "unix_us": 1788845789288445,
+          "source_port": 19090,
+          "destination_port": 57632
+        },
+        "wire_delay_us": 41480
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            2,
+            941840912577
+          ],
+          "unix_us": 1788845789246995,
+          "source_port": 57682,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            2,
+            941840912577
+          ],
+          "unix_us": 1788845789288445,
+          "source_port": 19090,
+          "destination_port": 57632
+        },
+        "wire_delay_us": 41450
+      }
+    ],
+    "example_connection_packets": [
+      {
+        "unix_us": 1788845789145469,
+        "source_port": 19090,
+        "destination_port": 57650,
+        "seq": 2747325753,
+        "ack": 1895755678,
+        "flags": 24,
+        "bytes": 387
+      },
+      {
+        "unix_us": 1788845789145473,
+        "source_port": 57650,
+        "destination_port": 19090,
+        "seq": 1895755678,
+        "ack": 2747326140,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788845789145478,
+        "source_port": 19090,
+        "destination_port": 57650,
+        "seq": 2747326140,
+        "ack": 1895755678,
+        "flags": 24,
+        "bytes": 387
+      },
+      {
+        "unix_us": 1788845789145480,
+        "source_port": 57650,
+        "destination_port": 19090,
+        "seq": 1895755678,
+        "ack": 2747326527,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788845789146075,
+        "source_port": 57650,
+        "destination_port": 19090,
+        "seq": 1895755678,
+        "ack": 2747326527,
+        "flags": 24,
+        "bytes": 260
+      },
+      {
+        "unix_us": 1788845789146078,
+        "source_port": 19090,
+        "destination_port": 57650,
+        "seq": 2747326527,
+        "ack": 1895755938,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788845789146202,
+        "source_port": 19090,
+        "destination_port": 57650,
+        "seq": 2747326527,
+        "ack": 1895755938,
+        "flags": 24,
+        "bytes": 387
+      },
+      {
+        "unix_us": 1788845789186479,
+        "source_port": 57650,
+        "destination_port": 19090,
+        "seq": 1895755938,
+        "ack": 2747326914,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788845789186495,
+        "source_port": 19090,
+        "destination_port": 57650,
+        "seq": 2747326914,
+        "ack": 1895755938,
+        "flags": 24,
+        "bytes": 778
+      }
+    ]
+  },
+  "server-nodelay-1": {
+    "requests": 24000,
+    "responses": 120000,
+    "anomalies": {
+      "overlap_segments": 53
+    },
+    "request_to_response_wire": {
+      "0": {
+        "count": 30000,
+        "p50_us": 262,
+        "p95_us": 2003,
+        "p99_us": 13500,
+        "max_us": 63922
+      },
+      "1": {
+        "count": 30000,
+        "p50_us": 299,
+        "p95_us": 1110,
+        "p99_us": 3207,
+        "max_us": 19503
+      },
+      "2": {
+        "count": 30000,
+        "p50_us": 198,
+        "p95_us": 923,
+        "p99_us": 7673,
+        "max_us": 35127
+      },
+      "3": {
+        "count": 30000,
+        "p50_us": 322,
+        "p95_us": 1140,
+        "p99_us": 2063,
+        "max_us": 38570
+      }
+    },
+    "request_to_first_response_wire": {
+      "0": {
+        "count": 6000,
+        "p50_us": 215,
+        "p95_us": 1799,
+        "p99_us": 12916,
+        "max_us": 56427
+      },
+      "1": {
+        "count": 6000,
+        "p50_us": 247,
+        "p95_us": 994,
+        "p99_us": 3081,
+        "max_us": 18747
+      },
+      "2": {
+        "count": 6000,
+        "p50_us": 161,
+        "p95_us": 788,
+        "p99_us": 6503,
+        "max_us": 32753
+      },
+      "3": {
+        "count": 6000,
+        "p50_us": 262,
+        "p95_us": 999,
+        "p99_us": 1949,
+        "max_us": 37632
+      }
+    },
+    "response_fanout_counts": {
+      "5": 24000
+    },
+    "examples": [
+      {
+        "request": {
+          "id": [
+            0,
+            3,
+            19,
+            941963787457
+          ],
+          "unix_us": 1788845912122024,
+          "source_port": 44816,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            3,
+            19,
+            941963787457
+          ],
+          "unix_us": 1788845912170526,
+          "source_port": 19090,
+          "destination_port": 44816
+        },
+        "wire_delay_us": 48502
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            7,
+            19,
+            941963788940
+          ],
+          "unix_us": 1788845912123302,
+          "source_port": 44848,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            7,
+            19,
+            941963788940
+          ],
+          "unix_us": 1788845912170759,
+          "source_port": 19090,
+          "destination_port": 44816
+        },
+        "wire_delay_us": 47457
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            11,
+            19,
+            941963789054
+          ],
+          "unix_us": 1788845912123415,
+          "source_port": 44892,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            11,
+            19,
+            941963789054
+          ],
+          "unix_us": 1788845912170846,
+          "source_port": 19090,
+          "destination_port": 44816
+        },
+        "wire_delay_us": 47431
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            15,
+            19,
+            941963789079
+          ],
+          "unix_us": 1788845912123533,
+          "source_port": 44914,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            15,
+            19,
+            941963789079
+          ],
+          "unix_us": 1788845912171001,
+          "source_port": 19090,
+          "destination_port": 44816
+        },
+        "wire_delay_us": 47468
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            19,
+            941963789324
+          ],
+          "unix_us": 1788845912123727,
+          "source_port": 44956,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            19,
+            941963789324
+          ],
+          "unix_us": 1788845912171016,
+          "source_port": 19090,
+          "destination_port": 44816
+        },
+        "wire_delay_us": 47289
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            0,
+            19,
+            941963787770
+          ],
+          "unix_us": 1788845912122136,
+          "source_port": 44798,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            0,
+            19,
+            941963787770
+          ],
+          "unix_us": 1788845912171039,
+          "source_port": 19090,
+          "destination_port": 44798
+        },
+        "wire_delay_us": 48903
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            19,
+            941963792130
+          ],
+          "unix_us": 1788845912126490,
+          "source_port": 44894,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            19,
+            941963792130
+          ],
+          "unix_us": 1788845912171106,
+          "source_port": 19090,
+          "destination_port": 44798
+        },
+        "wire_delay_us": 44616
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            8,
+            19,
+            941963792138
+          ],
+          "unix_us": 1788845912126498,
+          "source_port": 44856,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            8,
+            19,
+            941963792138
+          ],
+          "unix_us": 1788845912171120,
+          "source_port": 19090,
+          "destination_port": 44798
+        },
+        "wire_delay_us": 44622
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            19,
+            941963792147
+          ],
+          "unix_us": 1788845912126556,
+          "source_port": 44920,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            19,
+            941963792147
+          ],
+          "unix_us": 1788845912171275,
+          "source_port": 19090,
+          "destination_port": 44798
+        },
+        "wire_delay_us": 44719
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            4,
+            19,
+            941963792093
+          ],
+          "unix_us": 1788845912126468,
+          "source_port": 44830,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            4,
+            19,
+            941963792093
+          ],
+          "unix_us": 1788845912171337,
+          "source_port": 19090,
+          "destination_port": 44798
+        },
+        "wire_delay_us": 44869
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            1,
+            19,
+            941963787881
+          ],
+          "unix_us": 1788845912122249,
+          "source_port": 44806,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            1,
+            19,
+            941963787881
+          ],
+          "unix_us": 1788845912171352,
+          "source_port": 19090,
+          "destination_port": 44806
+        },
+        "wire_delay_us": 49103
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            5,
+            19,
+            941963788337
+          ],
+          "unix_us": 1788845912122705,
+          "source_port": 44838,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            5,
+            19,
+            941963788337
+          ],
+          "unix_us": 1788845912171430,
+          "source_port": 19090,
+          "destination_port": 44806
+        },
+        "wire_delay_us": 48725
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            9,
+            19,
+            941963788898
+          ],
+          "unix_us": 1788845912123284,
+          "source_port": 44866,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            9,
+            19,
+            941963788898
+          ],
+          "unix_us": 1788845912171444,
+          "source_port": 19090,
+          "destination_port": 44806
+        },
+        "wire_delay_us": 48160
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            13,
+            19,
+            941963788986
+          ],
+          "unix_us": 1788845912123365,
+          "source_port": 44904,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            13,
+            19,
+            941963788986
+          ],
+          "unix_us": 1788845912171452,
+          "source_port": 19090,
+          "destination_port": 44806
+        },
+        "wire_delay_us": 48087
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            19,
+            941963789029
+          ],
+          "unix_us": 1788845912123392,
+          "source_port": 44930,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            19,
+            941963789029
+          ],
+          "unix_us": 1788845912171478,
+          "source_port": 19090,
+          "destination_port": 44806
+        },
+        "wire_delay_us": 48086
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            9,
+            19,
+            941963788898
+          ],
+          "unix_us": 1788845912123284,
+          "source_port": 44866,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            9,
+            19,
+            941963788898
+          ],
+          "unix_us": 1788845912173215,
+          "source_port": 19090,
+          "destination_port": 44838
+        },
+        "wire_delay_us": 49931
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            13,
+            19,
+            941963788986
+          ],
+          "unix_us": 1788845912123365,
+          "source_port": 44904,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            13,
+            19,
+            941963788986
+          ],
+          "unix_us": 1788845912173219,
+          "source_port": 19090,
+          "destination_port": 44838
+        },
+        "wire_delay_us": 49854
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            19,
+            941963789029
+          ],
+          "unix_us": 1788845912123392,
+          "source_port": 44930,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            19,
+            941963789029
+          ],
+          "unix_us": 1788845912173228,
+          "source_port": 19090,
+          "destination_port": 44838
+        },
+        "wire_delay_us": 49836
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            9,
+            19,
+            941963788898
+          ],
+          "unix_us": 1788845912123284,
+          "source_port": 44866,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            9,
+            19,
+            941963788898
+          ],
+          "unix_us": 1788845912173251,
+          "source_port": 19090,
+          "destination_port": 44866
+        },
+        "wire_delay_us": 49967
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            14,
+            19,
+            941963836687
+          ],
+          "unix_us": 1788845912171051,
+          "source_port": 44910,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            14,
+            19,
+            941963836687
+          ],
+          "unix_us": 1788845912213094,
+          "source_port": 19090,
+          "destination_port": 44810
+        },
+        "wire_delay_us": 42043
+      }
+    ],
+    "example_connection_packets": [
+      {
+        "unix_us": 1788845912122024,
+        "source_port": 44816,
+        "destination_port": 19090,
+        "seq": 639292519,
+        "ack": 2199568785,
+        "flags": 24,
+        "bytes": 260
+      },
+      {
+        "unix_us": 1788845912170526,
+        "source_port": 19090,
+        "destination_port": 44816,
+        "seq": 2199568785,
+        "ack": 639292779,
+        "flags": 24,
+        "bytes": 387
+      },
+      {
+        "unix_us": 1788845912170759,
+        "source_port": 19090,
+        "destination_port": 44816,
+        "seq": 2199569172,
+        "ack": 639292779,
+        "flags": 24,
+        "bytes": 387
+      },
+      {
+        "unix_us": 1788845912170846,
+        "source_port": 19090,
+        "destination_port": 44816,
+        "seq": 2199569559,
+        "ack": 639292779,
+        "flags": 24,
+        "bytes": 389
+      },
+      {
+        "unix_us": 1788845912171001,
+        "source_port": 19090,
+        "destination_port": 44816,
+        "seq": 2199569948,
+        "ack": 639292779,
+        "flags": 24,
+        "bytes": 389
+      },
+      {
+        "unix_us": 1788845912171016,
+        "source_port": 19090,
+        "destination_port": 44816,
+        "seq": 2199570337,
+        "ack": 639292779,
+        "flags": 24,
+        "bytes": 389
+      },
+      {
+        "unix_us": 1788845912171410,
+        "source_port": 44816,
+        "destination_port": 19090,
+        "seq": 639292779,
+        "ack": 2199570726,
+        "flags": 16,
+        "bytes": 0
+      }
+    ]
+  },
+  "client-nodelay-1": {
+    "requests": 24000,
+    "responses": 120000,
+    "anomalies": {},
+    "request_to_response_wire": {
+      "0": {
+        "count": 30000,
+        "p50_us": 358,
+        "p95_us": 15401,
+        "p99_us": 41859,
+        "max_us": 102773
+      },
+      "1": {
+        "count": 30000,
+        "p50_us": 248,
+        "p95_us": 38086,
+        "p99_us": 41833,
+        "max_us": 98218
+      },
+      "2": {
+        "count": 30000,
+        "p50_us": 251,
+        "p95_us": 40945,
+        "p99_us": 42758,
+        "max_us": 76936
+      },
+      "3": {
+        "count": 30000,
+        "p50_us": 199,
+        "p95_us": 25174,
+        "p99_us": 41814,
+        "max_us": 91657
+      }
+    },
+    "request_to_first_response_wire": {
+      "0": {
+        "count": 6000,
+        "p50_us": 264,
+        "p95_us": 806,
+        "p99_us": 6724,
+        "max_us": 60378
+      },
+      "1": {
+        "count": 6000,
+        "p50_us": 190,
+        "p95_us": 680,
+        "p99_us": 5219,
+        "max_us": 57901
+      },
+      "2": {
+        "count": 6000,
+        "p50_us": 193,
+        "p95_us": 809,
+        "p99_us": 17948,
+        "max_us": 51434
+      },
+      "3": {
+        "count": 6000,
+        "p50_us": 157,
+        "p95_us": 816,
+        "p99_us": 22271,
+        "max_us": 73146
+      }
+    },
+    "response_fanout_counts": {
+      "5": 24000
+    },
+    "examples": [
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            1,
+            942083946997
+          ],
+          "unix_us": 1788846032281738,
+          "source_port": 37218,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            1,
+            942083946997
+          ],
+          "unix_us": 1788846032322793,
+          "source_port": 19090,
+          "destination_port": 37182
+        },
+        "wire_delay_us": 41055
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            8,
+            1,
+            942083946620
+          ],
+          "unix_us": 1788846032281349,
+          "source_port": 37132,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            8,
+            1,
+            942083946620
+          ],
+          "unix_us": 1788846032322799,
+          "source_port": 19090,
+          "destination_port": 37090
+        },
+        "wire_delay_us": 41450
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            1,
+            942083946713
+          ],
+          "unix_us": 1788846032281442,
+          "source_port": 37170,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            1,
+            942083946713
+          ],
+          "unix_us": 1788846032322799,
+          "source_port": 19090,
+          "destination_port": 37090
+        },
+        "wire_delay_us": 41357
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            1,
+            942083947056
+          ],
+          "unix_us": 1788846032281783,
+          "source_port": 37200,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            1,
+            942083947056
+          ],
+          "unix_us": 1788846032322799,
+          "source_port": 19090,
+          "destination_port": 37090
+        },
+        "wire_delay_us": 41016
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            8,
+            1,
+            942083946620
+          ],
+          "unix_us": 1788846032281349,
+          "source_port": 37132,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            8,
+            1,
+            942083946620
+          ],
+          "unix_us": 1788846032322803,
+          "source_port": 19090,
+          "destination_port": 37132
+        },
+        "wire_delay_us": 41454
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            1,
+            942083946713
+          ],
+          "unix_us": 1788846032281442,
+          "source_port": 37170,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            1,
+            942083946713
+          ],
+          "unix_us": 1788846032322803,
+          "source_port": 19090,
+          "destination_port": 37132
+        },
+        "wire_delay_us": 41361
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            1,
+            942083947056
+          ],
+          "unix_us": 1788846032281783,
+          "source_port": 37200,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            1,
+            942083947056
+          ],
+          "unix_us": 1788846032322803,
+          "source_port": 19090,
+          "destination_port": 37132
+        },
+        "wire_delay_us": 41020
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            9,
+            1,
+            942083946344
+          ],
+          "unix_us": 1788846032281074,
+          "source_port": 37148,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            9,
+            1,
+            942083946344
+          ],
+          "unix_us": 1788846032322805,
+          "source_port": 19090,
+          "destination_port": 37148
+        },
+        "wire_delay_us": 41731
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            1,
+            942083946862
+          ],
+          "unix_us": 1788846032281599,
+          "source_port": 37210,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            1,
+            942083946862
+          ],
+          "unix_us": 1788846032322805,
+          "source_port": 19090,
+          "destination_port": 37148
+        },
+        "wire_delay_us": 41206
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            9,
+            1,
+            942083946344
+          ],
+          "unix_us": 1788846032281074,
+          "source_port": 37148,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            9,
+            1,
+            942083946344
+          ],
+          "unix_us": 1788846032322807,
+          "source_port": 19090,
+          "destination_port": 37180
+        },
+        "wire_delay_us": 41733
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            17,
+            1,
+            942083946862
+          ],
+          "unix_us": 1788846032281599,
+          "source_port": 37210,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            17,
+            1,
+            942083946862
+          ],
+          "unix_us": 1788846032322807,
+          "source_port": 19090,
+          "destination_port": 37180
+        },
+        "wire_delay_us": 41208
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            11,
+            1,
+            942083946125
+          ],
+          "unix_us": 1788846032280852,
+          "source_port": 37166,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            11,
+            1,
+            942083946125
+          ],
+          "unix_us": 1788846032322808,
+          "source_port": 19090,
+          "destination_port": 37166
+        },
+        "wire_delay_us": 41956
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            15,
+            1,
+            942083946947
+          ],
+          "unix_us": 1788846032281677,
+          "source_port": 37192,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            15,
+            1,
+            942083946947
+          ],
+          "unix_us": 1788846032322808,
+          "source_port": 19090,
+          "destination_port": 37166
+        },
+        "wire_delay_us": 41131
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            1,
+            942083947434
+          ],
+          "unix_us": 1788846032282164,
+          "source_port": 37224,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            1,
+            942083947434
+          ],
+          "unix_us": 1788846032322808,
+          "source_port": 19090,
+          "destination_port": 37166
+        },
+        "wire_delay_us": 40644
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            8,
+            2,
+            942084046832
+          ],
+          "unix_us": 1788846032381559,
+          "source_port": 37132,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            8,
+            2,
+            942084046832
+          ],
+          "unix_us": 1788846032421805,
+          "source_port": 19090,
+          "destination_port": 37170
+        },
+        "wire_delay_us": 40246
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            2,
+            942084046860
+          ],
+          "unix_us": 1788846032381587,
+          "source_port": 37170,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            2,
+            942084046860
+          ],
+          "unix_us": 1788846032421805,
+          "source_port": 19090,
+          "destination_port": 37170
+        },
+        "wire_delay_us": 40218
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            2,
+            942084047162
+          ],
+          "unix_us": 1788846032381889,
+          "source_port": 37200,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            2,
+            942084047162
+          ],
+          "unix_us": 1788846032421805,
+          "source_port": 19090,
+          "destination_port": 37170
+        },
+        "wire_delay_us": 39916
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            10,
+            2,
+            942084046571
+          ],
+          "unix_us": 1788846032381300,
+          "source_port": 37150,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            10,
+            2,
+            942084046571
+          ],
+          "unix_us": 1788846032421813,
+          "source_port": 19090,
+          "destination_port": 37150
+        },
+        "wire_delay_us": 40513
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            14,
+            2,
+            942084047301
+          ],
+          "unix_us": 1788846032382029,
+          "source_port": 37182,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            14,
+            2,
+            942084047301
+          ],
+          "unix_us": 1788846032421813,
+          "source_port": 19090,
+          "destination_port": 37150
+        },
+        "wire_delay_us": 39784
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            2,
+            942084047492
+          ],
+          "unix_us": 1788846032382225,
+          "source_port": 37218,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            2,
+            942084047492
+          ],
+          "unix_us": 1788846032421813,
+          "source_port": 19090,
+          "destination_port": 37150
+        },
+        "wire_delay_us": 39588
+      }
+    ],
+    "example_connection_packets": [
+      {
+        "unix_us": 1788846032280481,
+        "source_port": 19090,
+        "destination_port": 37182,
+        "seq": 4111776882,
+        "ack": 1030536500,
+        "flags": 24,
+        "bytes": 388
+      },
+      {
+        "unix_us": 1788846032280485,
+        "source_port": 37182,
+        "destination_port": 19090,
+        "seq": 1030536500,
+        "ack": 4111777270,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846032280638,
+        "source_port": 19090,
+        "destination_port": 37182,
+        "seq": 4111777270,
+        "ack": 1030536500,
+        "flags": 24,
+        "bytes": 388
+      },
+      {
+        "unix_us": 1788846032280640,
+        "source_port": 37182,
+        "destination_port": 19090,
+        "seq": 1030536500,
+        "ack": 4111777658,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846032281321,
+        "source_port": 19090,
+        "destination_port": 37182,
+        "seq": 4111777658,
+        "ack": 1030536500,
+        "flags": 24,
+        "bytes": 390
+      },
+      {
+        "unix_us": 1788846032281323,
+        "source_port": 37182,
+        "destination_port": 19090,
+        "seq": 1030536500,
+        "ack": 4111778048,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846032281379,
+        "source_port": 37182,
+        "destination_port": 19090,
+        "seq": 1030536500,
+        "ack": 4111778048,
+        "flags": 24,
+        "bytes": 260
+      },
+      {
+        "unix_us": 1788846032281388,
+        "source_port": 19090,
+        "destination_port": 37182,
+        "seq": 4111778048,
+        "ack": 1030536760,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846032281483,
+        "source_port": 19090,
+        "destination_port": 37182,
+        "seq": 4111778048,
+        "ack": 1030536760,
+        "flags": 24,
+        "bytes": 390
+      },
+      {
+        "unix_us": 1788846032322774,
+        "source_port": 37182,
+        "destination_port": 19090,
+        "seq": 1030536760,
+        "ack": 4111778438,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846032322793,
+        "source_port": 19090,
+        "destination_port": 37182,
+        "seq": 4111778438,
+        "ack": 1030536760,
+        "flags": 24,
+        "bytes": 390
+      },
+      {
+        "unix_us": 1788846032322827,
+        "source_port": 37182,
+        "destination_port": 19090,
+        "seq": 1030536760,
+        "ack": 4111778828,
+        "flags": 16,
+        "bytes": 0
+      }
+    ]
+  },
+  "mutex-1": {
+    "requests": 24000,
+    "responses": 120000,
+    "anomalies": {},
+    "request_to_response_wire": {
+      "0": {
+        "count": 30000,
+        "p50_us": 366,
+        "p95_us": 6942,
+        "p99_us": 41903,
+        "max_us": 46412
+      },
+      "1": {
+        "count": 30000,
+        "p50_us": 467,
+        "p95_us": 3534,
+        "p99_us": 41931,
+        "max_us": 46759
+      },
+      "2": {
+        "count": 30000,
+        "p50_us": 335,
+        "p95_us": 2048,
+        "p99_us": 41509,
+        "max_us": 52974
+      },
+      "3": {
+        "count": 30000,
+        "p50_us": 350,
+        "p95_us": 40290,
+        "p99_us": 42074,
+        "max_us": 87795
+      }
+    },
+    "request_to_first_response_wire": {
+      "0": {
+        "count": 6000,
+        "p50_us": 261,
+        "p95_us": 745,
+        "p99_us": 1377,
+        "max_us": 40716
+      },
+      "1": {
+        "count": 6000,
+        "p50_us": 348,
+        "p95_us": 904,
+        "p99_us": 2629,
+        "max_us": 41801
+      },
+      "2": {
+        "count": 6000,
+        "p50_us": 251,
+        "p95_us": 704,
+        "p99_us": 1520,
+        "max_us": 12135
+      },
+      "3": {
+        "count": 6000,
+        "p50_us": 262,
+        "p95_us": 1116,
+        "p99_us": 9158,
+        "max_us": 87540
+      }
+    },
+    "response_fanout_counts": {
+      "5": 24000
+    },
+    "examples": [
+      {
+        "request": {
+          "id": [
+            0,
+            0,
+            1,
+            942238303541
+          ],
+          "unix_us": 1788846186637724,
+          "source_port": 33956,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            0,
+            1,
+            942238303541
+          ],
+          "unix_us": 1788846186678241,
+          "source_port": 19090,
+          "destination_port": 33956
+        },
+        "wire_delay_us": 40517
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            15,
+            1,
+            942238303334
+          ],
+          "unix_us": 1788846186637519,
+          "source_port": 34118,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            15,
+            1,
+            942238303334
+          ],
+          "unix_us": 1788846186678247,
+          "source_port": 19090,
+          "destination_port": 33994
+        },
+        "wire_delay_us": 40728
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            1,
+            942238303362
+          ],
+          "unix_us": 1788846186637546,
+          "source_port": 34160,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            1,
+            942238303362
+          ],
+          "unix_us": 1788846186678247,
+          "source_port": 19090,
+          "destination_port": 33994
+        },
+        "wire_delay_us": 40701
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            14,
+            1,
+            942238303185
+          ],
+          "unix_us": 1788846186637374,
+          "source_port": 34102,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            14,
+            1,
+            942238303185
+          ],
+          "unix_us": 1788846186678252,
+          "source_port": 19090,
+          "destination_port": 34148
+        },
+        "wire_delay_us": 40878
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            1,
+            942238303243
+          ],
+          "unix_us": 1788846186637432,
+          "source_port": 34148,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            1,
+            942238303243
+          ],
+          "unix_us": 1788846186678252,
+          "source_port": 19090,
+          "destination_port": 34148
+        },
+        "wire_delay_us": 40820
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            18,
+            1,
+            942238303243
+          ],
+          "unix_us": 1788846186637432,
+          "source_port": 34148,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            18,
+            1,
+            942238303243
+          ],
+          "unix_us": 1788846186678255,
+          "source_port": 19090,
+          "destination_port": 33982
+        },
+        "wire_delay_us": 40823
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            8,
+            2,
+            942238403613
+          ],
+          "unix_us": 1788846186737797,
+          "source_port": 34064,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            8,
+            2,
+            942238403613
+          ],
+          "unix_us": 1788846186778289,
+          "source_port": 19090,
+          "destination_port": 33956
+        },
+        "wire_delay_us": 40492
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            0,
+            2,
+            942238403632
+          ],
+          "unix_us": 1788846186737816,
+          "source_port": 33956,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            0,
+            2,
+            942238403632
+          ],
+          "unix_us": 1788846186778289,
+          "source_port": 19090,
+          "destination_port": 33956
+        },
+        "wire_delay_us": 40473
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            16,
+            2,
+            942238403640
+          ],
+          "unix_us": 1788846186737829,
+          "source_port": 34126,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            16,
+            2,
+            942238403640
+          ],
+          "unix_us": 1788846186778289,
+          "source_port": 19090,
+          "destination_port": 33956
+        },
+        "wire_delay_us": 40460
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            12,
+            2,
+            942238403680
+          ],
+          "unix_us": 1788846186737865,
+          "source_port": 34096,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            12,
+            2,
+            942238403680
+          ],
+          "unix_us": 1788846186778289,
+          "source_port": 19090,
+          "destination_port": 33956
+        },
+        "wire_delay_us": 40424
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            10,
+            2,
+            942238403508
+          ],
+          "unix_us": 1788846186737695,
+          "source_port": 34072,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            10,
+            2,
+            942238403508
+          ],
+          "unix_us": 1788846186778294,
+          "source_port": 19090,
+          "destination_port": 34072
+        },
+        "wire_delay_us": 40599
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            11,
+            2,
+            942238403419
+          ],
+          "unix_us": 1788846186737606,
+          "source_port": 34086,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            11,
+            2,
+            942238403419
+          ],
+          "unix_us": 1788846186778298,
+          "source_port": 19090,
+          "destination_port": 33994
+        },
+        "wire_delay_us": 40692
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            15,
+            2,
+            942238403442
+          ],
+          "unix_us": 1788846186737629,
+          "source_port": 34118,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            15,
+            2,
+            942238403442
+          ],
+          "unix_us": 1788846186778298,
+          "source_port": 19090,
+          "destination_port": 33994
+        },
+        "wire_delay_us": 40669
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186737582,
+          "source_port": 34052,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186778298,
+          "source_port": 19090,
+          "destination_port": 33994
+        },
+        "wire_delay_us": 40716
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            2,
+            942238403470
+          ],
+          "unix_us": 1788846186737655,
+          "source_port": 34160,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            2,
+            942238403470
+          ],
+          "unix_us": 1788846186778298,
+          "source_port": 19090,
+          "destination_port": 33994
+        },
+        "wire_delay_us": 40643
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186737582,
+          "source_port": 34052,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186778300,
+          "source_port": 19090,
+          "destination_port": 34052
+        },
+        "wire_delay_us": 40718
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            2,
+            942238403470
+          ],
+          "unix_us": 1788846186737655,
+          "source_port": 34160,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            2,
+            942238403470
+          ],
+          "unix_us": 1788846186778300,
+          "source_port": 19090,
+          "destination_port": 34052
+        },
+        "wire_delay_us": 40645
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186737582,
+          "source_port": 34052,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186778301,
+          "source_port": 19090,
+          "destination_port": 34086
+        },
+        "wire_delay_us": 40719
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            19,
+            2,
+            942238403470
+          ],
+          "unix_us": 1788846186737655,
+          "source_port": 34160,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            19,
+            2,
+            942238403470
+          ],
+          "unix_us": 1788846186778301,
+          "source_port": 19090,
+          "destination_port": 34086
+        },
+        "wire_delay_us": 40646
+      },
+      {
+        "request": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186737582,
+          "source_port": 34052,
+          "destination_port": 19090
+        },
+        "response": {
+          "id": [
+            0,
+            7,
+            2,
+            942238403388
+          ],
+          "unix_us": 1788846186778302,
+          "source_port": 19090,
+          "destination_port": 34118
+        },
+        "wire_delay_us": 40720
+      }
+    ],
+    "example_connection_packets": [
+      {
+        "unix_us": 1788846186637724,
+        "source_port": 33956,
+        "destination_port": 19090,
+        "seq": 1987247823,
+        "ack": 3878688569,
+        "flags": 24,
+        "bytes": 260
+      },
+      {
+        "unix_us": 1788846186637763,
+        "source_port": 19090,
+        "destination_port": 33956,
+        "seq": 3878688569,
+        "ack": 1987248083,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846186637802,
+        "source_port": 19090,
+        "destination_port": 33956,
+        "seq": 3878688569,
+        "ack": 1987248083,
+        "flags": 24,
+        "bytes": 386
+      },
+      {
+        "unix_us": 1788846186637921,
+        "source_port": 33956,
+        "destination_port": 19090,
+        "seq": 1987248083,
+        "ack": 3878688955,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846186637926,
+        "source_port": 19090,
+        "destination_port": 33956,
+        "seq": 3878688955,
+        "ack": 1987248083,
+        "flags": 24,
+        "bytes": 1162
+      },
+      {
+        "unix_us": 1788846186678227,
+        "source_port": 33956,
+        "destination_port": 19090,
+        "seq": 1987248083,
+        "ack": 3878690117,
+        "flags": 16,
+        "bytes": 0
+      },
+      {
+        "unix_us": 1788846186678241,
+        "source_port": 19090,
+        "destination_port": 33956,
+        "seq": 3878690117,
+        "ack": 1987248083,
+        "flags": 24,
+        "bytes": 386
+      },
+      {
+        "unix_us": 1788846186678275,
+        "source_port": 33956,
+        "destination_port": 19090,
+        "seq": 1987248083,
+        "ack": 3878690503,
+        "flags": 16,
+        "bytes": 0
+      }
+    ]
+  }
+}
