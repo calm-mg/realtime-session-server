@@ -11,7 +11,7 @@ namespace rss::tools {
 namespace {
 
 constexpr std::string_view kUsage =
-    "Usage: rss_load_scenario_runner "
+    "Usage: rss_load_scenario_runner [--host IPv4 --port N] "
     "[--scenario <broadcast|multi-room|slow-client>] "
     "[--clients N] [--rooms N] [--messages N] [--payload-bytes N] "
     "[--slow-clients N] [--repeat N] [--workers N] "
@@ -34,9 +34,10 @@ int runScenarioProgramWith(std::span<const std::string_view> args,
 
   try {
     const ScenarioTuning tuning;
-    out << formatEnvironment(collectEnvironmentInfo(
-               options.worker_count, tuning.socket_receive_buffer_bytes))
-        << '\n';
+    auto environment = collectEnvironmentInfo(
+        options.worker_count, tuning.socket_receive_buffer_bytes);
+    environment.external_target = !options.host.empty();
+    out << formatEnvironment(environment) << '\n';
     static_cast<void>(run_once(options, 0));
 
     bool all_successful = true;

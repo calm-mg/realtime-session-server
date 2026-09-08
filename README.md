@@ -334,6 +334,13 @@ cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
 ./build/linux-dev/rss_load_scenario_runner --scenario broadcast --clients 2 --messages 2 --payload-bytes 128 --repeat 1 --workers 1
 ```
 
+서버와 부하 생성기를 분리하려면 `--host 127.0.0.1 --port 19090`을 함께
+지정합니다. 외부 모드는 서버를 시작·종료하지 않고 `broadcast`와 `multi-room`을
+지원합니다. 서버 worker 설정은 서버 실행 시 지정하며 부하 도구의 `--workers`는
+사용하지 않습니다. 서버 통계는 결과에서 생략되므로 NDJSON 로그를 따로
+보관하세요. CPU 분리 명령과 반복 실행의 DB 영향은
+[외부 서버 측정](docs/benchmark.md#외부-서버와-분리-실행)에 정리했습니다.
+
 지속 부하는 `--rate-per-client 10 --max-in-flight 8 --timeout-seconds 60`처럼
 송신 속도와 방별 응답 대기 상한을 함께 지정합니다. `--messages 300`이면
 약 30초 동안 측정합니다. rate/window 기본값 0은 일반 시나리오의 제한을

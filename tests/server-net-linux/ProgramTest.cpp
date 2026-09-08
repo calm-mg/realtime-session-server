@@ -170,3 +170,30 @@ TEST(ProgramTest, PreservesRunnerStandardOutput) {
       static_cast<std::size_t>(std::count(output.begin(), output.end(), '\n')),
       2U);
 }
+
+TEST(ProgramTest,
+     ExternalEndpointReachesEveryRunAndLabelsGeneratorEnvironment) {
+  const std::array<std::string_view, 6> args{"--host", "127.0.0.1", "--port",
+                                             "12345",  "--repeat",  "1"};
+  std::ostringstream out;
+  std::ostringstream err;
+  std::vector<std::size_t> runs;
+  const auto run_once = [&](const rss::tools::ScenarioOptions& options,
+                            std::size_t run) {
+    EXPECT_EQ(options.host, "127.0.0.1");
+    EXPECT_EQ(options.port, 12345);
+    runs.push_back(run);
+    auto result = successfulResult();
+    result.requested = options;
+    result.server_stats_available = false;
+    return result;
+  };
+  EXPECT_EQ(
+      rss::tools::internal::runScenarioProgramWith(args, out, err, run_once),
+      0);
+  EXPECT_EQ(runs, (std::vector<std::size_t>{0, 1}));
+  EXPECT_TRUE(err.str().empty());
+  EXPECT_NE(out.str().find("environment_scope=load-generator"),
+            std::string::npos);
+  EXPECT_NE(out.str().find("workers=unknown"), std::string::npos);
+}

@@ -54,3 +54,13 @@ TEST(EnvironmentInfoTest, CollectsRequestedRuntimeSettings) {
   EXPECT_EQ(info.workers, 6U);
   EXPECT_EQ(info.requested_slow_receive_buffer_bytes, 4096);
 }
+
+TEST(EnvironmentInfoTest, ExternalEnvironmentDoesNotClaimServerWorkerCount) {
+  rss::tools::EnvironmentInfo info;
+  info.workers = 4;
+  info.external_target = true;
+  const auto output = rss::tools::formatEnvironment(info);
+  EXPECT_NE(output.find("workers=unknown"), std::string::npos);
+  EXPECT_NE(output.find("environment_scope=load-generator"), std::string::npos);
+  EXPECT_EQ(output.find("workers=4"), std::string::npos);
+}

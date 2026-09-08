@@ -65,6 +65,7 @@ struct ScenarioRunResult {
   std::uint64_t failed_clients{};
   ClientFailureReport client_failures;
   std::vector<std::chrono::microseconds> latencies;
+  bool server_stats_available{true};
   OverloadReport overload;
   std::chrono::microseconds elapsed{};
 };

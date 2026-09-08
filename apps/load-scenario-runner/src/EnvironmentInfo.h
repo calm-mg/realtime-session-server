@@ -13,6 +13,7 @@ struct EnvironmentInfo {
   std::string compiler;
   std::string build_type;
   std::size_t workers{};
+  bool external_target{};
   int requested_slow_receive_buffer_bytes{};
 };
 

@@ -23,6 +23,10 @@ TCP 부하 테스트 결과만으로 어느 함수가 느린지는 알 수 없�
 [지속 부하 기준값](performance/2026-09-07-sustained-load/README.md)에
 정상·다중 방·느린 client 결과와 함께 기록했습니다.
 
+운영 서버와 부하 생성기의 프로세스·CPU를 나눈 후속 결과는
+[외부 대상 분리 측정](performance/2026-09-08-external-target/README.md)에
+서버 로그와 함께 보관했습니다.
+
 ## 마이크로벤치마크
 
 Google Benchmark 기반 실행 파일은 다음 세 코드 경로를 측정합니다.
@@ -181,10 +185,11 @@ clients=100 messages_per_client=100 sent=10000 failed_clients=0 elapsed_sec=1.25
 
 ## 실제 서버 부하 시나리오
 
-`rss_load_scenario_runner`는 Linux 전용 실행 파일입니다. loopback 임시
-포트에서 실제 서버를 시작하고 실제 TCP 연결로 시나리오를 수행하므로,
-실행 중인 원격 서버는 필요하지 않습니다. 실행마다 결과를 버리는 warm-up을
-1회 수행한 뒤 `--repeat` 횟수만큼 새 서버에서 측정합니다.
+`rss_load_scenario_runner`는 Linux 전용 실행 파일입니다. 기본 내장 모드는
+loopback 임시 포트에서 실제 서버를 시작하고 TCP 시나리오를 수행합니다.
+`--host`와 `--port`를 지정하면 외부 서버에 접속합니다. 실행마다 결과를
+버리는 warm-up 1회 후 `--repeat` 횟수만큼 측정합니다. 내장 모드는 매회 새 서버를
+시작하며, 외부 모드는 같은 서버에 매회 새 연결로 접속합니다.
 
 Linux 개발 빌드 후 다음 세 시나리오를 실행할 수 있습니다.
 
@@ -201,6 +206,7 @@ cmake --build --preset linux-dev --target rss_load_scenario_runner --parallel
 
 ```text
 rss_load_scenario_runner \
+  [--host IPv4 --port N] \
   [--scenario <broadcast|multi-room|slow-client>] \
   [--clients N] [--rooms N] [--messages N] [--payload-bytes N] \
   [--slow-clients N] [--repeat N] [--workers N] \
@@ -209,6 +215,7 @@ rss_load_scenario_runner \
 
 | 옵션 | 기본값 | 의미 |
 | --- | ---: | --- |
+| `--host`, `--port` | 생략 | 함께 지정하면 해당 외부 IPv4 서버 사용; port는 1..65535 |
 | `--scenario` | `broadcast` | 측정할 시나리오 |
 | `--clients` | `10` | 연결할 전체 클라이언트 수 |
 | `--rooms` | `2` | 다중 방 시나리오의 방 수 |
@@ -266,6 +273,52 @@ window와 속도 대기를 깨워 종료합니다.
 지연이며, 고정 도착률 과부하나 최대 처리량으로 해석하지 않습니다. 시간 제한은
 연결·로그인·방 준비 및 서버 종료 시간을 포함한 전체 프로세스 제한이 아닙니다.
 
+### 외부 서버와 분리 실행
+
+`--host`와 `--port`를 함께 지정하면 실행기가 서버를 생성하거나 종료하지
+않고 이미 실행 중인 서버로 접속합니다. IPv4 숫자 주소만 지원하며 DNS와
+IPv6는 지원하지 않습니다. 단일 방과 다중 방에서 기존 rate/window/timeout을
+사용할 수 있습니다. 서버 설정을 바꾸지 않으므로 외부 모드에서 명시적인
+`--workers`는 인자 오류입니다.
+
+운영 서버 빌드와 DB migration은 README의 절차를 사용합니다. 아래 예시는
+CPU 0–3을 사용할 수 있는 Linux에서 서로 겹치지 않는 CPU를 배정합니다.
+다른 머신에서 측정할 때는 서버 listen 주소와 실행기의 `--host`를 서로
+접근 가능한 주소로 바꿉니다.
+
+```bash
+# 서버 터미널: RSS_DATABASE_URL은 실험용 DB 주소로 미리 설정
+RSS_OBSERVABILITY_INTERVAL_SECONDS=10 \
+  taskset -c 0,1 ./build/release/rss_server 127.0.0.1 19090 2 \
+  > server.ndjson 2> server-errors.ndjson
+
+# 부하 생성기 터미널
+taskset -c 2,3 ./build/release/rss_load_scenario_runner \
+  --host 127.0.0.1 --port 19090 --scenario broadcast \
+  --clients 20 --messages 300 --payload-bytes 256 --repeat 3 \
+  --rate-per-client 10 --max-in-flight 8 --timeout-seconds 60 \
+  > client-results.txt
+```
+
+warm-up과 반복마다 고유한 사용자·방 이름을 사용합니다. 실행기가 자신의
+TCP 연결을 닫으면 서버가 참가 상태를 정리하지만 PostgreSQL 사용자 레코드는
+남습니다. 반복 측정용 서버와 DB를 사용하고 측정 종료 후 서버에는 SIGTERM을
+보내 최종 통계까지 보관합니다. 외부 서버의 재시작·DB 초기화는 실행기가
+대신 수행하지 않습니다.
+
+외부 모드의 환경 줄은 **부하 생성기의** commit·CPU·compiler 정보이며
+`environment_scope=load-generator workers=unknown`으로 구분합니다. 서버의
+commit·빌드·CPU·worker 설정과 DB 조건은 따로 기록해야 합니다. 실행 결과는
+`server_stats=unavailable`을 출력하고 서버 카운터는 전부 생략합니다. 누락된
+카운터를 0으로 처리하면 안 됩니다. 서버의 NDJSON 통계는 별도로 수집하며,
+누적 통계에는 warm-up·준비·모든 반복·연결 정리가 포함될 수 있어 단일 run의
+통계와 같지 않습니다.
+
+`slow-client` 성공 판정에는 실제 pending write 종료 수가 필요합니다.
+외부 서버 통계를 자동 수집하지 않는 현재 외부 모드에서는 이 시나리오를
+거절하고 내장 모드를 사용합니다. 별도 프로세스와 CPU affinity만으로 물리
+머신·메모리·커널·네트워크의 자원 공유까지 제거되는 것은 아닙니다.
+
 ### 출력과 종료 코드
 
 첫 줄은 비교 조건을 기록하는 `environment` 줄이고, 이어지는 각 `run` 줄은
@@ -277,13 +330,17 @@ warm-up을 제외한 한 번의 측정 결과입니다. 값은 공백으로 구�
 | `commit` | 빌드에 기록된 Git commit |
 | `os`, `kernel`, `cpu` | 실행 환경의 운영체제, kernel, CPU 식별 정보 |
 | `compiler`, `build_type` | 빌드에 기록된 compiler와 build type |
-| `workers` | `--workers`로 로컬 서버에 적용한 worker 수 |
+| `workers` | 내장 서버의 worker 수; 외부 모드는 `unknown` |
+| `environment_scope` | 외부 모드에서 `load-generator`를 출력해 환경 정보의 대상을 구분 |
 | `requested_slow_receive_buffer_bytes` | 느린 클라이언트에 요청하는 socket 수신 버퍼 크기; 운영체제가 실제 크기를 조정할 수 있음 |
 
-각 `run` 줄에는 다음 필드가 고정 순서로 출력됩니다.
+각 `run` 줄의 주요 필드는 다음과 같습니다. 서버 카운터는 수집 가능한
+경우에만 출력하며 `target`, `host`, `port`는 줄 끝에 붙습니다.
 
 | 필드 | 의미 |
 | --- | --- |
+| `target`, `host`, `port` | `embedded` 또는 `external`과 요청 접속 대상; 내장 port 0은 자동 할당 요청 |
+| `server_stats` | `available`이면 아래 서버 카운터를 출력, `unavailable`이면 전부 생략 |
 | `run`, `scenario`, `clients`, `rooms` | 측정 반복 번호와 적용된 시나리오·클라이언트 수·effective 방 수; `broadcast`와 `slow-client`의 `rooms`는 `1` |
 | `messages_per_sender`, `payload_bytes`, `slow_clients`, `repeats` | 해당 결과를 재현하는 요청 입력 |
 | `rate_per_client`, `max_in_flight`, `effective_max_in_flight` | 요청한 송신 상한·방별 window와 실제 적용 window |
@@ -343,5 +400,6 @@ compiler, build type, `--workers`, 모든 시나리오 인자를 같게 유지�
 합니다. `environment` 줄을 결과와 함께 보관하고, 실패 관련 필드가 0이 아닌
 반복은 정상 처리량으로 해석하지 않습니다.
 
-이 도구는 여러 머신의 분산 부하, 원격 서버의 내부 통계 조회, TLS, WAN 지연
-또는 패킷 손실을 측정하지 않습니다.
+한 실행기에서 외부 IPv4 서버로 접속할 수 있지만, 여러 부하 생성기의 분산
+조정이나 원격 서버 내부 통계 조회, TLS, WAN 지연·패킷 손실 주입은 지원하지
+않습니다.

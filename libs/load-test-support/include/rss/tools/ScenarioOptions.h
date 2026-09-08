@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace rss::tools {
@@ -9,6 +11,8 @@ namespace rss::tools {
 enum class ScenarioKind { Broadcast, MultiRoom, SlowClient };
 
 struct ScenarioOptions {
+  std::string host{};
+  std::uint16_t port{};
   ScenarioKind scenario{ScenarioKind::Broadcast};
   std::size_t clients{10};
   std::size_t rooms{2};
