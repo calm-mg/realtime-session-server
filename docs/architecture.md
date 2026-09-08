@@ -295,3 +295,14 @@ embedded server와 `TcpServer`를 직접 사용하는 코드는 기존처럼 `st
   스레드와 통신합니다.
 - 방과 사용자 상태는 `RoomService`의 mutex로 보호합니다.
 - 통계 수집은 파일 기록이나 외부 수집기를 기다리지 않습니다.
+
+## 작은 TCP 응답의 전송 정책
+
+서버 I/O 스레드는 수락한 연결을 세션에 등록하기 전에 non-blocking과
+TCP_NODELAY를 설정합니다. 작은 broadcast가 앞선 데이터의 ACK를 기다리는
+지연을 줄이기 위한 정책입니다. 초기화에 실패한 fd는 닫고 등록하지 않습니다.
+worker가 소켓 옵션을 바꾸지는 않습니다. 클라이언트의 TCP 설정, queue 상한과
+연결 종료 이유 분류는 이 정책으로 바뀌지 않습니다.
+
+근거와 비용 비교는 [TCP 지연 분석](performance/2026-09-08-latency-analysis/README.md)과
+[TCP_NODELAY 적용 검증](performance/2026-09-08-tcp-nodelay/README.md)을 참고합니다.

@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <gtest/gtest.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -12,6 +13,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <limits>
@@ -628,6 +630,54 @@ class TcpServerBackpressureTest : public testing::Test {
   bool server_error_reported_{false};
   SlowClientIsolationHandler slow_client_handler_;
 };
+
+TEST_F(TcpServerBackpressureTest, DisablesNagleOnEachAcceptedConnection) {
+  handler_.release();
+  ASSERT_TRUE(startServer(loopbackConfig()));
+  for (int connection = 0; connection < 3; ++connection) {
+    auto client = connectClient(boundPort());
+    ASSERT_TRUE(client.valid());
+    ASSERT_TRUE(waitUntil(
+        [this] { return server_->overloadSnapshot().current_sessions == 1; }));
+    sockaddr_in client_address{};
+    socklen_t client_size = sizeof(client_address);
+    ASSERT_EQ(::getsockname(client.get(),
+                            reinterpret_cast<sockaddr*>(&client_address),
+                            &client_size),
+              0);
+
+    // 실제 수락 소켓을 읽기 전용으로 찾는다. 시간 임계값에 의존하지 않는다.
+    int matched_sockets = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator("/proc/self/fd")) {
+      const auto fd = std::stoi(entry.path().filename().string());
+      sockaddr_in local{};
+      sockaddr_in peer{};
+      socklen_t local_size = sizeof(local);
+      socklen_t peer_size = sizeof(peer);
+      if (::getsockname(fd, reinterpret_cast<sockaddr*>(&local), &local_size) !=
+              0 ||
+          local.sin_family != AF_INET || ntohs(local.sin_port) != boundPort() ||
+          ::getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &peer_size) !=
+              0 ||
+          peer.sin_family != AF_INET ||
+          peer.sin_port != client_address.sin_port) {
+        continue;
+      }
+      ++matched_sockets;
+      int no_delay = 0;
+      socklen_t option_size = sizeof(no_delay);
+      ASSERT_EQ(
+          ::getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &no_delay, &option_size),
+          0);
+      EXPECT_EQ(no_delay, 1);
+    }
+    EXPECT_EQ(matched_sockets, 1);
+    client.reset();
+    ASSERT_TRUE(waitUntil(
+        [this] { return server_->overloadSnapshot().current_sessions == 0; }));
+  }
+}
 
 TEST_F(TcpServerBackpressureTest, CountsPeerCloseOnceWithoutShutdownOverlap) {
   handler_.release();

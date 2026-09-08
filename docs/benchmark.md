@@ -439,3 +439,7 @@ compiler, build type, `--workers`, 모든 시나리오 인자를 같게 유지�
 [외부 다중 방 지연 분석](performance/2026-09-08-latency-analysis/README.md)은
 서버·클라이언트 TCP_NODELAY를 나눠 적용한 대조 실험과 잠금 획득 대기·보유
 시간을 기록합니다. 진단 설정의 결과이며 운영 기본값의 개선 결과는 아닙니다.
+
+[TCP_NODELAY 적용 검증](performance/2026-09-08-tcp-nodelay/README.md)에는
+기본 설정에 반영한 뒤 정상·다중 방·느린 클라이언트의 회귀와 전송·CPU 비용을
+비교한 결과를 기록합니다. 과거 진단 실험과 실제 적용 결과를 구분합니다.
