@@ -41,6 +41,27 @@ I/O 스레드
 클라이언트
 ```
 
+## 채팅 한 건의 처리 과정
+
+같은 방에 A, B, C가 있고 A가 채팅을 보내면 다음 순서로 처리합니다.
+
+1. I/O 스레드가 A의 소켓에서 바이트를 읽고 `PacketCodec`으로 `ChatReq`를
+   조립합니다. 패킷에 세션 ID와 순서 번호를 붙여 입력 queue에 넣습니다.
+2. worker가 요청을 꺼내 `MessageRouter`에 전달합니다. router는 문자열을
+   검사하고 `RoomService::chat()`으로 로그인 여부와 방 참가 상태를 확인합니다.
+3. `RoomService`가 보낸 사람의 정보, 방 ID와 참가 세션 목록을 반환합니다.
+   router는 이를 이용해 `RoomBroadcast`를 만들고 A, B, C 각각을 대상으로
+   출력을 생성합니다. 보낸 사람 A도 같은 채팅 이벤트를 받습니다.
+4. handler가 정상 반환하면 worker가 출력을 출력 queue에 게시하고 `eventfd`로
+   I/O 스레드에 알립니다. I/O 스레드는 대상 세션의 송신 대기열에 데이터를
+   넣고, 소켓에 쓸 수 있을 때 전송합니다. 일부만 보내졌다면 남은 위치부터
+   이어서 보냅니다.
+
+여기서 broadcast는 같은 방의 TCP 연결마다 개별 전송하는 방식입니다. 방 인원이
+늘면 전송할 데이터도 늘어납니다. 방 참가 상태는 메모리에 보관하며 채팅 기록은
+저장하지 않습니다. 같은 세션의 요청 순서는 유지하지만, 여러 세션이 동시에
+보낸 채팅에 방 전체의 공통 순번을 부여하지는 않습니다.
+
 ## 구성 요소
 
 ### `TcpServer`
@@ -54,11 +75,12 @@ I/O 스레드
 
 ### `WorkerPool`과 `SessionEventHandler`
 
-`WorkerPool`은 구체적인 메시지 라우터가 아니라 애플리케이션 처리 포트인
-`SessionEventHandler`에만 의존합니다. `MessageRouter`가 이 포트를
-구현하고 `RoomService`와 협력해 응답을 출력 sink로 하나씩 전달합니다.
-worker는 응답 목록 전체를 로컬에 쌓지 않으며 소켓이나 `epoll`을 직접
-조작하지 않습니다.
+`WorkerPool`은 요청 처리 인터페이스인 `SessionEventHandler`에 의존합니다.
+이를 구현한 `MessageRouter`가 요청 종류를 판단하고 `RoomService`를 호출합니다.
+worker는 이벤트별 메시지 수·바이트 상한 안에서 응답을 임시 보관하고, handler가
+정상 반환하면 출력 queue에 게시합니다. handler 밖으로 예외가 나오면 보관한
+응답을 버려 부분 응답이 전송되지 않도록 합니다. worker는 소켓이나 `epoll`을
+직접 조작하지 않습니다.
 
 각 `SessionEvent`에는 세션 안에서 증가하는 순서 번호가 있습니다. 여러
 worker가 동시에 동작해도 같은 세션의 이벤트는 이 번호 순서대로 하나씩
